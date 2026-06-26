@@ -44,6 +44,17 @@ MINIMALITY_RUNGS = {
     "minimal_new_code",
 }
 COMMAND_RESULTS = {"pass", "fail", "blocked"}
+COMMAND_CLASSES = {
+    "format",
+    "lint",
+    "typecheck",
+    "unit",
+    "integration",
+    "e2e",
+    "security",
+    "build",
+    "migration_dry_run",
+}
 APPROVING_VERDICTS = {"approve", "approved"}
 NON_APPROVING_VERDICTS = {
     "request_changes",
@@ -203,8 +214,22 @@ def artifact_findings(value: Any, kind: str, base_dir: Path) -> list[str]:
         text = value.strip()
         if not text:
             return [f"non-trivial work requires a {kind} with evidence"]
-        if not any(p.is_file() for p in (base_dir / text, Path(text))):
+        resolved = next((p for p in (base_dir / text, Path(text)) if p.is_file()), None)
+        if resolved is None:
             return [f"{kind} path does not exist: {text!r} (expected a real artifact file)"]
+        # A file path must satisfy the same content contract as an inline object,
+        # otherwise any existing file (e.g. LICENSE) would pass the gate.
+        try:
+            body = resolved.read_text(errors="replace")[:100_000].lower()
+        except OSError:
+            return [f"{kind} file could not be read: {text!r}"]
+        missing = [
+            "/".join(group)
+            for group in ARTIFACT_REQUIRED_FIELDS.get(kind, ())
+            if not any((key in body or key.replace("_", " ") in body) for key in group)
+        ]
+        if missing:
+            return [f"{kind} file {text!r} is missing required content: {', '.join(missing)}"]
         return []
     if isinstance(value, dict):
         if not value:
@@ -397,6 +422,11 @@ def check_record(args: argparse.Namespace) -> int:
                 errors.append(f"commands_run[{idx}].cmd must be a non-empty string")
             if cmd.get("result") not in COMMAND_RESULTS:
                 errors.append(f"commands_run[{idx}].result must be one of: pass, fail, blocked")
+            cls = cmd.get("class")
+            if cls is not None and cls not in COMMAND_CLASSES:
+                errors.append(
+                    f"commands_run[{idx}].class is not a recognized class: {cls!r}"
+                )
 
     for artifact_key in ("validation_contract", "completion_record", "harness_update"):
         value = record.get(artifact_key)
@@ -606,6 +636,16 @@ def verify_gates(args: argparse.Namespace) -> int:
     )
     if task_class is None:
         soft_warnings.append("task_class is unset; defaulting to risk-tier-derived gates")
+
+    # Extend the deep-evidence principle to commands: a 'pass' with no verifiable
+    # evidence handle is the cheapest way to game the gate, so require one.
+    unevidenced = [
+        c for c in commands if c.get("result") == "pass" and not has_evidence(c.get("evidence"))
+    ]
+    if non_trivial and unevidenced:
+        findings.append(
+            f"{len(unevidenced)} pass-labeled command(s) missing verifiable evidence"
+        )
 
     if failed:
         findings.append(f"{len(failed)} verification command(s) failed")

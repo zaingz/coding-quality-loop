@@ -69,7 +69,7 @@ def base_record(**overrides) -> dict:
         "verification_plan": ["unit tests"],
         "minimality_decision": {"rung": "reuse", "reason": "existing helper covers it"},
         "plan": ["one slice"],
-        "commands_run": [{"cmd": "pytest", "class": "unit", "result": "pass"}],
+        "commands_run": [{"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "12 passed"}],
         "open_risks": [],
         "review_findings": ["fresh-context review: approved"],
         "repo_map": {
@@ -198,8 +198,8 @@ def case_security_requires_distinct_review(tmp: Path) -> tuple[bool, str]:
         security_sensitive=True,
         open_risks=["auth path"],
         commands_run=[
-            {"cmd": "pytest", "class": "unit", "result": "pass"},
-            {"cmd": "semgrep", "class": "security", "result": "pass"},
+            {"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "20 passed"},
+            {"cmd": "semgrep", "class": "security", "result": "pass", "evidence": "no findings"},
         ],
         security_review={
             "reviewer": "sec-c",
@@ -342,9 +342,14 @@ def case_valid_inline_artifacts_pass(tmp: Path) -> tuple[bool, str]:
 
 
 def case_existing_artifact_path_passes(tmp: Path) -> tuple[bool, str]:
-    # A string artifact resolves to a real file relative to the record.
-    (tmp / "validation-contract.md").write_text("# contract\n")
-    (tmp / "completion-record.md").write_text("# completion\n")
+    # A string artifact resolves to a real file relative to the record, and the
+    # file must carry the required content (not just exist).
+    (tmp / "validation-contract.md").write_text(
+        "# contract\ngoal: round once\nacceptance criteria: total rounds once\nevidence: pytest -> pass\n"
+    )
+    (tmp / "completion-record.md").write_text(
+        "# completion\ngoal: round once\nacceptance criteria: total rounds once\nevidence: pytest -> 14 passed\n"
+    )
     record = passing_medium(
         validation_contract="validation-contract.md",
         completion_record="completion-record.md",
@@ -453,6 +458,34 @@ def case_declared_high_auth_passes(tmp: Path) -> tuple[bool, str]:
     return code == 0, f"exit={code}; output={output.strip()!r}"
 
 
+def case_wrong_content_artifact_fails(tmp: Path) -> tuple[bool, str]:
+    # An existing file with no contract content must NOT satisfy the gate
+    # (cwd-independent: resolved relative to the record in tmp).
+    (tmp / "wrong.md").write_text("just prose, no contract fields here")
+    record = passing_medium(validation_contract="wrong.md")
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and "missing required content" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_unknown_command_class_fails(tmp: Path) -> tuple[bool, str]:
+    record = passing_medium(
+        commands_run=[{"cmd": "echo ok", "class": "bogus", "result": "pass", "evidence": "x"}]
+    )
+    code, output = check_record(tmp, record)
+    ok = code == 1 and "class" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_pass_command_needs_evidence(tmp: Path) -> tuple[bool, str]:
+    record = passing_medium(
+        commands_run=[{"cmd": "pytest", "class": "unit", "result": "pass"}]
+    )
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and "evidence" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
 def case_empty_repo_map_fails(tmp: Path) -> tuple[bool, str]:
     # The UNDERSTAND verb must be gated: non-trivial work with no context map fails.
     record = passing_medium(
@@ -469,6 +502,9 @@ CASES = [
     ("self-downgrade of a boundary task fails the floor", case_self_downgrade_auth_fails),
     ("compliant declared-high boundary task passes the floor", case_declared_high_auth_passes),
     ("non-trivial work with an empty context map fails", case_empty_repo_map_fails),
+    ("existing file with wrong content fails the artifact gate", case_wrong_content_artifact_fails),
+    ("unknown command class is rejected", case_unknown_command_class_fails),
+    ("pass-labeled command without evidence fails", case_pass_command_needs_evidence),
     ("medium work requires validation contract and independent review", case_medium_requires_contract_and_review),
     ("security/high work requires a distinct security review", case_security_requires_distinct_review),
     ("complexity brake catches unnecessary dependency", case_complexity_brake_dependency),
