@@ -44,6 +44,17 @@ MINIMALITY_RUNGS = {
     "minimal_new_code",
 }
 COMMAND_RESULTS = {"pass", "fail", "blocked"}
+COMMAND_CLASSES = {
+    "format",
+    "lint",
+    "typecheck",
+    "unit",
+    "integration",
+    "e2e",
+    "security",
+    "build",
+    "migration_dry_run",
+}
 APPROVING_VERDICTS = {"approve", "approved"}
 NON_APPROVING_VERDICTS = {
     "request_changes",
@@ -65,6 +76,18 @@ SECRET_PATTERNS = [
     re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
     re.compile(r"sk-[A-Za-z0-9]{20,}"),
     re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"),
+    # Unquoted assignment - the most common .env/shell/YAML leak shape - with a
+    # placeholder guard so REPLACE_ME / <...> / ${...} style stubs do not flag.
+    re.compile(
+        r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*"
+        r"(?!['\"]?(?:replace_me|change_me|your_|xxx|placeholder|<|\$\{))[^\s'\"]{8,}"
+    ),
+    re.compile(r"(?:sk|rk)_live_[A-Za-z0-9]{16,}"),
+    re.compile(r"gh[opusr]_[A-Za-z0-9]{20,}"),
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"ASIA[A-Z0-9]{16}"),
+    re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
+    re.compile(r"AIza[0-9A-Za-z_-]{35}"),
 ]
 DEPENDENCY_FILES = {
     "package.json",
@@ -94,6 +117,53 @@ MIGRATION_MARKERS = (
     "liquibase",
     "changelog",
 )
+# Test-weakening markers: an agent that fixes "green" by skipping/deleting tests
+# is gaming the gate. These flag added skip/xfail/.only lines in test files.
+TEST_PATH_MARKERS = ("test", "spec", "__tests__")
+TEST_WEAKENING_PATTERNS = [
+    # Match @skip / @pytest.mark.skip / @mark.skipif / @unittest.skip etc.
+    re.compile(r"^\+.*@(?:[\w.]*\.)?(?:skipif|xfail|skip)\b"),
+    re.compile(r"^\+.*\.(?:only|skip)\s*\("),
+    re.compile(r"^\+.*\b(?:it|test|describe)\.skip\b"),
+]
+
+# Risk boundaries detected from the record's own text. A self-declared low/tiny
+# tier must not let auth/payment/migration/secret/infra work bypass the heavy
+# gates, so detect_risk_floor scans the goal/criteria/plan and forces a floor.
+BOUNDARY_KEYWORDS = {
+    "authn": (
+        "auth", "authentication", "authenticate", "login", "log in", "signin",
+        "sign-in", "session", "oauth", "sso", "jwt", "credential", "mfa", "2fa",
+        "totp", "multi-factor",
+    ),
+    "authz": (
+        "authorization", "authorize", "authz", "permission", "rbac", "acl",
+        "access control", "privilege", "admin", "grant", "admin endpoint",
+    ),
+    "secrets": (
+        "secret", "api key", "api-key", "token", "password", "private key",
+        "credentials", "access key", "signing key", "vault", "kms",
+    ),
+    "crypto": (
+        "tls", "ssl", "certificate", "encrypt", "encryption", "decrypt", "decryption",
+        "bcrypt", "scrypt", "argon2", "csrf", "cors", "saml", "xss",
+    ),
+    "payments": (
+        "payment", "billing", "charge", "refund", "stripe", "checkout",
+        "payout", "subscription", "chargeback", "pci",
+    ),
+    "data_migration": (
+        "migration", "migrate", "schema change", "alter table", "drop table", "backfill",
+    ),
+    "destructive": ("delete from", "truncate", "drop database", "rm -rf", "wipe"),
+    "infra": ("production deploy", "prod deploy", "terraform", "kubernetes", "infrastructure"),
+}
+# Word-boundary matched so "auth" does not fire on "author", "token" not on
+# "tokenizer", "sso" not on "blossom", "charge" not on "recharge".
+BOUNDARY_PATTERNS = {
+    boundary: [re.compile(r"\b" + re.escape(w) + r"\b") for w in words]
+    for boundary, words in BOUNDARY_KEYWORDS.items()
+}
 
 
 def has_evidence(value: Any) -> bool:
@@ -158,8 +228,22 @@ def artifact_findings(value: Any, kind: str, base_dir: Path) -> list[str]:
         text = value.strip()
         if not text:
             return [f"non-trivial work requires a {kind} with evidence"]
-        if not any(p.is_file() for p in (base_dir / text, Path(text))):
+        resolved = next((p for p in (base_dir / text, Path(text)) if p.is_file()), None)
+        if resolved is None:
             return [f"{kind} path does not exist: {text!r} (expected a real artifact file)"]
+        # A file path must satisfy the same content contract as an inline object,
+        # otherwise any existing file (e.g. LICENSE) would pass the gate.
+        try:
+            body = resolved.read_text(errors="replace")[:100_000].lower()
+        except OSError:
+            return [f"{kind} file could not be read: {text!r}"]
+        missing = [
+            "/".join(group)
+            for group in ARTIFACT_REQUIRED_FIELDS.get(kind, ())
+            if not any((key in body or key.replace("_", " ") in body) for key in group)
+        ]
+        if missing:
+            return [f"{kind} file {text!r} is missing required content: {', '.join(missing)}"]
         return []
     if isinstance(value, dict):
         if not value:
@@ -202,6 +286,29 @@ def review_findings(review: Any, label: str, implementer: Any) -> list[str]:
             findings.append(f"{label} has an unresolved blocking finding")
             break
     return findings
+
+
+def detect_risk_floor(record: dict[str, Any]) -> tuple[str, list[str]]:
+    """Ground-truth boundary detection from the record's own text.
+
+    Scans goal + acceptance criteria + plan for boundary keywords (word-boundary
+    matched) so a self-declared low/tiny tier cannot bypass the heavy gates.
+    Returns ('high', [markers]) when any boundary term is present, else ('low', []).
+    """
+    haystack = " ".join(
+        str(x).lower()
+        for x in (
+            [record.get("goal", "")]
+            + list(record.get("acceptance_criteria", []) or [])
+            + list(record.get("plan", []) or [])
+        )
+    )
+    markers = sorted(
+        boundary
+        for boundary, pats in BOUNDARY_PATTERNS.items()
+        if any(p.search(haystack) for p in pats)
+    )
+    return ("high", markers) if markers else ("low", [])
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -329,6 +436,11 @@ def check_record(args: argparse.Namespace) -> int:
                 errors.append(f"commands_run[{idx}].cmd must be a non-empty string")
             if cmd.get("result") not in COMMAND_RESULTS:
                 errors.append(f"commands_run[{idx}].result must be one of: pass, fail, blocked")
+            cls = cmd.get("class")
+            if cls is not None and cls not in COMMAND_CLASSES:
+                errors.append(
+                    f"commands_run[{idx}].class is not a recognized class: {cls!r}"
+                )
 
     for artifact_key in ("validation_contract", "completion_record", "harness_update"):
         value = record.get(artifact_key)
@@ -426,7 +538,30 @@ def diff_audit(args: argparse.Namespace) -> int:
         added += int(a)
         deleted += int(d)
 
-    warnings: list[str] = []
+    # Untracked files are invisible to `git diff`, so a brand-new module (the
+    # common agent-work case) bypasses the secret/size scan entirely. Fold them in.
+    untracked = [
+        f.strip()
+        for f in run_git(["ls-files", "--others", "--exclude-standard"]).splitlines()
+        if f.strip()
+    ]
+    untracked_warnings: list[str] = []
+    for f in untracked:
+        try:
+            content = Path(f).read_text(errors="replace")
+        except (OSError, ValueError):
+            continue
+        added += len(content.splitlines())
+        if f not in files:
+            files.append(f)
+        if any(p.search(content) for p in SECRET_PATTERNS):
+            untracked_warnings.append(f"possible secret in untracked file: {f}")
+    if untracked:
+        untracked_warnings.append(
+            f"{len(untracked)} untracked file(s) included in audit: " + ", ".join(untracked)
+        )
+
+    warnings: list[str] = list(untracked_warnings)
     if len(files) > args.max_files:
         warnings.append(f"large file count: {len(files)} files changed")
     if added + deleted > args.max_lines:
@@ -447,6 +582,15 @@ def diff_audit(args: argparse.Namespace) -> int:
         if pattern.search(added_lines):
             warnings.append("possible secret added in diff")
             break
+
+    test_files = [f for f in files if any(m in f.lower() for m in TEST_PATH_MARKERS)]
+    if test_files and any(
+        p.search(line) for line in patch.splitlines() for p in TEST_WEAKENING_PATTERNS
+    ):
+        warnings.append(
+            "possible test-weakening (added skip/xfail/.only) in test files: "
+            + ", ".join(test_files)
+        )
 
     result = {
         "base": base,
@@ -475,6 +619,19 @@ def verify_gates(args: argparse.Namespace) -> int:
     findings: list[str] = []
     soft_warnings: list[str] = []
 
+    # Ground-truth risk floor: if the record's own text hits a known boundary, a
+    # self-declared low/tiny tier cannot bypass the heavy gates. Forcing risk and
+    # security_sensitive here makes the floor flow into every downstream check.
+    _, boundary_markers = detect_risk_floor(record)
+    if boundary_markers:
+        if risk != "high":
+            findings.append(
+                "declared risk_tier %r downgrades a detected boundary (markers: %s); "
+                "forcing high-risk gates" % (risk, ", ".join(boundary_markers))
+            )
+        risk = "high"
+        security_sensitive = True
+
     # Defensive: tolerate malformed commands_run without crashing.
     commands = [c for c in raw_commands if isinstance(c, dict)] if isinstance(raw_commands, list) else []
     malformed = (len(raw_commands) - len(commands)) if isinstance(raw_commands, list) else 1
@@ -494,6 +651,16 @@ def verify_gates(args: argparse.Namespace) -> int:
     if task_class is None:
         soft_warnings.append("task_class is unset; defaulting to risk-tier-derived gates")
 
+    # Extend the deep-evidence principle to commands: a 'pass' with no verifiable
+    # evidence handle is the cheapest way to game the gate, so require one.
+    unevidenced = [
+        c for c in commands if c.get("result") == "pass" and not has_evidence(c.get("evidence"))
+    ]
+    if non_trivial and unevidenced:
+        findings.append(
+            f"{len(unevidenced)} pass-labeled command(s) missing verifiable evidence"
+        )
+
     if failed:
         findings.append(f"{len(failed)} verification command(s) failed")
     if missing_class:
@@ -508,6 +675,18 @@ def verify_gates(args: argparse.Namespace) -> int:
         findings.extend(
             review_findings(record.get("independent_review"), "independent_review", implementer)
         )
+        # UNDERSTAND gate: the first Hard Rule (map the change before editing) is
+        # only real if it is checked. By implementation, the context map must
+        # locate the change and corroborate it with callers or tests.
+        if status in {"implement", "verify", "review", "package", "done", "iterating"}:
+            repo_map = record.get("repo_map") or {}
+            located = (repo_map.get("entry_points") or []) or (repo_map.get("likely_files") or [])
+            corroborated = (repo_map.get("callers_checked") or []) or (repo_map.get("tests") or [])
+            if not (located and corroborated):
+                findings.append(
+                    "non-trivial work requires a substantive context map (repo_map): "
+                    "entry_points/likely_files plus callers_checked or tests"
+                )
         if status in {"package", "done"}:
             if record.get("completion_record") is None:
                 findings.append(

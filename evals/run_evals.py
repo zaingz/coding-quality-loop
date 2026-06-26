@@ -69,9 +69,16 @@ def base_record(**overrides) -> dict:
         "verification_plan": ["unit tests"],
         "minimality_decision": {"rung": "reuse", "reason": "existing helper covers it"},
         "plan": ["one slice"],
-        "commands_run": [{"cmd": "pytest", "class": "unit", "result": "pass"}],
+        "commands_run": [{"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "12 passed"}],
         "open_risks": [],
         "review_findings": ["fresh-context review: approved"],
+        "repo_map": {
+            "entry_points": ["mod/x.py:fn"],
+            "likely_files": ["mod/x.py"],
+            "callers_checked": ["mod/y.py:caller"],
+            "tests": ["tests/test_x.py"],
+            "patterns_to_follow": [],
+        },
         "implementer": None,
         "validation_contract": None,
         "independent_review": None,
@@ -191,8 +198,8 @@ def case_security_requires_distinct_review(tmp: Path) -> tuple[bool, str]:
         security_sensitive=True,
         open_risks=["auth path"],
         commands_run=[
-            {"cmd": "pytest", "class": "unit", "result": "pass"},
-            {"cmd": "semgrep", "class": "security", "result": "pass"},
+            {"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "20 passed"},
+            {"cmd": "semgrep", "class": "security", "result": "pass", "evidence": "no findings"},
         ],
         security_review={
             "reviewer": "sec-c",
@@ -335,9 +342,14 @@ def case_valid_inline_artifacts_pass(tmp: Path) -> tuple[bool, str]:
 
 
 def case_existing_artifact_path_passes(tmp: Path) -> tuple[bool, str]:
-    # A string artifact resolves to a real file relative to the record.
-    (tmp / "validation-contract.md").write_text("# contract\n")
-    (tmp / "completion-record.md").write_text("# completion\n")
+    # A string artifact resolves to a real file relative to the record, and the
+    # file must carry the required content (not just exist).
+    (tmp / "validation-contract.md").write_text(
+        "# contract\ngoal: round once\nacceptance criteria: total rounds once\nevidence: pytest -> pass\n"
+    )
+    (tmp / "completion-record.md").write_text(
+        "# completion\ngoal: round once\nacceptance criteria: total rounds once\nevidence: pytest -> 14 passed\n"
+    )
     record = passing_medium(
         validation_contract="validation-contract.md",
         completion_record="completion-record.md",
@@ -373,8 +385,156 @@ def case_repeated_failure_requires_harness_update(tmp: Path) -> tuple[bool, str]
     )
 
 
+def case_untracked_secret_flagged(tmp: Path) -> tuple[bool, str]:
+    # `git diff <base>` excludes untracked files; a brand-new module with a
+    # secret must still be caught by diff-audit.
+    repo = tmp / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    git("init")
+    git("config", "user.email", "eval@example.com")
+    git("config", "user.name", "eval")
+    (repo / "main.py").write_text("print('hi')\n")
+    git("add", "main.py")
+    git("commit", "-m", "base")
+
+    # leak.py is NEVER `git add`-ed - it stays untracked.
+    (repo / "leak.py").write_text('AKIA' + 'A' * 16 + '\napi_key = abcd1234abcd1234\n')
+
+    code, out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(repo))
+    ok = code == 1 and "secret" in out and "untracked" in out
+    return ok, f"exit={code}; output={out.strip()!r}"
+
+
+def case_self_downgrade_auth_fails(tmp: Path) -> tuple[bool, str]:
+    # A boundary task (disable auth) declared low/tiny with empty evidence must
+    # NOT pass - the detected-risk floor overrides the self-declared tier.
+    record = base_record(
+        goal="Disable auth check on admin endpoint",
+        risk_tier="low",
+        task_class="tiny",
+        security_sensitive=False,
+        commands_run=[],
+        minimality_decision={"rung": "one_liner", "reason": "remove the check"},
+        validation_contract=None,
+        independent_review=None,
+        completion_record=None,
+        status="done",
+    )
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and ("boundary" in output or "downgrade" in output)
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_floor_catches_more_boundary_phrasings(tmp: Path) -> tuple[bool, str]:
+    # The floor vocabulary must cover how engineers actually phrase boundary work,
+    # not just the canonical word. Each self-downgraded phrasing must fail.
+    phrasings = [
+        "Fix the authz middleware ordering",
+        "Add an MFA bypass for service accounts",
+        "Disable TLS certificate verification in the client",
+        "Process a payout to the vendor account",
+        "Grant admin to the support team",
+    ]
+    results = []
+    for goal in phrasings:
+        record = base_record(
+            goal=goal,
+            risk_tier="low",
+            task_class="tiny",
+            security_sensitive=False,
+            commands_run=[],
+            validation_contract=None,
+            independent_review=None,
+            completion_record=None,
+            status="done",
+        )
+        code, output = verify_gates(tmp, record)
+        results.append(code == 1 and "boundary" in output)
+    ok = all(results)
+    return ok, f"caught={results} for {phrasings}"
+
+
+def case_declared_high_auth_passes(tmp: Path) -> tuple[bool, str]:
+    # The floor must not false-block a properly-declared, fully-reviewed boundary
+    # task: a compliant high-risk auth record with a distinct security review passes.
+    record = passing_medium(
+        goal="Add an authorization scope check to the admin endpoint",
+        risk_tier="high",
+        task_class="medium",
+        security_sensitive=True,
+        open_risks=["auth path"],
+        commands_run=[
+            {"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "12 passed"},
+            {"cmd": "semgrep", "class": "security", "result": "pass", "evidence": "no findings"},
+        ],
+        security_review={
+            "reviewer": "sec-c",
+            "verdict": "approve",
+            "fresh_context": True,
+            "patched": False,
+        },
+    )
+    code, output = verify_gates(tmp, record)
+    return code == 0, f"exit={code}; output={output.strip()!r}"
+
+
+def case_wrong_content_artifact_fails(tmp: Path) -> tuple[bool, str]:
+    # An existing file with no contract content must NOT satisfy the gate
+    # (cwd-independent: resolved relative to the record in tmp).
+    (tmp / "wrong.md").write_text("just prose, no contract fields here")
+    record = passing_medium(validation_contract="wrong.md")
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and "missing required content" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_unknown_command_class_fails(tmp: Path) -> tuple[bool, str]:
+    record = passing_medium(
+        commands_run=[{"cmd": "echo ok", "class": "bogus", "result": "pass", "evidence": "x"}]
+    )
+    code, output = check_record(tmp, record)
+    ok = code == 1 and "class" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_pass_command_needs_evidence(tmp: Path) -> tuple[bool, str]:
+    record = passing_medium(
+        commands_run=[{"cmd": "pytest", "class": "unit", "result": "pass"}]
+    )
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and "evidence" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_empty_repo_map_fails(tmp: Path) -> tuple[bool, str]:
+    # The UNDERSTAND verb must be gated: non-trivial work with no context map fails.
+    record = passing_medium(
+        repo_map={"entry_points": [], "likely_files": [], "callers_checked": [], "tests": []}
+    )
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and "context map" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
 CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
+    ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
+    ("self-downgrade of a boundary task fails the floor", case_self_downgrade_auth_fails),
+    ("floor covers common boundary phrasings (authz/mfa/tls/payout/admin)", case_floor_catches_more_boundary_phrasings),
+    ("compliant declared-high boundary task passes the floor", case_declared_high_auth_passes),
+    ("non-trivial work with an empty context map fails", case_empty_repo_map_fails),
+    ("existing file with wrong content fails the artifact gate", case_wrong_content_artifact_fails),
+    ("unknown command class is rejected", case_unknown_command_class_fails),
+    ("pass-labeled command without evidence fails", case_pass_command_needs_evidence),
     ("medium work requires validation contract and independent review", case_medium_requires_contract_and_review),
     ("security/high work requires a distinct security review", case_security_requires_distinct_review),
     ("complexity brake catches unnecessary dependency", case_complexity_brake_dependency),

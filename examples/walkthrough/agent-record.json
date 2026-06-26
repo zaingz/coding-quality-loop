@@ -18,6 +18,40 @@
     "All amounts are in minor units handled as Decimal, confirmed in billing/money.py"
   ],
   "risk_tier": "medium",
+  "task_class": "medium",
+  "implementer": "implementer-agent",
+  "security_sensitive": false,
+  "validation_contract": {
+    "goal": "Round multi-line invoice totals once at the summed total, not per line item",
+    "acceptance_criteria": [
+      "Line items summed at full precision; total rounded once to 2 decimals",
+      "Single-line invoices unchanged",
+      "Regression test reproduces the off-by-one-cent bug"
+    ],
+    "evidence": [
+      "pytest billing/tests/test_invoice.py::test_multiline_total_rounds_once -> red before, green after",
+      "pytest billing/tests/test_invoice.py -> 14 passed",
+      "mypy billing -> clean"
+    ]
+  },
+  "independent_review": {
+    "reviewer": "fresh-reviewer-agent",
+    "fresh_context": true,
+    "patched": false,
+    "verdict": "approve",
+    "findings": []
+  },
+  "completion_record": {
+    "goal": "Round multi-line invoice totals once at the summed total",
+    "acceptance_criteria": [
+      "Total rounds once; single-line invoices unchanged; regression test added"
+    ],
+    "evidence": [
+      "pytest billing/tests/test_invoice.py -> 14 passed (incl. new regression test)",
+      "mypy billing -> clean",
+      "fresh-context review: approve"
+    ]
+  },
   "verification_plan": [
     "Add a failing unit test that reproduces the rounding bug",
     "Run the billing unit suite",

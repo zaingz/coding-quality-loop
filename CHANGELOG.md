@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.3.0
+
+Enforcement hardening — closes reproduced gate bypasses so "deterministic gates beat advisory
+text" is actually true. All changes stay stdlib-only with offline, model-free CI.
+
+- **Closed the self-downgrade hole (P0).** `verify-gates` derived every decision from
+  agent-declared `risk_tier`/`task_class`/`security_sensitive`, so a record with goal "Disable
+  auth check on admin endpoint" declared `low`/`tiny` with no evidence passed clean. New
+  `detect_risk_floor` word-boundary-scans the record's own goal/criteria/plan for risk
+  boundaries (auth/authz, secrets, crypto, payments, migrations, destructive, infra) and forces
+  high-risk + security-review gates regardless of the declared tier. It is a curated text-scan
+  heuristic — it catches honest mis-tiering, not an agent that deliberately phrases around it.
+- **Fixed the flagship walkthrough (P0).** `examples/walkthrough/agent-record.json` failed the
+  `verify-gates` command its own README tells you to run (missing `implementer`,
+  `validation_contract`, structured `independent_review`, `completion_record`). It now passes
+  both `check-record` and `verify-gates`, and CI runs both on **every** `examples/*` record so
+  the showcase can never silently regress.
+- **`diff-audit` sees ground truth (P0).** Untracked files (the common new-module case) were
+  invisible to `git diff`, so a brand-new file with a secret returned a clean pass. They are now
+  enumerated and scanned. Secret patterns broadened to the unquoted `KEY=value` shape
+  (placeholder-guarded) and mainstream prefixes (`sk_live_`, `gh*_`, `github_pat_`, `ASIA`,
+  `xoxb-`, `AIza`). Added a test-weakening warning (added `skip`/`xfail`/`.only` in test files).
+- **Gated the UNDERSTAND verb.** Non-trivial work now requires a substantive `repo_map`
+  (entry points/likely files plus callers or tests) by implementation — previously the only
+  Hard Rule with no record-level enforcement.
+- **Hardened artifact and command evidence.** A string artifact path must now satisfy the same
+  content contract as an inline object (any existing file such as `LICENSE` no longer passes);
+  command `class` is constrained to a known set; every `pass`-labeled command needs a verifiable
+  evidence handle.
+- **Test integrity** named as a first-class concept: a new Hard Rule and Anti-Pattern for
+  RED→GREEN reproduction and not weakening/deleting tests to reach green.
+- **Docs/adoption:** added a native Claude Code `.claude/skills/` install row (instruction-only
+  path relabeled); normalized all documented invocations to `python3`; documented the
+  `gh skill publish/install --pin` provenance path (publishing remains a maintainer step,
+  provenance is not hand-faked); inlined the role→config-profile mapping in `SKILL.md`; added a
+  worktree-isolation principle to mission topology; relabeled the eval suites honestly (static =
+  intake-classification regression, behavioral = the gates; evidence is attested, not
+  re-executed).
+- **Evals:** behavioral harness grew from 15 to **23** cases (self-downgrade block + boundary-
+  phrasing coverage + compliant-high pass, untracked secret, empty context map, wrong-content
+  artifact, unknown command class, missing command evidence). Static suite unchanged at 9/9.
+  Added opt-in trigger-eval data
+  (`evals/triggers/cases.json`, should/should-NOT-trigger) kept out of offline CI by design.
+
 ## 1.2.3
 
 - Added `references/philosophy.md` — a manifesto covering the mantra (bounded autonomy, smallest

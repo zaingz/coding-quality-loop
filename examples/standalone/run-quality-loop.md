@@ -6,7 +6,7 @@ multi-agent runtime) instead of a packaged agent platform.
 ## One-line usage
 
 ```bash
-python scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
+python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
 ```
 
 That single command validates the routing config and runs the offline evals — a good smoke
@@ -51,10 +51,10 @@ handoff    = packager.run(contract, diff, evidence, review)  # PACKAGE
 ## Evidence gate before handoff
 
 ```bash
-python scripts/quality_loop.py init-record --goal "<goal>" --risk-tier medium --output agent-record.json
+python3 scripts/quality_loop.py init-record --goal "<goal>" --risk-tier medium --output agent-record.json
 # ... fill the record as the loop runs ...
-python scripts/quality_loop.py diff-audit --base origin/main
-python scripts/quality_loop.py verify-gates agent-record.json
+python3 scripts/quality_loop.py diff-audit --base origin/main
+python3 scripts/quality_loop.py verify-gates agent-record.json
 ```
 
 Start with one implementer + one independent reviewer + a policy hook. Add specialized agents

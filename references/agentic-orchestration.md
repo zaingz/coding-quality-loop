@@ -127,6 +127,10 @@ orchestrator
 
 Principles:
 
+- **Serial is the safe default.** Parallelize only independent areas with low coordination cost.
+  Concurrent writers must run in **isolated workspaces (git worktrees)** with **non-overlapping
+  declared file scopes** and an orchestrator-owned conflict policy; if scopes can collide, run
+  them serially rather than racing the working tree.
 - Fresh agents per worker task; the orchestrator holds shared state, not every detail.
 - Validators check the **validation contract**, not the implementer's narrative.
 - The orchestrator turns validator findings into new fix tasks rather than patching inline.
@@ -159,5 +163,5 @@ before the step is considered complete. Orchestrators can read it directly; huma
 it as documentation. Validate it with:
 
 ```bash
-python scripts/quality_loop.py check-config assets/quality-loop.config.example.json
+python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
 ```

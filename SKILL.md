@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "1.2.3"
+  version: "1.3.0"
 ---
 
 # Coding Quality Loop
@@ -99,14 +99,14 @@ Each lifecycle step can run as a different agent, model, or tool profile, mapped
 | Role | Owns | Notes |
 |---|---|---|
 | `orchestrator` | scope, classify task, context, spec, validation contract, decompose, assign workers, collect validator findings, create fix tasks, **stop if unsafe** | medium/mission only |
-| `context_mapper` | repo layout, relevant modules, entry points, data flow, existing helpers, tests/commands | outputs **findings, not raw dumps** |
-| `implementer` | bounded task, no speculative abstraction, no unrelated cleanup, smallest meaningful test, coherent slice | cannot be the final validator |
-| `validator` | acceptance criteria, behavior contract, regression risk, edge cases, evidence | **fresh context; does not implement** |
-| `simplicity_reviewer` | deletion / reuse / stdlib / native / dependency / abstraction review | the complexity brake, as a reviewer |
+| `context_mapper` (config: `repo_mapper`) | repo layout, relevant modules, entry points, data flow, existing helpers, tests/commands | outputs **findings, not raw dumps** |
+| `implementer` (config: `implementer`) | bounded task, no speculative abstraction, no unrelated cleanup, smallest meaningful test, coherent slice | cannot be the final validator |
+| `validator` (config: `fresh_reviewer`) | acceptance criteria, behavior contract, regression risk, edge cases, evidence | **fresh context; does not implement** |
+| `simplicity_reviewer` (config: `minimality_reviewer`) | deletion / reuse / stdlib / native / dependency / abstraction review | the complexity brake, as a reviewer |
 | `security_reviewer` | auth, permissions, secrets, payments, PII, migrations, upload/download, network, shell, dependency changes | **only at risk boundaries** |
 | `policy_guard` | deterministic safety blocks | a hook/command guard, **never a model** |
 
-Detailed routing, model-selection heuristics, mission topology, and per-platform mapping are in `references/agentic-orchestration.md`. Machine-readable routing is `assets/quality-loop.config.example.json` (validate with `python scripts/quality_loop.py check-config ...`).
+Detailed routing, model-selection heuristics, mission topology, and per-platform mapping are in `references/agentic-orchestration.md`. Machine-readable routing is `assets/quality-loop.config.example.json` (validate with `python3 scripts/quality_loop.py check-config ...`).
 
 ## Core Instructions
 
@@ -177,6 +177,7 @@ Make this checkable: when a verification failure recurs, record it on the state 
 - **The implementer cannot be the final validator.** Non-trivial review is independent.
 - **No success claim without evidence.** Non-trivial work ends with files, tests, evidence, risks, and follow-ups recorded.
 - **Delete when deletion is the simplest correct solution.** Less code is a valid — often the best — outcome.
+- **Don't game the tests.** A bug fix shows a failing-then-passing (RED→GREEN) reproduction; tests are never weakened, skipped, or deleted to reach green, and the fix is not co-mutated with the test that should catch it.
 - **Stop at risk boundaries.** Escalate before destructive, security-sensitive, or irreversible actions.
 
 ## Shipping Gate
@@ -232,12 +233,12 @@ Helper script commands (advisory; they do not replace human review, tests, scann
 - `eval-cases` — run offline eval cases that pin task-class, risk-tier, required-gate, security-reviewer, completion-record, complexity-brake, and retrospective logic.
 
 ```bash
-python scripts/quality_loop.py init-record --goal "Fix invoice total rounding" --risk-tier medium --output agent-record.json
-python scripts/quality_loop.py check-record agent-record.json
-python scripts/quality_loop.py diff-audit --base origin/main
-python scripts/quality_loop.py verify-gates agent-record.json
-python scripts/quality_loop.py check-config assets/quality-loop.config.example.json
-python scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
+python3 scripts/quality_loop.py init-record --goal "Fix invoice total rounding" --risk-tier medium --output agent-record.json
+python3 scripts/quality_loop.py check-record agent-record.json
+python3 scripts/quality_loop.py diff-audit --base origin/main
+python3 scripts/quality_loop.py verify-gates agent-record.json
+python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
+python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
 ```
 
 `diff-audit` exits non-zero on warnings (possible secrets, dependency edits, migrations, large diffs/file counts). Treat it as a coarse guardrail, not a substitute for gitleaks/trufflehog on high-risk work.
@@ -275,6 +276,7 @@ Stop and escalate before:
 - Adding dependencies before checking reuse or platform primitives.
 - Large unrelated diffs.
 - Treating green tests as proof of requirement coverage.
+- **Test-gaming** — weakening, skipping, or deleting tests to reach green; co-mutating implementation and the test that should catch it in one slice; claiming RED→GREEN without a recorded failing-then-passing run.
 - Context-file bloat that buries the current task under stale or generic instructions.
 - Calling something "minimal" after skipping safety.
 - Correcting the same mistake in chat instead of making a durable harness change.
