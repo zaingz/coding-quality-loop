@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Coding Quality Loop Agent Record",
+  "type": "object",
+  "required": [
+    "task_id",
+    "goal",
+    "acceptance_criteria",
+    "constraints",
+    "non_goals",
+    "assumptions",
+    "risk_tier",
+    "verification_plan",
+    "status"
+  ],
+  "properties": {
+    "task_id": {"type": "string"},
+    "goal": {"type": "string", "minLength": 1},
+    "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
+    "constraints": {"type": "array", "items": {"type": "string"}},
+    "non_goals": {"type": "array", "items": {"type": "string"}},
+    "assumptions": {"type": "array", "items": {"type": "string"}},
+    "risk_tier": {"type": "string", "enum": ["low", "medium", "high"]},
+    "verification_plan": {"type": "array", "items": {"type": "string"}},
+    "repo_map": {
+      "type": "object",
+      "properties": {
+        "entry_points": {"type": "array", "items": {"type": "string"}},
+        "likely_files": {"type": "array", "items": {"type": "string"}},
+        "callers_checked": {"type": "array", "items": {"type": "string"}},
+        "tests": {"type": "array", "items": {"type": "string"}},
+        "patterns_to_follow": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "minimality_decision": {
+      "type": ["object", "null"],
+      "properties": {
+        "rung": {
+          "type": "string",
+          "enum": ["skip", "delete", "reuse", "stdlib", "native", "existing_dependency", "one_liner", "minimal_new_code"]
+        },
+        "reason": {"type": "string"},
+        "rejected_lower_rungs": {"type": "array", "items": {"type": "object"}},
+        "safety_exceptions_checked": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["rung", "reason"]
+    },
+    "next_action": {"type": "string"},
+    "plan": {"type": "array", "items": {"type": "string"}},
+    "commands_run": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cmd", "result"],
+        "properties": {
+          "cmd": {"type": "string"},
+          "class": {"type": "string"},
+          "result": {"type": "string", "enum": ["pass", "fail", "blocked"]},
+          "evidence": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "open_risks": {"type": "array", "items": {"type": "string"}},
+    "review_findings": {"type": "array", "items": {"type": "string"}},
+    "status": {
+      "type": "string",
+      "enum": ["intake", "explore", "plan", "minimality_gate", "implement", "verify", "review", "package", "done", "iterating", "escalated"]
+    }
+  },
+  "additionalProperties": true
+}
