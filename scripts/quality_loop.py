@@ -621,6 +621,18 @@ def verify_gates(args: argparse.Namespace) -> int:
         findings.extend(
             review_findings(record.get("independent_review"), "independent_review", implementer)
         )
+        # UNDERSTAND gate: the first Hard Rule (map the change before editing) is
+        # only real if it is checked. By implementation, the context map must
+        # locate the change and corroborate it with callers or tests.
+        if status in {"implement", "verify", "review", "package", "done", "iterating"}:
+            repo_map = record.get("repo_map") or {}
+            located = (repo_map.get("entry_points") or []) or (repo_map.get("likely_files") or [])
+            corroborated = (repo_map.get("callers_checked") or []) or (repo_map.get("tests") or [])
+            if not (located and corroborated):
+                findings.append(
+                    "non-trivial work requires a substantive context map (repo_map): "
+                    "entry_points/likely_files plus callers_checked or tests"
+                )
         if status in {"package", "done"}:
             if record.get("completion_record") is None:
                 findings.append(

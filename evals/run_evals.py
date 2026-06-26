@@ -72,6 +72,13 @@ def base_record(**overrides) -> dict:
         "commands_run": [{"cmd": "pytest", "class": "unit", "result": "pass"}],
         "open_risks": [],
         "review_findings": ["fresh-context review: approved"],
+        "repo_map": {
+            "entry_points": ["mod/x.py:fn"],
+            "likely_files": ["mod/x.py"],
+            "callers_checked": ["mod/y.py:caller"],
+            "tests": ["tests/test_x.py"],
+            "patterns_to_follow": [],
+        },
         "implementer": None,
         "validation_contract": None,
         "independent_review": None,
@@ -446,11 +453,22 @@ def case_declared_high_auth_passes(tmp: Path) -> tuple[bool, str]:
     return code == 0, f"exit={code}; output={output.strip()!r}"
 
 
+def case_empty_repo_map_fails(tmp: Path) -> tuple[bool, str]:
+    # The UNDERSTAND verb must be gated: non-trivial work with no context map fails.
+    record = passing_medium(
+        repo_map={"entry_points": [], "likely_files": [], "callers_checked": [], "tests": []}
+    )
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and "context map" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
 CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
     ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
     ("self-downgrade of a boundary task fails the floor", case_self_downgrade_auth_fails),
     ("compliant declared-high boundary task passes the floor", case_declared_high_auth_passes),
+    ("non-trivial work with an empty context map fails", case_empty_repo_map_fails),
     ("medium work requires validation contract and independent review", case_medium_requires_contract_and_review),
     ("security/high work requires a distinct security review", case_security_requires_distinct_review),
     ("complexity brake catches unnecessary dependency", case_complexity_brake_dependency),
