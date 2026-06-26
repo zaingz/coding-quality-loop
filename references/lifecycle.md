@@ -1,6 +1,33 @@
 # Coding Quality Loop Lifecycle
 
-## State Machine
+## Canonical Operating Model and Machine Aliases
+
+The documented operating model has ten steps. The helper script, config, and state record use
+stable short machine names for compatibility. Both describe the same loop.
+
+```text
+INTAKE -> CONTEXT MAP -> SPEC / VALIDATION CONTRACT -> COMPLEXITY BRAKE -> PLAN
+  -> IMPLEMENT IN SMALL SLICES -> VERIFY -> INDEPENDENT REVIEW
+  -> SHIP / HANDOFF -> RETROSPECTIVE / SKILL UPDATE
+```
+
+| Canonical step | Machine name | Primary artifact |
+|---|---|---|
+| INTAKE | `INTAKE` | task contract |
+| CONTEXT MAP | `EXPLORE` | `context-map.md` |
+| SPEC / VALIDATION CONTRACT | `INTAKE`+`PLAN` | `validation-contract.md` |
+| COMPLEXITY BRAKE | `MINIMALITY_GATE` | minimality decision |
+| PLAN | `PLAN` | `plan.md` |
+| IMPLEMENT IN SMALL SLICES | `IMPLEMENT_SLICE` | diff + `execution-log.md` |
+| VERIFY | `VERIFY` | command evidence |
+| INDEPENDENT REVIEW | `REVIEW` | review verdict |
+| SHIP / HANDOFF | `PACKAGE` | `completion-record.md` |
+| RETROSPECTIVE / SKILL UPDATE | `RETROSPECT` | durable harness change |
+
+The **complexity brake runs twice**: before PLAN (pick the smallest approach) and before
+INDEPENDENT REVIEW (confirm nothing crept in).
+
+## State Machine (machine names)
 
 ```text
 INTAKE
@@ -13,6 +40,17 @@ INTAKE
   -> PACKAGE
   -> DONE | ITERATE | ESCALATE
 ```
+
+## Task Classes
+
+Default to the smallest class that safely satisfies the goal.
+
+| Class | Looks like | Process |
+|---|---|---|
+| Tiny | typo, copy, one-line config, obvious test update | inspect, edit, smallest check; no mission artifacts |
+| Small | local bug, one module, low risk | light context map, mini spec, minimal fix, targeted test |
+| Medium | multiple files, feature, migration, auth/payment/data risk | full spec + validation contract, plan, independent review, completion record |
+| Mission | multi-day, multi-module, multi-repo, uncertain architecture | orchestrator + workers + validators, milestones, shared mission artifacts |
 
 ## State Exit Criteria
 
@@ -40,7 +78,15 @@ Exit when the agent can name:
 - Config, schema, API, docs, or generated artifacts involved.
 - Existing code that can be reused.
 
-Exploration is read-only unless the task is trivial.
+Exploration is read-only unless the task is trivial. For medium/mission work the output is
+`context-map.md` — findings, not a repository dump.
+
+### SPEC / VALIDATION CONTRACT
+
+For medium/mission work, write down what "done" means before implementing. Exit when
+`validation-contract.md` pairs every acceptance criterion with the concrete check that proves
+it, lists invariants/non-goals, names regression risks, and flags any risk boundary touched
+(which triggers a security review). Tiny/small tasks may fold this into the task contract.
 
 ### PLAN
 
@@ -97,6 +143,26 @@ Exit when the handoff includes:
 - Follow-ups outside the contract.
 
 Do not list required unfinished acceptance criteria as follow-ups. If they are required by the contract, the task is not done.
+
+Non-trivial tasks exit only with a `completion-record.md` containing verification evidence —
+the shipping gate. No completion record → not done.
+
+### RETROSPECTIVE / SKILL UPDATE
+
+Exit when any **repeated** mistake has been converted into a durable harness change — an
+`AGENTS.md`/`CLAUDE.md` rule, a `SKILL.md` step, a test, a hook, a review-checklist item, a
+repo-map entry, or a validation-contract template. A one-off mistake needs no change; a
+recurring one must never be left as a repeated chat correction.
+
+## Quality Gates by Task Type
+
+| Work type | Required gates |
+|---|---|
+| Bug fix | failing test reproducing the bug then green, regression test, targeted suite |
+| Feature | acceptance-criteria tests, unit/integration, typecheck/build, fresh review |
+| Refactor | behavior-preserving tests pass unchanged, diff shows no behavior change, complexity brake confirms net simplification |
+| Migration | dry run / reversible plan, backfill strategy, staging or e2e evidence, rollback, human approval |
+| Security-sensitive | gates for its type plus a `security_reviewer` pass and a deterministic hard gate |
 
 ## Risk Tiering
 

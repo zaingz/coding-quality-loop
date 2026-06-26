@@ -1,0 +1,23 @@
+{
+  "name": "security-boundary-triggers-reviewer-and-hard-gate",
+  "description": "Change to authorization plus secret handling on an upload path. Must trigger the security reviewer and a deterministic hard gate, and escalate.",
+  "input": {
+    "goal": "Enforce per-tenant authorization on signed upload URLs and rotate the signing secret",
+    "signals": ["authz", "secrets", "upload_download", "multi_file"],
+    "proposed_solution": {
+      "introduces": [],
+      "lower_rung_available": false
+    }
+  },
+  "expected": {
+    "risk_tier": "high",
+    "task_class": "medium",
+    "minimality_flags": [],
+    "escalate": true,
+    "requires_validation_contract": true,
+    "requires_independent_review": true,
+    "requires_completion_record": true,
+    "requires_security_reviewer": true,
+    "hard_gate": true
+  }
+}

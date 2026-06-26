@@ -1,0 +1,20 @@
+{
+  "name": "complexity-brake-catches-unnecessary-dependency",
+  "description": "A small behavior tweak where the agent proposes pulling in a new dependency and a generic abstraction although a lower rung is available. The complexity brake must flag overengineering.",
+  "input": {
+    "goal": "Trim whitespace from usernames before saving",
+    "signals": ["behavior_change"],
+    "proposed_solution": {
+      "introduces": ["new_dependency", "new_abstraction"],
+      "lower_rung_available": true
+    }
+  },
+  "expected": {
+    "risk_tier": "medium",
+    "task_class": "medium",
+    "minimality_flags": ["overengineering"],
+    "escalate": false,
+    "requires_security_reviewer": false,
+    "hard_gate": false
+  }
+}

@@ -36,6 +36,25 @@ platform provides. The names below are stable handles used by the config and the
 | `packager` | PACKAGE: assemble the PR handoff | cheap/fast, structured output |
 | `policy_guard` | Cross-cutting: block unsafe actions | deterministic hook/tool, no model |
 
+## Role Architecture
+
+Profiles map onto a small set of roles. The step-profiles above are the per-step handles; the
+roles below describe responsibilities and apply across the lifecycle. Add roles only as risk
+and class grow (tiny/small need none of the specialist roles).
+
+| Role | Maps to profile(s) | Responsibilities | Independent? |
+|---|---|---|---|
+| `orchestrator` | (medium/mission only) | Set scope, classify the task, gather context, write the spec + validation contract, decompose into worker tasks, assign workers, collect validator findings, create fix tasks, and **stop if unsafe**. | n/a |
+| `context_mapper` | `repo_mapper` | Repo layout, relevant modules, entry points, data flow, existing helpers/patterns, tests and commands. Outputs **findings, not raw dumps**. | no |
+| `implementer` | `implementer` | One bounded task: no speculative abstraction, no unrelated cleanup, smallest meaningful test, a coherent slice. | no |
+| `validator` | `fresh_reviewer` | Fresh context; does **not** implement. Checks acceptance criteria, behavior contract, regression risk, edge cases, and evidence against the validation contract. | **yes** |
+| `simplicity_reviewer` | `minimality_reviewer` | Deletion / reuse / stdlib / native / dependency / abstraction review — the complexity brake as a reviewer, run before plan and before review. | optional |
+| `security_reviewer` | (boundary only) | Reviews changes at risk boundaries: auth, permissions, secrets, payments, PII, migrations, upload/download, network, shell, dependency changes. | **yes** |
+| `policy_guard` | `policy_guard` | Deterministic safety blocks. Never a model. | enforced |
+
+The `orchestrator` and `security_reviewer` are not per-step profiles in the base config; they
+are mission/boundary roles. Wire them in for medium/mission work and at risk boundaries.
+
 ## Default Step-to-Agent Matrix
 
 | Step | Profile | Default model class | Required artifacts | Gate |
@@ -87,6 +106,32 @@ collapse roles back into fewer agents.
 | `medium` | Implementer + independent `fresh_reviewer`; `verification_runner` runs real checks. |
 | `high` | Dedicated `planner`, `minimality_reviewer`, `implementer`, independent `fresh_reviewer`, plus `policy_guard` enforcing security/migration blocks and human approval. |
 
+## Mission Topology (long-horizon work)
+
+For mission-class work (multi-day, multi-module, multi-repo, uncertain architecture), one
+context degrades and an implementer self-grading its own work inflates confidence. Split the
+work, following the Missions architecture pattern
+([Factory Missions](https://factory.ai/news/missions-architecture)):
+
+```text
+orchestrator
+  ├─ context_mapper        -> context-map.md (shared)
+  ├─ validation contract   -> validation-contract.md (shared)
+  ├─ worker (implementer)  -> slice 1   ─┐
+  ├─ worker (implementer)  -> slice 2   ─┤ fresh validator per slice / milestone
+  ├─ worker (implementer)  -> slice 3   ─┘
+  ├─ simplicity_reviewer   -> complexity brake before review
+  ├─ security_reviewer     -> at risk boundaries only
+  └─ collect findings -> create fix tasks -> stop if unsafe
+```
+
+Principles:
+
+- Fresh agents per worker task; the orchestrator holds shared state, not every detail.
+- Validators check the **validation contract**, not the implementer's narrative.
+- The orchestrator turns validator findings into new fix tasks rather than patching inline.
+- Review at milestone boundaries with fresh context; keep the mission record compact.
+
 ## Mapping Profiles to Platforms
 
 The same role maps onto different vendors. Examples (illustrative, not prescriptive):
@@ -99,6 +144,9 @@ The same role maps onto different vendors. Examples (illustrative, not prescript
   https://developers.openai.com/codex/concepts/customization
 - **Cursor**: project rules in `.cursor/rules` carry the loop; agent steps map to chat/agent
   runs. See https://docs.cursor.com/en/context/rules
+- **Pi**: ship the loop as a skill under `~/.pi/agent/skills/`, `~/.agents/skills/`,
+  `.pi/skills/`, or `.agents/skills/`; register a `skills` directory in `.pi/settings.json` and
+  invoke with `/skill:coding-quality-loop`. See https://pi.dev/docs/latest/skills
 - **Standalone / custom orchestrator**: model each step as an explicit workflow node and
   wire the tool contracts from `references/tool-contracts.md`; load
   `assets/quality-loop.config.example.json` to drive routing.

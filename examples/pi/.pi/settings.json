@@ -1,0 +1,7 @@
+{
+  "skills": [
+    ".agents/skills",
+    ".pi/skills"
+  ],
+  "_comment": "Pi loads skills from ~/.pi/agent/skills/, ~/.agents/skills/, .pi/skills/, .agents/skills/, and any directories listed here. Place this skill at .agents/skills/coding-quality-loop/SKILL.md (or a $HOME-level skills dir) and invoke it with /skill:coding-quality-loop. See https://pi.dev/docs/latest/skills"
+}

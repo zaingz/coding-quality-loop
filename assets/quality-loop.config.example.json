@@ -1,16 +1,18 @@
 {
   "$schema": "./quality-loop.config.schema.json",
-  "version": "1.1.0",
-  "description": "Agentic routing for the Coding Quality Loop. Map each profile to a real model on your platform. Models are placeholders; replace with your provider's identifiers.",
+  "version": "1.2.0",
+  "description": "Agentic routing for the Coding Quality Loop. Map each profile to a real model on your platform. Models are placeholders; replace with your provider's identifiers. orchestrator and security_reviewer are mission/boundary roles, not per-step profiles.",
   "profiles": {
+    "orchestrator": {"role": "Mission: scope, classify, context, spec/validation contract, decompose, assign workers, collect findings, stop if unsafe", "model": "<strong-reasoning-model>", "tools": ["read", "search"]},
     "contract_agent": {"role": "INTAKE: goal -> task contract", "model": "<cheap-fast-model>", "tools": ["read"]},
-    "repo_mapper": {"role": "EXPLORE: smallest relevant code map", "model": "<cheap-fast-model>", "tools": ["read", "search", "grep"]},
+    "repo_mapper": {"role": "EXPLORE/CONTEXT MAP: smallest relevant code map; findings not dumps", "model": "<cheap-fast-model>", "tools": ["read", "search", "grep"]},
     "planner": {"role": "PLAN: design smallest correct change", "model": "<strong-reasoning-model>", "tools": ["read", "search"]},
-    "minimality_reviewer": {"role": "MINIMALITY_GATE: pick highest valid rung", "model": "<strong-reasoning-model>", "tools": ["read"]},
+    "minimality_reviewer": {"role": "COMPLEXITY BRAKE: pick highest valid rung; simplicity review", "model": "<strong-reasoning-model>", "tools": ["read"]},
     "implementer": {"role": "IMPLEMENT_SLICE: write the diff", "model": "<code-specialized-model>", "tools": ["read", "edit", "write", "exec"]},
     "verification_runner": {"role": "VERIFY: run checks, capture evidence", "model": "<cheap-fast-model>", "tools": ["exec"]},
-    "fresh_reviewer": {"role": "REVIEW: independent diff review vs contract", "model": "<strong-reasoning-model>", "tools": ["read", "search"], "independent_session": true},
-    "packager": {"role": "PACKAGE: assemble PR handoff", "model": "<cheap-fast-model>", "tools": ["read"]},
+    "fresh_reviewer": {"role": "INDEPENDENT REVIEW: validator; diff review vs validation contract", "model": "<strong-reasoning-model>", "tools": ["read", "search"], "independent_session": true},
+    "security_reviewer": {"role": "Risk boundaries only: auth, secrets, payments, PII, migrations, upload/download, network, shell, dependencies", "model": "<strong-reasoning-model>", "tools": ["read", "search"], "independent_session": true},
+    "packager": {"role": "SHIP/HANDOFF: assemble PR handoff + completion record", "model": "<cheap-fast-model>", "tools": ["read"]},
     "policy_guard": {"role": "Cross-cutting deterministic safety blocks", "model": null, "tools": ["hook"], "deterministic": true}
   },
   "steps": [
@@ -95,6 +97,6 @@
   "routing_defaults": {
     "low": {"agents": ["implementer"], "policy_guard": true, "note": "One agent runs the whole loop."},
     "medium": {"agents": ["implementer", "fresh_reviewer", "verification_runner"], "policy_guard": true, "note": "Independent reviewer + real checks."},
-    "high": {"agents": ["planner", "minimality_reviewer", "implementer", "verification_runner", "fresh_reviewer"], "policy_guard": true, "human_approval": true, "note": "Full split with enforced security/migration blocks."}
+    "high": {"agents": ["orchestrator", "planner", "minimality_reviewer", "implementer", "verification_runner", "fresh_reviewer", "security_reviewer"], "policy_guard": true, "human_approval": true, "security_reviewer_at_boundaries": true, "note": "Full split with enforced security/migration blocks; security_reviewer required at risk boundaries."}
   }
 }

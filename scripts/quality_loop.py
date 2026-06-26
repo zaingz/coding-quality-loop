@@ -370,6 +370,34 @@ HIGH_SIGNALS = {
     "concurrency",
 }
 
+# Signals that scope the task class (effort/blast-radius), orthogonal to risk tier.
+TINY_SIGNALS = {
+    "docs",
+    "copy",
+    "comment",
+    "formatting",
+    "ui_copy",
+    "typo",
+    "one_line_config",
+    "obvious_test_update",
+}
+MISSION_SIGNALS = {"multi_day", "multi_module", "multi_repo", "uncertain_architecture"}
+
+# Risk boundaries that require a dedicated security-reviewer pass and a hard gate.
+SECURITY_BOUNDARY_SIGNALS = {
+    "authn",
+    "authz",
+    "payments",
+    "billing",
+    "secrets",
+    "data_migration",
+    "pii",
+    "upload_download",
+    "network",
+    "shell",
+    "dependency_change",
+}
+
 GATES_LOW = ["self_review"]
 GATES_MEDIUM = [
     "targeted_tests",
@@ -394,6 +422,21 @@ def required_gates_for_tier(tier: str) -> list[str]:
     return {"low": GATES_LOW, "medium": GATES_MEDIUM, "high": GATES_HIGH}.get(tier, [])
 
 
+def derive_task_class(signals: list[str]) -> str:
+    signal_set = set(signals)
+    if signal_set & MISSION_SIGNALS:
+        return "mission"
+    if signal_set & (MEDIUM_SIGNALS | HIGH_SIGNALS):
+        return "medium"
+    if signal_set and signal_set <= TINY_SIGNALS:
+        return "tiny"
+    return "small"
+
+
+def requires_security_reviewer(signals: list[str]) -> bool:
+    return bool(set(signals) & SECURITY_BOUNDARY_SIGNALS)
+
+
 def minimality_flags(proposed: dict[str, Any]) -> list[str]:
     introduces = proposed.get("introduces", [])
     lower_rung_available = proposed.get("lower_rung_available", False)
@@ -405,12 +448,22 @@ def minimality_flags(proposed: dict[str, Any]) -> list[str]:
 def evaluate_input(case_input: dict[str, Any]) -> dict[str, Any]:
     signals = case_input.get("signals", [])
     tier = derive_risk_tier(signals)
+    task_class = derive_task_class(signals)
     proposed = case_input.get("proposed_solution", {})
+    security = requires_security_reviewer(signals)
+    non_trivial = task_class != "tiny"
     return {
         "risk_tier": tier,
+        "task_class": task_class,
         "required_gates": required_gates_for_tier(tier),
         "minimality_flags": minimality_flags(proposed),
         "escalate": tier == "high",
+        "requires_validation_contract": task_class in {"medium", "mission"},
+        "requires_independent_review": task_class in {"medium", "mission"},
+        "requires_completion_record": non_trivial,
+        "requires_security_reviewer": security,
+        "hard_gate": security or tier == "high",
+        "harness_update": "repeated_mistake" in set(signals),
     }
 
 
@@ -487,7 +540,20 @@ def eval_cases(args: argparse.Namespace) -> int:
         expected = case.get("expected", {})
         actual = evaluate_input(case.get("input", {}))
         mismatches: list[str] = []
-        for key in ("risk_tier", "required_gates", "minimality_flags", "escalate"):
+        comparable_keys = (
+            "risk_tier",
+            "task_class",
+            "required_gates",
+            "minimality_flags",
+            "escalate",
+            "requires_validation_contract",
+            "requires_independent_review",
+            "requires_completion_record",
+            "requires_security_reviewer",
+            "hard_gate",
+            "harness_update",
+        )
+        for key in comparable_keys:
             if key in expected and expected[key] != actual[key]:
                 mismatches.append(f"{key}: expected {expected[key]!r}, got {actual[key]!r}")
         total += 1

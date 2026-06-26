@@ -1,29 +1,45 @@
 # Coding Quality Loop
 
 `coding-quality-loop` is a portable, **agentic-first** Agent Skill for turning high-level
-software goals into small, verified code changes — with the right model on each step.
+software goals into small, verified, independently reviewed code changes — with the right
+model on each step.
+
+It is an **engineering operating system** for coding agents, not just a better prompt. It is
+built from five durable parts:
+
+1. **Durable repo instructions** — `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`.
+2. **Reusable skills** — focused `SKILL.md` workflows with triggers, steps, exit criteria.
+3. **Mission artifacts** — context map, validation contract, plan, execution/decision logs,
+   completion record.
+4. **Independent verification** — implementer and validator are separate for non-trivial work.
+5. **Complexity discipline** — prefer deletion, reuse, stdlib, and native features before new code.
 
 It packages:
 
-- An 8-step lifecycle: intake, exploration, planning, minimality, implementation,
-  verification, review, and handoff.
-- **Agentic orchestration**: each step is routed to a role-based agent profile so teams use
-  cheap/fast models for routing, strong reasoning for architecture, code-specialized models
-  for implementation, and an independent reviewer for review.
-- Reference checklists for risk tiering and fresh-context review.
-- Tool contracts for repo mapping, verification runners, reviewer agents, and policy hooks.
-- Templates for task contracts, state records, and PR summaries.
+- A canonical 10-step lifecycle (with stable machine-name aliases): intake, context map,
+  spec/validation contract, complexity brake, plan, implement in small slices, verify,
+  independent review, ship/handoff, and retrospective.
+- **Task classes** (tiny / small / medium / mission) so a typo never runs mission ceremony and
+  a payment migration never ships without a contract and an independent review.
+- **Agentic orchestration**: each step routes to a role-based agent profile (orchestrator,
+  context mapper, implementer, validator, simplicity reviewer, security reviewer, policy guard).
+- Reference checklists for risk tiering, fresh-context, simplicity, and security review.
+- Tool contracts for repo mapping, verification runners, reviewers, security review, policy
+  hooks, and completion records.
+- Templates for the task contract, context map, validation contract, plan, logs, completion
+  record, PR summary, and a baseline `AGENTS.md`.
 - A lightweight helper script plus an offline eval harness.
 
 ## Why agentic-first
 
 One model doing intake, architecture, implementation, and self-review is the common failure
 mode: it inflates its own confidence and skips evidence. This skill splits the loop into
-role-based profiles (`contract_agent`, `repo_mapper`, `planner`, `minimality_reviewer`,
-`implementer`, `verification_runner`, `fresh_reviewer`, `packager`, `policy_guard`) and lets
-you map each role to the best available model. Defaults stay simple — **one implementer +
-one independent reviewer + deterministic policy hooks** — and you add specialized agents only
-when risk justifies it. See `references/agentic-orchestration.md`.
+role-based profiles (`orchestrator`, `context_mapper`, `planner`, `minimality_reviewer`,
+`implementer`, `verification_runner`, `fresh_reviewer`/`validator`, `security_reviewer`,
+`packager`, `policy_guard`) and lets you map each role to the best available model. Defaults
+stay simple — **one implementer + one independent validator + deterministic policy hooks** —
+and you add specialized agents only when risk justifies it. See
+`references/agentic-orchestration.md` and `references/engineering-operating-system.md`.
 
 ## One-line usage by platform
 
@@ -49,6 +65,13 @@ codex --ask-for-approval never "Follow the Coding Quality Loop in AGENTS.md to f
 ```bash
 cp -r examples/cursor/.cursor ./.cursor
 # Then in chat: @coding-quality-loop fix the retry bug with verification evidence
+```
+
+**Pi** — install as a skill, invoke with `/skill:`:
+
+```bash
+cp -r . ~/.agents/skills/coding-quality-loop   # or .agents/skills/ in-repo
+# Then in Pi: /skill:coding-quality-loop implement the change with a validation contract and independent review
 ```
 
 **Standalone / custom agent** — drive the steps from config:
@@ -128,6 +151,26 @@ enforce policy:
 - **Cursor rules** — `.cursor/rules` in `.mdc` format with Always / Auto Attached /
   Agent Requested / Manual rule types, referenced via `@ruleName`.
   https://docs.cursor.com/en/context/rules
+- **Pi skills** — loaded from `~/.pi/agent/skills/`, `~/.agents/skills/`, `.pi/skills/`,
+  `.agents/skills/`, or settings; registered as `/skill:name` with progressive disclosure.
+  https://pi.dev/docs/latest/skills
+- **Anthropic Agent Skills** — `SKILL.md` folders with optional scripts/resources and
+  progressive disclosure (metadata first, full instructions when relevant, extra files on
+  demand). https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills
+
+The thinking behind the design draws on:
+
+- **Factory Missions architecture** — long, broad work split into focused units with fresh
+  agents, shared state, validation contracts, and orchestrator/worker/validator roles.
+  https://factory.ai/news/missions-architecture
+- **Aider repo map** — concise maps of important files/symbols/signatures beat reading the
+  whole tree, so agents request depth on demand. https://aider.chat/docs/repomap.html
+- **OpenAI Agent Improvement Loop** — the harness (instructions, tools, routing, output
+  requirements, validation checks) is the unit of improvement; traces and evals drive ranked,
+  durable changes. https://developers.openai.com/cookbook/examples/agents_sdk/agent_improvement_loop
+- **Codex best practices** — a configurable teammate with goal/context/constraints/done-when;
+  short accurate guidance beats long vague guidance; add tools only when they remove a real
+  manual loop. https://developers.openai.com/codex/learn/best-practices
 
 ## Philosophy
 

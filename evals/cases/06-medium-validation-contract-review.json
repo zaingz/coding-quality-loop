@@ -1,0 +1,30 @@
+{
+  "name": "medium-requires-contract-and-independent-review",
+  "description": "A multi-file feature change. Medium class must require a validation contract, an independent review, and a completion record before shipping.",
+  "input": {
+    "goal": "Add pagination to the projects list endpoint and its UI consumers",
+    "signals": ["multi_file", "behavior_change", "api_contract"],
+    "proposed_solution": {
+      "introduces": [],
+      "lower_rung_available": false
+    }
+  },
+  "expected": {
+    "risk_tier": "medium",
+    "task_class": "medium",
+    "required_gates": [
+      "targeted_tests",
+      "relevant_tests",
+      "typecheck_or_build",
+      "caller_review",
+      "fresh_review"
+    ],
+    "minimality_flags": [],
+    "escalate": false,
+    "requires_validation_contract": true,
+    "requires_independent_review": true,
+    "requires_completion_record": true,
+    "requires_security_reviewer": false,
+    "hard_gate": false
+  }
+}

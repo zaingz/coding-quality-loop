@@ -1,0 +1,20 @@
+{
+  "name": "repeated-mistake-becomes-harness-update",
+  "description": "A repeated mistake (the same forgotten check recurring across tasks) must convert into a durable harness change in the retrospective, not another chat correction.",
+  "input": {
+    "goal": "Implement the missing null check the agent has now skipped three times",
+    "signals": ["behavior_change", "repeated_mistake"],
+    "proposed_solution": {
+      "introduces": [],
+      "lower_rung_available": false
+    }
+  },
+  "expected": {
+    "risk_tier": "medium",
+    "task_class": "medium",
+    "minimality_flags": [],
+    "escalate": false,
+    "harness_update": true,
+    "requires_completion_record": true
+  }
+}
