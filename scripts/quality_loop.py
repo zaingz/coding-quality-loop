@@ -115,6 +115,31 @@ TEST_WEAKENING_PATTERNS = [
     re.compile(r"^\+.*\b(?:it|test|describe)\.skip\b"),
 ]
 
+# Risk boundaries detected from the record's own text. A self-declared low/tiny
+# tier must not let auth/payment/migration/secret/infra work bypass the heavy
+# gates, so detect_risk_floor scans the goal/criteria/plan and forces a floor.
+BOUNDARY_KEYWORDS = {
+    "authn": (
+        "auth", "authentication", "authenticate", "login", "log in", "signin",
+        "sign-in", "session", "oauth", "sso", "jwt", "credential",
+    ),
+    "authz": (
+        "authorization", "authorize", "permission", "rbac", "access control",
+        "privilege", "admin endpoint",
+    ),
+    "secrets": ("secret", "api key", "api-key", "token", "password", "private key"),
+    "payments": ("payment", "billing", "charge", "refund", "stripe", "checkout"),
+    "data_migration": ("migration", "migrate", "schema change", "alter table", "drop table"),
+    "destructive": ("delete from", "truncate", "drop database", "rm -rf"),
+    "infra": ("production deploy", "prod deploy", "terraform", "kubernetes", "infrastructure"),
+}
+# Word-boundary matched so "auth" does not fire on "author", "token" not on
+# "tokenizer", "sso" not on "blossom", "charge" not on "recharge".
+BOUNDARY_PATTERNS = {
+    boundary: [re.compile(r"\b" + re.escape(w) + r"\b") for w in words]
+    for boundary, words in BOUNDARY_KEYWORDS.items()
+}
+
 
 def has_evidence(value: Any) -> bool:
     """True only for real evidence: a non-empty path/string or a non-empty object.
@@ -222,6 +247,29 @@ def review_findings(review: Any, label: str, implementer: Any) -> list[str]:
             findings.append(f"{label} has an unresolved blocking finding")
             break
     return findings
+
+
+def detect_risk_floor(record: dict[str, Any]) -> tuple[str, list[str]]:
+    """Ground-truth boundary detection from the record's own text.
+
+    Scans goal + acceptance criteria + plan for boundary keywords (word-boundary
+    matched) so a self-declared low/tiny tier cannot bypass the heavy gates.
+    Returns ('high', [markers]) when any boundary term is present, else ('low', []).
+    """
+    haystack = " ".join(
+        str(x).lower()
+        for x in (
+            [record.get("goal", "")]
+            + list(record.get("acceptance_criteria", []) or [])
+            + list(record.get("plan", []) or [])
+        )
+    )
+    markers = sorted(
+        boundary
+        for boundary, pats in BOUNDARY_PATTERNS.items()
+        if any(p.search(haystack) for p in pats)
+    )
+    return ("high", markers) if markers else ("low", [])
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -526,6 +574,19 @@ def verify_gates(args: argparse.Namespace) -> int:
     raw_commands = record.get("commands_run", [])
     findings: list[str] = []
     soft_warnings: list[str] = []
+
+    # Ground-truth risk floor: if the record's own text hits a known boundary, a
+    # self-declared low/tiny tier cannot bypass the heavy gates. Forcing risk and
+    # security_sensitive here makes the floor flow into every downstream check.
+    _floor, boundary_markers = detect_risk_floor(record)
+    if boundary_markers:
+        if risk != "high":
+            findings.append(
+                "declared risk_tier %r downgrades a detected boundary (markers: %s); "
+                "forcing high-risk gates" % (risk, ", ".join(boundary_markers))
+            )
+        risk = "high"
+        security_sensitive = True
 
     # Defensive: tolerate malformed commands_run without crashing.
     commands = [c for c in raw_commands if isinstance(c, dict)] if isinstance(raw_commands, list) else []

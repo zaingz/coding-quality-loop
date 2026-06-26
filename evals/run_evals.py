@@ -402,9 +402,55 @@ def case_untracked_secret_flagged(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; output={out.strip()!r}"
 
 
+def case_self_downgrade_auth_fails(tmp: Path) -> tuple[bool, str]:
+    # A boundary task (disable auth) declared low/tiny with empty evidence must
+    # NOT pass - the detected-risk floor overrides the self-declared tier.
+    record = base_record(
+        goal="Disable auth check on admin endpoint",
+        risk_tier="low",
+        task_class="tiny",
+        security_sensitive=False,
+        commands_run=[],
+        minimality_decision={"rung": "one_liner", "reason": "remove the check"},
+        validation_contract=None,
+        independent_review=None,
+        completion_record=None,
+        status="done",
+    )
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and ("boundary" in output or "downgrade" in output)
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_declared_high_auth_passes(tmp: Path) -> tuple[bool, str]:
+    # The floor must not false-block a properly-declared, fully-reviewed boundary
+    # task: a compliant high-risk auth record with a distinct security review passes.
+    record = passing_medium(
+        goal="Add an authorization scope check to the admin endpoint",
+        risk_tier="high",
+        task_class="medium",
+        security_sensitive=True,
+        open_risks=["auth path"],
+        commands_run=[
+            {"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "12 passed"},
+            {"cmd": "semgrep", "class": "security", "result": "pass", "evidence": "no findings"},
+        ],
+        security_review={
+            "reviewer": "sec-c",
+            "verdict": "approve",
+            "fresh_context": True,
+            "patched": False,
+        },
+    )
+    code, output = verify_gates(tmp, record)
+    return code == 0, f"exit={code}; output={output.strip()!r}"
+
+
 CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
     ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
+    ("self-downgrade of a boundary task fails the floor", case_self_downgrade_auth_fails),
+    ("compliant declared-high boundary task passes the floor", case_declared_high_auth_passes),
     ("medium work requires validation contract and independent review", case_medium_requires_contract_and_review),
     ("security/high work requires a distinct security review", case_security_requires_distinct_review),
     ("complexity brake catches unnecessary dependency", case_complexity_brake_dependency),
