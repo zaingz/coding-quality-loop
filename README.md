@@ -280,11 +280,34 @@ OpenAI agent improvement loop (the harness is the unit of improvement).
 
 ## Philosophy
 
-The goal is **bounded autonomy**: small diffs, explicit contracts, deterministic evidence, and
-fresh-context review by an independent agent. The loop should not overcomplicate by default, and
-it should never claim success without verification evidence or a clear explanation of blocked
-checks. The agent's job is not to maximize autonomy — it is to produce the smallest correct
-change with enough evidence that a human can trust, review, revert, or merge it.
+> **Bounded autonomy. Smallest correct change. Evidence over confidence.**
+
+One model that does intake, architecture, implementation, *and* self-review will overbuild,
+self-attest, lose context, skip evidence, and repeat mistakes. None of that is fixed by a smarter
+model or a longer prompt — it's fixed by *process*. The mantra, in seven defaults the loop encodes:
+
+1. **An engineering operating system, not a clever prompt** — durable artifacts that outlive the
+   session; improve the harness, not the next message.
+2. **Bounded autonomy is the product** — the boundary (explicit scope, deterministic evidence,
+   independent review) is what makes the output trustable.
+3. **Ship the smallest correct change** — deletion, reuse, stdlib, and native features before new
+   code; minimalism applied before planning *and* before review.
+4. **Evidence over confidence** — every acceptance criterion paired with the check that proves it;
+   never claim success without evidence or a clear note on a blocked check.
+5. **Deterministic gates over vibes** — when a rule matters, a hook or check enforces it; advisory
+   text drifts.
+6. **Repo maps over context stuffing** — a concise map of what matters, with depth on demand,
+   beats reading the whole tree.
+7. **Durable harness changes over repeated chat corrections** — a fix turned into a rule, test,
+   hook, checklist, or template doesn't recur next session.
+
+The agent's job is not to maximize autonomy — it is to produce the smallest correct change with
+enough evidence that a human can trust, review, revert, or merge it.
+
+Read the full manifesto — the problem framing, the trends we've watched converge, our inspirations
+(cited honestly, not as endorsements), and what this deliberately is *not* — in
+**[`references/philosophy.md`](references/philosophy.md)**. The engineering rationale lives in
+[`references/engineering-operating-system.md`](references/engineering-operating-system.md).
 
 ## License
 

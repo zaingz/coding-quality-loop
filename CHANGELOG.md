@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.3
+
+- Added `references/philosophy.md` — a manifesto covering the mantra (bounded autonomy, smallest
+  correct change, evidence over confidence, deterministic gates over vibes, repo maps over context
+  stuffing, durable harness changes over repeated chat corrections), the problem framing (agents
+  overbuild, self-attest, lose context, skip evidence, repeat mistakes), trends observed,
+  inspirations (cited as influences, not endorsements or adoption claims), how the loop packages
+  those ideas, and explicit non-goals.
+- Rewrote the README `Philosophy` section as the seven-line mantra with a link to the full
+  manifesto and the existing engineering-OS rationale.
+- Docs-only change: no behavior change to `scripts/quality_loop.py`, the gates, or any asset; all
+  prior validation fixes intact (9/9 static eval cases and 15/15 behavioral gate cases still pass).
+
 ## 1.2.2
 
 - Added a root `LICENSE` file (MIT) to match the `license: MIT` declared in `SKILL.md`
