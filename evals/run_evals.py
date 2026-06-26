@@ -373,8 +373,38 @@ def case_repeated_failure_requires_harness_update(tmp: Path) -> tuple[bool, str]
     )
 
 
+def case_untracked_secret_flagged(tmp: Path) -> tuple[bool, str]:
+    # `git diff <base>` excludes untracked files; a brand-new module with a
+    # secret must still be caught by diff-audit.
+    repo = tmp / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    git("init")
+    git("config", "user.email", "eval@example.com")
+    git("config", "user.name", "eval")
+    (repo / "main.py").write_text("print('hi')\n")
+    git("add", "main.py")
+    git("commit", "-m", "base")
+
+    # leak.py is NEVER `git add`-ed - it stays untracked.
+    (repo / "leak.py").write_text('AKIA' + 'A' * 16 + '\napi_key = abcd1234abcd1234\n')
+
+    code, out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(repo))
+    ok = code == 1 and "secret" in out and "untracked" in out
+    return ok, f"exit={code}; output={out.strip()!r}"
+
+
 CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
+    ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
     ("medium work requires validation contract and independent review", case_medium_requires_contract_and_review),
     ("security/high work requires a distinct security review", case_security_requires_distinct_review),
     ("complexity brake catches unnecessary dependency", case_complexity_brake_dependency),

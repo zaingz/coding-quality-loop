@@ -65,6 +65,18 @@ SECRET_PATTERNS = [
     re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
     re.compile(r"sk-[A-Za-z0-9]{20,}"),
     re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"),
+    # Unquoted assignment - the most common .env/shell/YAML leak shape - with a
+    # placeholder guard so REPLACE_ME / <...> / ${...} style stubs do not flag.
+    re.compile(
+        r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*"
+        r"(?!['\"]?(?:replace_me|change_me|your_|xxx|placeholder|<|\$\{))[^\s'\"]{8,}"
+    ),
+    re.compile(r"(?:sk|rk)_live_[A-Za-z0-9]{16,}"),
+    re.compile(r"gh[opusr]_[A-Za-z0-9]{20,}"),
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"ASIA[A-Z0-9]{16}"),
+    re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
+    re.compile(r"AIza[0-9A-Za-z_-]{35}"),
 ]
 DEPENDENCY_FILES = {
     "package.json",
@@ -94,6 +106,14 @@ MIGRATION_MARKERS = (
     "liquibase",
     "changelog",
 )
+# Test-weakening markers: an agent that fixes "green" by skipping/deleting tests
+# is gaming the gate. These flag added skip/xfail/.only lines in test files.
+TEST_PATH_MARKERS = ("test", "spec", "__tests__")
+TEST_WEAKENING_PATTERNS = [
+    re.compile(r"^\+.*@(?:pytest\.mark\.)?(?:skip|xfail)\b"),
+    re.compile(r"^\+.*\.(?:only|skip)\s*\("),
+    re.compile(r"^\+.*\b(?:it|test|describe)\.skip\b"),
+]
 
 
 def has_evidence(value: Any) -> bool:
@@ -426,7 +446,30 @@ def diff_audit(args: argparse.Namespace) -> int:
         added += int(a)
         deleted += int(d)
 
-    warnings: list[str] = []
+    # Untracked files are invisible to `git diff`, so a brand-new module (the
+    # common agent-work case) bypasses the secret/size scan entirely. Fold them in.
+    untracked = [
+        f.strip()
+        for f in run_git(["ls-files", "--others", "--exclude-standard"]).splitlines()
+        if f.strip()
+    ]
+    untracked_warnings: list[str] = []
+    for f in untracked:
+        try:
+            content = Path(f).read_text(errors="replace")
+        except (OSError, ValueError):
+            continue
+        added += len(content.splitlines())
+        if f not in files:
+            files.append(f)
+        if any(p.search(content) for p in SECRET_PATTERNS):
+            untracked_warnings.append(f"possible secret in untracked file: {f}")
+    if untracked:
+        untracked_warnings.append(
+            f"{len(untracked)} untracked file(s) included in audit: " + ", ".join(untracked)
+        )
+
+    warnings: list[str] = list(untracked_warnings)
     if len(files) > args.max_files:
         warnings.append(f"large file count: {len(files)} files changed")
     if added + deleted > args.max_lines:
@@ -447,6 +490,15 @@ def diff_audit(args: argparse.Namespace) -> int:
         if pattern.search(added_lines):
             warnings.append("possible secret added in diff")
             break
+
+    test_files = [f for f in files if any(m in f.lower() for m in TEST_PATH_MARKERS)]
+    if test_files and any(
+        p.search(line) for line in patch.splitlines() for p in TEST_WEAKENING_PATTERNS
+    ):
+        warnings.append(
+            "possible test-weakening (added skip/xfail/.only) in test files: "
+            + ", ".join(test_files)
+        )
 
     result = {
         "base": base,
