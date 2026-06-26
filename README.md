@@ -11,7 +11,7 @@ Codex, Cursor, Pi, and any custom agent runtime.
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-blue)
-![Offline evals](https://img.shields.io/badge/offline%20evals-9%2F9%20cases%20%2B%2015%2F15%20gates-brightgreen)
+![Offline evals](https://img.shields.io/badge/offline%20evals-9%2F9%20cases%20%2B%2022%2F22%20gates-brightgreen)
 ![Dependencies](https://img.shields.io/badge/runtime%20deps-none%20(stdlib%20only)-lightgrey)
 
 ---
@@ -81,7 +81,8 @@ files in this repo.
 
 | Host | Install | Invoke |
 |---|---|---|
-| **Claude Code** | `cp examples/claude-code/CLAUDE.md ./CLAUDE.md` (or `/init`, then paste the loop) | `claude "Follow the Coding Quality Loop to fix the failing test and open a PR."` |
+| **Claude Code** (skill — progressive disclosure) | `cp -r . .claude/skills/coding-quality-loop` (project) or `~/.claude/skills/coding-quality-loop` (user) | `claude "Use the coding-quality-loop skill to fix the failing test and open a PR."` |
+| **Claude Code** (instruction-only — no progressive disclosure) | `cp examples/claude-code/CLAUDE.md ./CLAUDE.md` (or `/init`, then paste the loop) | `claude "Follow the Coding Quality Loop to fix the failing test and open a PR."` |
 | **Codex** | `cp examples/codex/AGENTS.md ./AGENTS.md` | `codex "Follow the Coding Quality Loop in AGENTS.md to fix the bug."` |
 | **Cursor** | `cp -r examples/cursor/.cursor ./.cursor` → rule at `.cursor/rules/coding-quality-loop.mdc` | in chat: `@coding-quality-loop fix the retry bug with verification evidence` |
 | **Pi** | `cp -r . ~/.agents/skills/coding-quality-loop` (or in-repo `.agents/skills/`) | `/skill:coding-quality-loop implement the change with a validation contract and independent review` |
@@ -168,8 +169,18 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
 python3 evals/run_evals.py
 ```
 
-Current result on a clean checkout: **9/9 static eval cases pass** and **15/15 behavioral
-gate cases pass.** The cases cover real scenarios rather than generic productivity claims:
+Current result on a clean checkout: **9/9 static cases** and **22/22 behavioral cases pass.**
+The two suites prove different things and are labeled honestly:
+
+- The **static** suite (`eval-cases`) is an *intake-classification regression test*: it
+  recomputes risk tier / task class / required gates from declared signals. It pins the routing
+  table; it does not prove a gate fires on real prose.
+- The **behavioral** suite (`run_evals.py`) is where *the gates actually fire* — it drives the
+  real CLI against constructed records (one case is a docs-presence lint, not a gate). Recorded
+  evidence, including RED→GREEN, is *attested, not re-executed*: the helper checks the evidence
+  is present and well-formed, it does not run your test suite.
+
+The cases cover real scenarios rather than generic productivity claims:
 
 - low-risk docs change, medium multifile behavior change, high-risk migration + security escalation
 - the over-engineering trap (minimality brake catches an unnecessary dependency)
@@ -216,9 +227,17 @@ and human review. Be precise about what its gates actually verify.
   `repair_attempts >= 2`, it must carry a `harness_update` (a rule/test/hook/checklist/template
   change) as retrospective evidence — so a clean final record cannot hide a repeated mistake
   that was only corrected in chat.
-- Risk-tier-appropriate executable checks, no failed/unclassified commands, a recorded
-  minimality decision, and `diff-audit` flags for secrets, dependency edits, migrations, and
-  oversized diffs.
+- **Detected-risk floor.** A self-declared `low`/`tiny` tier cannot bypass the heavy gates: the
+  record's own goal/criteria/plan are scanned (word-boundary matched) for risk boundaries
+  (auth, payments, migrations, secrets, infra), and any hit forces high-risk + security-review
+  gates regardless of the declared tier.
+- **UNDERSTAND is gated.** Non-trivial work must carry a substantive context map (`repo_map`:
+  entry points/likely files plus callers or tests) by implementation — the "map the change
+  before editing" rule is checked, not just advised.
+- Risk-tier-appropriate executable checks, no failed/unclassified commands, every `pass` command
+  carrying a verifiable evidence handle, a known command `class`, a recorded minimality decision,
+  and `diff-audit` flags for secrets (including untracked files and test-weakening), dependency
+  edits, migrations, and oversized diffs.
 
 **Not enforced (by design, to stay portable):**
 
@@ -244,6 +263,10 @@ Skills are executable instruction/resource bundles, so treat them like any depen
 - **Pin for team use.** Install from a tagged release or a pinned tree SHA rather than a moving
   branch, so everyone's agents load the same gates. The current packaged version is recorded in
   `SKILL.md` frontmatter (`metadata.version`) and tracked in [`CHANGELOG.md`](CHANGELOG.md).
+- **`gh skill` once published.** When a maintainer runs `gh skill publish` (validates against the
+  Agent Skills spec and writes repo/ref/tree-SHA provenance into the frontmatter), consumers can
+  `gh skill install <repo> --pin <tag|sha>` for content-addressed, version-pinned installs. Until
+  then, the copy-to-folder paths above are the supported install — provenance is not hand-faked.
 - **Enforce the non-negotiables with hooks.** Advisory text is not a guarantee — wire the
   `policy_guard` rules (secrets, destructive migrations, auth/billing, diff-size limits) as
   deterministic host hooks for anything you cannot afford an agent to get wrong.
