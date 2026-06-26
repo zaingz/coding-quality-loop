@@ -33,13 +33,46 @@ keys present in its `expected` block, so cases stay focused.
 
 ```bash
 # Validate config + run all cases
-python scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
+python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
 
 # Run a single case
-python scripts/quality_loop.py eval-cases evals/cases/03-high-migration-security.json
+python3 scripts/quality_loop.py eval-cases evals/cases/03-high-migration-security.json
 ```
 
 Exit code is non-zero if any case fails or the config check fails, so it is CI-friendly.
+
+## Two suites: static (classifier) vs behavioral (gates)
+
+- **Static cases** (`evals/cases/*.json`, run via `eval-cases`) pin the **intake
+  classification** — they recompute `evaluate_input` from declared signals and assert risk
+  tier, task class, required gates, and security boundary. They are regression tests for the
+  routing table, not proof that a gate fires on real prose.
+- **Behavioral cases** (`evals/run_evals.py`) drive the **actual CLI** (`verify-gates`,
+  `check-record`, `diff-audit`) against constructed records and assert hard-to-fake behavior:
+  the detected-risk floor blocks a self-downgraded boundary task, the artifact gates reject
+  placeholders/wrong-content files, a pass command needs evidence, untracked secrets are
+  flagged, the implementer cannot be the reviewer, and `package`/`done` needs a completion
+  record. One case (`case_repeated_mistake_retrospective`) is a docs-presence lint, not a gate
+  test — it confirms the retrospective guidance is still documented.
+
+  Note: recorded evidence (including RED→GREEN) is *attested*, not re-executed — the checker
+  grades that the evidence is present and well-formed, it does not run your test suite.
+
+```bash
+python3 evals/run_evals.py
+```
+
+## Trigger evals (opt-in, not in CI)
+
+`triggers/cases.json` holds `should_trigger` / `should_not_trigger` prompts for the frontmatter
+`description` — the sole activation signal, and the #1 skill failure mode when it is too vague
+(misses) or too broad (misfires). Grading these needs a model (LLM-judge), so they are
+**deliberately excluded from the offline, model-free CI suite**. To run them, feed your host's
+judge only the `description_under_test` plus each prompt and check the label. Validate the JSON:
+
+```bash
+python3 -c "import json; json.load(open('evals/triggers/cases.json'))"
+```
 
 ## Cases
 
