@@ -21,6 +21,9 @@
     "security_sensitive": {"type": "boolean"},
     "validation_contract": {"type": ["string", "object", "null"], "minLength": 1},
     "completion_record": {"type": ["string", "object", "null"], "minLength": 1},
+    "repair_attempts": {"type": "integer", "minimum": 0},
+    "repeated_failure": {"type": "boolean"},
+    "harness_update": {"type": ["string", "object", "null"], "minLength": 1},
     "independent_review": {
       "type": ["object", "null"],
       "required": ["verdict"],

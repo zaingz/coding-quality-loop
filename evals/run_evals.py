@@ -21,6 +21,12 @@ Cases (safety-hardening behaviors enforced on actual records):
   9. missing implementer fails
  10. boolean validation/completion placeholders fail
  11. malformed commands_run fails cleanly without crashing
+ 12. shallow/nonexistent artifact placeholders fail (object missing required
+     content, or a string path that does not resolve to a real file)
+ 13. complete inline artifact objects pass without files on disk
+ 14. a string artifact that points at an existing file passes
+ 15. repeated verification failure requires a durable harness_update
+     (retrospective evidence), not a repeated chat correction
 """
 
 from __future__ import annotations
@@ -78,15 +84,31 @@ def base_record(**overrides) -> dict:
     return record
 
 
+COMPLETE_CONTRACT = {
+    "goal": "Move invoice rounding to the summed total",
+    "acceptance_criteria": ["Total rounds once; single-line invoices unchanged"],
+    "evidence": ["pytest billing/tests -> pass", "mypy billing -> clean"],
+}
+COMPLETE_COMPLETION = {
+    "goal": "Move invoice rounding to the summed total",
+    "acceptance_criteria": ["Total rounds once; single-line invoices unchanged"],
+    "evidence": ["pytest billing/tests -> 14 passed", "fresh-context review: approve"],
+}
+
+
 def passing_medium(**overrides) -> dict:
-    """A fully compliant medium record that should pass all gates."""
+    """A fully compliant medium record that should pass all gates.
+
+    Artifacts are complete inline objects (real content, not placeholder paths)
+    so they satisfy the deep artifact validation in `verify-gates`.
+    """
     record = base_record(
         risk_tier="medium",
         task_class="medium",
         status="done",
         implementer="agent-a",
-        validation_contract="validation-contract.md",
-        completion_record="completion-record.md",
+        validation_contract=dict(COMPLETE_CONTRACT),
+        completion_record=dict(COMPLETE_COMPLETION),
         independent_review={
             "reviewer": "agent-b",
             "verdict": "approve",
@@ -290,6 +312,67 @@ def case_malformed_commands_no_crash(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; crashed={crashed}; output={output.strip()!r}"
 
 
+def case_shallow_artifacts_fail(tmp: Path) -> tuple[bool, str]:
+    # An object with only a placeholder key and a nonexistent string path are
+    # both shape-valid but not real artifacts; the shipping gate must reject them.
+    record = passing_medium(
+        validation_contract={"placeholder": "yes"},
+        completion_record="nonexistent-completion-record.md",
+    )
+    code, output = verify_gates(tmp, record)
+    flagged = "validation_contract" in output and "completion_record" in output
+    ok = code == 1 and flagged
+    return ok, f"exit={code}; flagged={flagged}; output={output.strip()!r}"
+
+
+def case_valid_inline_artifacts_pass(tmp: Path) -> tuple[bool, str]:
+    # Complete inline artifact objects (goal + acceptance criteria + evidence)
+    # are real evidence and must pass even without files on disk.
+    record = passing_medium()
+    code, output = verify_gates(tmp, record)
+    ok = code == 0
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_existing_artifact_path_passes(tmp: Path) -> tuple[bool, str]:
+    # A string artifact resolves to a real file relative to the record.
+    (tmp / "validation-contract.md").write_text("# contract\n")
+    (tmp / "completion-record.md").write_text("# completion\n")
+    record = passing_medium(
+        validation_contract="validation-contract.md",
+        completion_record="completion-record.md",
+    )
+    code, output = verify_gates(tmp, record)
+    ok = code == 0
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_repeated_failure_requires_harness_update(tmp: Path) -> tuple[bool, str]:
+    # Repeated verification failure with no durable harness change must fail;
+    # the same record with a harness_update passes.
+    no_update = passing_medium(repeated_failure=True, harness_update=None)
+    code_n, out_n = verify_gates(tmp, no_update)
+    no_update_fails = code_n == 1 and "harness_update" in out_n
+
+    with_update = passing_medium(
+        repeated_failure=True,
+        harness_update={"type": "test", "change": "added regression test for the skipped null check"},
+    )
+    code_w, out_w = verify_gates(tmp, with_update)
+    with_update_passes = code_w == 0
+
+    # repair_attempts >= 2 is also treated as a repeated failure.
+    by_attempts = passing_medium(repair_attempts=2, harness_update=None)
+    code_a, _ = verify_gates(tmp, by_attempts)
+    attempts_fail = code_a == 1
+
+    ok = no_update_fails and with_update_passes and attempts_fail
+    return ok, (
+        f"no_update(exit={code_n},flagged={('harness_update' in out_n)}); "
+        f"with_update(exit={code_w}: {out_w.strip()!r}); by_attempts(exit={code_a})"
+    )
+
+
 CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
     ("medium work requires validation contract and independent review", case_medium_requires_contract_and_review),
@@ -302,6 +385,10 @@ CASES = [
     ("missing implementer fails", case_missing_implementer_fails),
     ("boolean validation/completion placeholders fail", case_boolean_placeholders_fail),
     ("malformed commands_run fails cleanly without crashing", case_malformed_commands_no_crash),
+    ("shallow/nonexistent artifact placeholders fail", case_shallow_artifacts_fail),
+    ("valid inline artifact objects pass", case_valid_inline_artifacts_pass),
+    ("string artifact pointing at an existing file passes", case_existing_artifact_path_passes),
+    ("repeated failure requires a durable harness update", case_repeated_failure_requires_harness_update),
 ]
 
 

@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "1.2.0"
+  version: "1.2.1"
 ---
 
 # Coding Quality Loop
@@ -167,6 +167,8 @@ Return a PR-ready handoff and, for non-trivial tasks, a **completion record** (`
 
 Close the loop. Every **repeated** mistake becomes a durable harness change — an `AGENTS.md`/`CLAUDE.md` rule, a `SKILL.md` step, a test, a hook, a review-checklist item, a repo-map entry, or a validation-contract template — **not** a repeated chat correction. See **Improvement Loop**.
 
+Make this checkable: when a verification failure recurs, record it on the state record with `repeated_failure: true` (or `repair_attempts >= 2`) and capture the durable fix in `harness_update`. `verify-gates` then requires the `harness_update` evidence before the record can pass, so a clean final record cannot silently bury a repeated mistake.
+
 ## Hard Rules
 
 - **Understand before editing.** No edit before the change is mapped (CONTEXT MAP + mental-model graph).
@@ -225,7 +227,7 @@ Helper script commands (advisory; they do not replace human review, tests, scann
 - `init-record` — create a task state record from a goal.
 - `check-record` — validate a state record against this lifecycle.
 - `diff-audit` — summarize a git diff and flag large diffs, dependency edits, migrations, and possible secrets.
-- `verify-gates` — check recorded evidence against the risk tier.
+- `verify-gates` — check recorded evidence against the risk tier, including deep validation of the validation contract and completion record (real file path or a complete inline object, never a placeholder) and the repeated-failure → `harness_update` rule.
 - `check-config` — validate an agentic orchestration config.
 - `eval-cases` — run offline eval cases that pin task-class, risk-tier, required-gate, security-reviewer, completion-record, complexity-brake, and retrospective logic.
 

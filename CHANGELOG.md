@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.1
+
+- **Deep artifact validation** in `verify-gates`: the validation contract and completion record
+  are now accepted only as a string path to a file that exists, or a complete inline object
+  (goal + acceptance criteria + evidence). Shape-only placeholders (e.g. `{"placeholder":"yes"}`),
+  empty strings, bare booleans/numbers, and nonexistent paths are rejected.
+- **Repeated-failure → durable harness change** is now machine-checkable: new record fields
+  `repeated_failure`, `repair_attempts`, and `harness_update`. When a failure recurs
+  (`repeated_failure: true` or `repair_attempts >= 2`), `verify-gates` requires `harness_update`
+  evidence so a clean final record cannot hide a repeated mistake corrected only in chat.
+- Added the three new fields to `agent-record.schema.json` and `init-record` defaults;
+  `check-record` validates their types and rejects boolean/number placeholders consistently.
+- Added 4 record-gate eval cases (shallow/nonexistent artifacts fail, complete inline artifacts
+  pass, existing-file path passes, repeated-failure requires harness update); 15/15 pass.
+- README: corrected the lifecycle claim (8 routed machine steps vs. 2 artifact/rule-gate
+  phases), added a "What the helper enforces (and does not)" section, and dropped
+  `--ask-for-approval never` from the Codex one-liner.
+
 ## 1.2.0
 
 - Reframed the skill as an **engineering operating system** (five parts: durable repo

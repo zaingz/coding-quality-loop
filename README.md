@@ -16,9 +16,13 @@ built from five durable parts:
 
 It packages:
 
-- A canonical 10-step lifecycle (with stable machine-name aliases): intake, context map,
-  spec/validation contract, complexity brake, plan, implement in small slices, verify,
-  independent review, ship/handoff, and retrospective.
+- A canonical 10-step lifecycle: intake, context map, spec/validation contract, complexity
+  brake, plan, implement in small slices, verify, independent review, ship/handoff, and
+  retrospective. The orchestration config routes **8 machine steps** (`INTAKE`, `EXPLORE`,
+  `PLAN`, `MINIMALITY_GATE`, `IMPLEMENT_SLICE`, `VERIFY`, `REVIEW`, `PACKAGE`); the two
+  remaining canonical phases — *spec/validation contract* and *retrospective* — are enforced
+  as artifact and rule gates rather than separately routed model steps (see the mapping table
+  in `SKILL.md`).
 - **Task classes** (tiny / small / medium / mission) so a typo never runs mission ceremony and
   a payment migration never ships without a contract and an independent review.
 - **Agentic orchestration**: each step routes to a role-based agent profile (orchestrator,
@@ -57,7 +61,9 @@ claude "Follow the Coding Quality Loop to fix the invoice rounding bug and open 
 
 ```bash
 cp examples/codex/AGENTS.md ./AGENTS.md
-codex --ask-for-approval never "Follow the Coding Quality Loop in AGENTS.md to fix the failing test."
+# Keep Codex's default approval/sandbox prompts for risk-boundary changes; only loosen
+# them for trusted, low-risk tasks.
+codex "Follow the Coding Quality Loop in AGENTS.md to fix the failing test."
 ```
 
 **Cursor** — project rule in `.cursor/rules`:
@@ -171,6 +177,47 @@ The thinking behind the design draws on:
 - **Codex best practices** — a configurable teammate with goal/context/constraints/done-when;
   short accurate guidance beats long vague guidance; add tools only when they remove a real
   manual loop. https://developers.openai.com/codex/learn/best-practices
+
+## What the helper enforces (and what it does not)
+
+`scripts/quality_loop.py` is a portable, stdlib-only checker that complements — but does not
+replace — CI, tests, security scanners, and human review. Be precise about what its gates
+actually verify.
+
+**Enforced today (`verify-gates` / `check-record` on a state record):**
+
+- Non-trivial work (medium/mission task class, medium/high risk, or security-sensitive)
+  requires a named implementer, a validation contract, an independent review, and — at
+  `package`/`done` — a completion record.
+- **Deep artifact validation.** A validation contract or completion record is accepted only if
+  it is a string path to a file that actually exists, or an inline object that contains real
+  content (goal, acceptance criteria, and evidence fields). Bare booleans, numbers, empty
+  strings, nonexistent paths, and shape-only placeholder objects (e.g. `{"placeholder":"yes"}`)
+  are rejected.
+- **Independent review integrity.** The reviewer must be named, distinct from the implementer,
+  working with fresh context, must not have patched the code, and must record an approving
+  verdict with no unresolved blocking findings. High-risk/security-sensitive work additionally
+  requires a distinct security review.
+- **Repeated-failure → durable harness change.** If a record sets `repeated_failure: true` or
+  `repair_attempts >= 2`, it must also carry a `harness_update` (a rule/test/hook/checklist/
+  template change) as retrospective evidence. A clean final record can no longer hide a
+  repeated mistake that was only corrected in chat.
+- Risk-tier-appropriate executable checks, no failed/unclassified commands, a recorded
+  minimality decision, and `diff-audit` flags for secrets, dependency edits, migrations, and
+  oversized diffs.
+
+**Not enforced (by design, to stay portable):**
+
+- It does not run real test suites, type checkers, or security scanners — it checks that the
+  *evidence* of those runs is present and well-formed.
+- Reviewer/implementer identity is compared as trimmed strings; it is not verified against
+  session or cryptographic provenance, and fresh context is self-attested.
+- It is **not** a full mission-agent runtime: there is no automatic recovery, telemetry,
+  trace ingestion, or git-based worker handoff. The orchestration config describes routing for
+  8 machine steps; wiring those to real models/sessions is the host platform's job.
+- Deterministic blocking of dangerous tool calls (the `policy_guard`) is documented but must be
+  wired as host hooks (e.g. Claude Code `PreToolUse`/`Stop`); the helper does not intercept
+  tool calls itself.
 
 ## Philosophy
 

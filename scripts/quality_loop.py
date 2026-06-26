@@ -111,6 +111,70 @@ def has_evidence(value: Any) -> bool:
     return False
 
 
+# Required content for shipping artifacts when supplied as an inline object. Each
+# tuple is an "at least one of these keys must be non-empty" group, so portable
+# field-name variants are accepted without forcing one rigid schema.
+ARTIFACT_REQUIRED_FIELDS = {
+    "validation_contract": (
+        ("goal",),
+        ("acceptance_criteria", "done_when", "criteria"),
+        ("evidence", "required_evidence", "checks", "proof"),
+    ),
+    "completion_record": (
+        ("goal",),
+        ("acceptance_criteria", "criteria", "done_when"),
+        ("evidence", "verification", "verification_evidence", "checks"),
+    ),
+}
+
+
+def _nonempty(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    if isinstance(value, (int, float)):
+        return True
+    return False
+
+
+def artifact_findings(value: Any, kind: str, base_dir: Path) -> list[str]:
+    """Deep validation for shipping artifacts (validation_contract / completion_record).
+
+    A shape-only check accepts placeholders the shipping gate should reject. This
+    rejects: bare booleans/numbers, empty strings, string paths that do not
+    resolve to an existing file, and objects missing the descriptive fields their
+    kind requires. A string is treated as a path to a real artifact file
+    (resolved relative to the record, then the working directory) to keep records
+    portable while still requiring the artifact to actually exist.
+    """
+    if value is None:
+        return [f"non-trivial work requires a {kind} with evidence"]
+    if isinstance(value, bool) or (isinstance(value, (int, float)) and not isinstance(value, str)):
+        return [f"{kind} must be a real artifact (object or existing file path), not {value!r}"]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return [f"non-trivial work requires a {kind} with evidence"]
+        if not any(p.is_file() for p in (base_dir / text, Path(text))):
+            return [f"{kind} path does not exist: {text!r} (expected a real artifact file)"]
+        return []
+    if isinstance(value, dict):
+        if not value:
+            return [f"non-trivial work requires a {kind} with evidence"]
+        missing = [
+            "/".join(group)
+            for group in ARTIFACT_REQUIRED_FIELDS.get(kind, ())
+            if not any(_nonempty(value.get(key)) for key in group)
+        ]
+        if missing:
+            return [f"{kind} object is missing required content: {', '.join(missing)}"]
+        return []
+    return [f"{kind} must be an object or an existing file path"]
+
+
 def review_findings(review: Any, label: str, implementer: Any) -> list[str]:
     """Findings that block a record on an independent/security review artifact.
 
@@ -176,6 +240,9 @@ def init_record(args: argparse.Namespace) -> int:
         "independent_review": None,
         "security_review": None,
         "completion_record": None,
+        "repair_attempts": 0,
+        "repeated_failure": False,
+        "harness_update": None,
         "repo_map": {
             "entry_points": [],
             "likely_files": [],
@@ -263,7 +330,7 @@ def check_record(args: argparse.Namespace) -> int:
             if cmd.get("result") not in COMMAND_RESULTS:
                 errors.append(f"commands_run[{idx}].result must be one of: pass, fail, blocked")
 
-    for artifact_key in ("validation_contract", "completion_record"):
+    for artifact_key in ("validation_contract", "completion_record", "harness_update"):
         value = record.get(artifact_key)
         if value is None:
             continue
@@ -274,6 +341,15 @@ def check_record(args: argparse.Namespace) -> int:
             )
         elif isinstance(value, str) and not value.strip():
             errors.append(f"{artifact_key} must not be an empty string")
+
+    repair_attempts = record.get("repair_attempts")
+    if repair_attempts is not None:
+        if isinstance(repair_attempts, bool) or not isinstance(repair_attempts, int):
+            errors.append("repair_attempts must be an integer")
+        elif repair_attempts < 0:
+            errors.append("repair_attempts must be >= 0")
+    if "repeated_failure" in record and not isinstance(record.get("repeated_failure"), bool):
+        errors.append("repeated_failure must be a boolean")
 
     if "implementer" in record and record["implementer"] is not None:
         if not isinstance(record["implementer"], str) or not record["implementer"].strip():
@@ -387,7 +463,9 @@ def diff_audit(args: argparse.Namespace) -> int:
 
 
 def verify_gates(args: argparse.Namespace) -> int:
-    record = load_json(Path(args.record))
+    record_path = Path(args.record)
+    base_dir = record_path.resolve().parent
+    record = load_json(record_path)
     risk = record.get("risk_tier")
     status = record.get("status")
     task_class = record.get("task_class")
@@ -424,19 +502,38 @@ def verify_gates(args: argparse.Namespace) -> int:
     if non_trivial:
         if not isinstance(implementer, str) or not implementer.strip():
             findings.append("non-trivial work requires a named implementer")
-        if not has_evidence(record.get("validation_contract")):
-            findings.append("non-trivial work requires a validation_contract with evidence")
+        findings.extend(
+            artifact_findings(record.get("validation_contract"), "validation_contract", base_dir)
+        )
         findings.extend(
             review_findings(record.get("independent_review"), "independent_review", implementer)
         )
-        if status in {"package", "done"} and not has_evidence(record.get("completion_record")):
-            findings.append(
-                f"non-trivial work at status '{status}' requires a completion_record with evidence"
-            )
+        if status in {"package", "done"}:
+            if record.get("completion_record") is None:
+                findings.append(
+                    f"non-trivial work at status '{status}' requires a completion_record with evidence"
+                )
+            else:
+                findings.extend(
+                    artifact_findings(record.get("completion_record"), "completion_record", base_dir)
+                )
 
     if security_sensitive or risk == "high":
         findings.extend(
             review_findings(record.get("security_review"), "security_review", implementer)
+        )
+
+    repair_attempts = record.get("repair_attempts")
+    repeated = bool(record.get("repeated_failure")) or (
+        isinstance(repair_attempts, int)
+        and not isinstance(repair_attempts, bool)
+        and repair_attempts >= 2
+    )
+    if repeated and not has_evidence(record.get("harness_update")):
+        findings.append(
+            "repeated verification failure requires a durable harness_update "
+            "(retrospective evidence: rule/test/hook/checklist/template), "
+            "not a repeated chat correction"
         )
 
     if status in {"implement", "verify", "review", "package", "done", "iterating"} and not record.get("minimality_decision"):
