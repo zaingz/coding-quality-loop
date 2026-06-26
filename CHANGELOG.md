@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.2
+
+- Added a root `LICENSE` file (MIT) to match the `license: MIT` declared in `SKILL.md`
+  frontmatter, closing a credibility gap (claim without file).
+- Rewrote `README.md` for adoption: bounded-autonomy hero/positioning, a 30-second start
+  (no-install / install / orchestrated), an install-&-use matrix for Claude Code, Codex,
+  Cursor, Pi, `gh skill`/generic `.agents/skills`, and standalone agents, a before/after
+  example, a packaging/structure map with progressive disclosure, a runnable proof/evidence
+  section, and release/pinning + trust guidance. Marketplace/`gh skill install` framed as
+  conditional on a published release (no overclaiming).
+- Added a lightweight, dependency-free CI workflow (`.github/workflows/evals.yml`) running
+  `py_compile`, `check-config`, `eval-cases`, and `run_evals.py` on push and PR, so the
+  "evals pass" claim is continuously verifiable.
+- No behavior change to `scripts/quality_loop.py` or the gates; all prior validation fixes
+  intact (9/9 static eval cases and 15/15 behavioral gate cases still pass).
+
 ## 1.2.1
 
 - **Deep artifact validation** in `verify-gates`: the validation contract and completion record

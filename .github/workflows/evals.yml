@@ -1,0 +1,23 @@
+name: evals
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Byte-compile helper and eval harness
+        run: python3 -m py_compile scripts/*.py evals/*.py
+      - name: Validate example orchestration config
+        run: python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
+      - name: Run static eval cases
+        run: python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
+      - name: Run behavioral eval harness
+        run: python3 evals/run_evals.py

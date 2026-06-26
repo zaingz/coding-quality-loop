@@ -1,207 +1,221 @@
 # Coding Quality Loop
 
-`coding-quality-loop` is a portable, **agentic-first** Agent Skill for turning high-level
-software goals into small, verified, independently reviewed code changes — with the right
-model on each step.
+**Bounded autonomy for coding agents.** Stop agents from turning a vague ticket into a big,
+unverified diff — make them ship the *smallest correct change* with a task contract, validation
+evidence, and an independent fresh-context review.
 
-It is an **engineering operating system** for coding agents, not just a better prompt. It is
-built from five durable parts:
+`coding-quality-loop` is a portable [Agent Skill](https://agentskills.io/specification): one
+`SKILL.md` plus optional `assets/`, `references/`, `scripts/`, and `evals/`. It works as a
+copy-paste prompt, a loadable skill, or a multi-agent orchestration config — on Claude Code,
+Codex, Cursor, Pi, and any custom agent runtime.
 
-1. **Durable repo instructions** — `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`.
-2. **Reusable skills** — focused `SKILL.md` workflows with triggers, steps, exit criteria.
-3. **Mission artifacts** — context map, validation contract, plan, execution/decision logs,
-   completion record.
-4. **Independent verification** — implementer and validator are separate for non-trivial work.
-5. **Complexity discipline** — prefer deletion, reuse, stdlib, and native features before new code.
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-blue)
+![Offline evals](https://img.shields.io/badge/offline%20evals-9%2F9%20cases%20%2B%2015%2F15%20gates-brightgreen)
+![Dependencies](https://img.shields.io/badge/runtime%20deps-none%20(stdlib%20only)-lightgrey)
 
-It packages:
+---
 
-- A canonical 10-step lifecycle: intake, context map, spec/validation contract, complexity
-  brake, plan, implement in small slices, verify, independent review, ship/handoff, and
-  retrospective. The orchestration config routes **8 machine steps** (`INTAKE`, `EXPLORE`,
-  `PLAN`, `MINIMALITY_GATE`, `IMPLEMENT_SLICE`, `VERIFY`, `REVIEW`, `PACKAGE`); the two
-  remaining canonical phases — *spec/validation contract* and *retrospective* — are enforced
-  as artifact and rule gates rather than separately routed model steps (see the mapping table
-  in `SKILL.md`).
-- **Task classes** (tiny / small / medium / mission) so a typo never runs mission ceremony and
-  a payment migration never ships without a contract and an independent review.
-- **Agentic orchestration**: each step routes to a role-based agent profile (orchestrator,
-  context mapper, implementer, validator, simplicity reviewer, security reviewer, policy guard).
-- Reference checklists for risk tiering, fresh-context, simplicity, and security review.
-- Tool contracts for repo mapping, verification runners, reviewers, security review, policy
-  hooks, and completion records.
-- Templates for the task contract, context map, validation contract, plan, logs, completion
-  record, PR summary, and a baseline `AGENTS.md`.
-- A lightweight helper script plus an offline eval harness.
+## The problem
+
+Autonomous coding agents are useful right up until they aren't. One model does intake,
+architecture, implementation, *and* self-review — so it inflates its own confidence, skips
+evidence, over-engineers, and produces a large diff you can't trust enough to merge or revert.
+
+The fix isn't "more autonomy." It's **bounded autonomy**: explicit scope, deterministic
+evidence, and review by a separate agent. That boundary is the product.
+
+### Before / after
+
+A risky one-liner like *"fix the checkout retry bug"* normally becomes a sprawling diff with a
+"looks right to me" sign-off. With this loop it becomes:
+
+| Step | What the agent produces |
+|---|---|
+| Task contract | goal, acceptance criteria, constraints, risk tier (`medium`) |
+| Context map | the 2–3 relevant files, callers, and tests — not the whole tree |
+| Minimality decision | smallest safe "rung" chosen; bigger rewrites explicitly rejected |
+| Small diff | one focused change, existing conventions, no new deps |
+| Verification evidence | failing-then-passing regression test + typecheck, recorded |
+| Independent review | a *separate* agent checks the diff against the contract → approve |
+| Handoff | PR summary with evidence table, risk note, and a one-line rollback |
+
+See it end to end in [`examples/walkthrough/`](examples/walkthrough/README.md).
+
+### Who it's for
+
+Issue-to-PR agents, autonomous coding agents, repo-aware assistants, and multi-agent
+engineering workflows — and the teams who need those changes to be reviewable and reversible.
+
+### When *not* to use it
+
+Tiny tasks stay tiny. A typo or one-line config edit runs the smallest possible loop with **no
+mission artifacts** — the skill matches ceremony to risk and refuses process theater (see
+[Task Classes](SKILL.md#task-classes-default-to-the-smallest-that-is-safe)).
+
+---
+
+## 30-second start
+
+No install required — paste the skill into one rule/system prompt and invoke it:
+
+```bash
+# Option A — no install: copy the skill into your agent's instructions and prompt it
+#   "Follow the Coding Quality Loop. Ship the smallest correct change with validation evidence."
+
+# Option B — install as a portable Agent Skill (works on Pi, Codex, and any skills-aware host)
+cp -r . ~/.agents/skills/coding-quality-loop
+
+# Option C — drive the orchestrated, multi-agent config from any runtime
+python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
+```
+
+Then invoke it: *"Follow the Coding Quality Loop to fix the invoice rounding bug and open a PR."*
+
+---
+
+## Install & use matrix
+
+Pick your host. Full copy-paste files live in [`examples/`](examples/). All paths below are real
+files in this repo.
+
+| Host | Install | Invoke |
+|---|---|---|
+| **Claude Code** | `cp examples/claude-code/CLAUDE.md ./CLAUDE.md` (or `/init`, then paste the loop) | `claude "Follow the Coding Quality Loop to fix the failing test and open a PR."` |
+| **Codex** | `cp examples/codex/AGENTS.md ./AGENTS.md` | `codex "Follow the Coding Quality Loop in AGENTS.md to fix the bug."` |
+| **Cursor** | `cp -r examples/cursor/.cursor ./.cursor` → rule at `.cursor/rules/coding-quality-loop.mdc` | in chat: `@coding-quality-loop fix the retry bug with verification evidence` |
+| **Pi** | `cp -r . ~/.agents/skills/coding-quality-loop` (or in-repo `.agents/skills/`) | `/skill:coding-quality-loop implement the change with a validation contract and independent review` |
+| **Standalone / custom agent** | route each step from `assets/quality-loop.config.example.json` | follow [`examples/standalone/run-quality-loop.md`](examples/standalone/run-quality-loop.md) |
+| **GitHub `gh skill` / generic `.agents/skills`** | copy the folder into `.agents/skills/coding-quality-loop/`; `gh skill install` works once a release is published (see [Release & pinning](#release--pinning)) | host-native invocation (`/skill:`, `$skill`, etc.) |
+
+> **Honesty note:** this repo is **not** yet published to a plugin marketplace, and
+> `gh skill install zaingz/coding-quality-loop` only works after a maintainer publishes and
+> validates a release. The copy-to-folder paths above always work today.
+
+### Install vs. no-install
+
+- **No install** — paste the [Minimal Drop-In Prompt](SKILL.md#minimal-drop-in-prompt) or a host
+  rule file. Zero scripts, zero config. Best for trying it on one task.
+- **Install** — copy the skill folder so the agent can pull `references/`, `assets/` templates,
+  and the state-record schema *on demand* via progressive disclosure. Best for repeated use.
+- **Orchestrated** — adopt `assets/quality-loop.config.example.json` and route each lifecycle
+  step to a role-based agent profile. Best for multi-agent / production setups.
+
+---
+
+## What's in the box (packaging & structure)
+
+A single Agent Skill package following the open
+[Agent Skills specification](https://agentskills.io/specification): `SKILL.md` at the root plus
+optional sibling folders. **Progressive disclosure** is the core mechanism — the agent sees the
+frontmatter `name`/`description` always, loads the full `SKILL.md` when relevant, and pulls
+references/assets/scripts only when a step needs them.
+
+```
+coding-quality-loop/
+├── SKILL.md            # the skill: when-to-use, lifecycle, task classes, roles, gates
+├── assets/             # templates + schemas loaded on demand (task contract, validation
+│                       #   contract, plan, logs, completion record, PR summary, config schema)
+├── references/         # deep-dive docs pulled only when needed (lifecycle, orchestration,
+│                       #   reviewer checklists, tool contracts, engineering-OS rationale)
+├── examples/           # host-native copy-paste files: claude-code, codex, cursor, pi,
+│                       #   standalone, and a full before/after walkthrough
+├── evals/              # offline eval cases + harness that prove the gates actually fire
+└── scripts/            # quality_loop.py — stdlib-only helper (no third-party deps)
+```
+
+Because the package is self-contained and dependency-free, copying the folder into any
+skills-aware host *is* the install. There is no build step.
+
+---
 
 ## Why agentic-first
 
-One model doing intake, architecture, implementation, and self-review is the common failure
-mode: it inflates its own confidence and skips evidence. This skill splits the loop into
-role-based profiles (`orchestrator`, `context_mapper`, `planner`, `minimality_reviewer`,
+One model grading its own work is the common failure mode. This skill splits the loop into
+role-based profiles — `orchestrator`, `context_mapper`, `planner`, `minimality_reviewer`,
 `implementer`, `verification_runner`, `fresh_reviewer`/`validator`, `security_reviewer`,
-`packager`, `policy_guard`) and lets you map each role to the best available model. Defaults
-stay simple — **one implementer + one independent validator + deterministic policy hooks** —
-and you add specialized agents only when risk justifies it. See
-`references/agentic-orchestration.md` and `references/engineering-operating-system.md`.
+`packager`, `policy_guard` — and lets you map each role to the best available model. Defaults
+stay simple: **one implementer + one independent validator + deterministic policy hooks.** Add
+specialized agents only when risk justifies it. See
+[`references/agentic-orchestration.md`](references/agentic-orchestration.md) and
+[`references/engineering-operating-system.md`](references/engineering-operating-system.md).
 
-## One-line usage by platform
+The canonical 10-step lifecycle (intake, context map, spec/validation contract, complexity
+brake, plan, implement in small slices, verify, independent review, ship/handoff, retrospective)
+routes **8 machine steps** (`INTAKE`, `EXPLORE`, `PLAN`, `MINIMALITY_GATE`, `IMPLEMENT_SLICE`,
+`VERIFY`, `REVIEW`, `PACKAGE`); the *spec/validation contract* and *retrospective* phases are
+enforced as artifact and rule gates rather than separately routed model steps (mapping table in
+`SKILL.md`).
 
-Drop the skill in, then invoke it. These are starting points; full copy-paste files live in
-`examples/`.
+---
 
-**Claude Code** — add the loop to project memory, then run:
+## Proof / evidence
 
-```bash
-cp examples/claude-code/CLAUDE.md ./CLAUDE.md   # or run /init then paste the loop
-claude "Follow the Coding Quality Loop to fix the invoice rounding bug and open a PR."
-```
-
-**Codex** — the loop lives in `AGENTS.md`:
-
-```bash
-cp examples/codex/AGENTS.md ./AGENTS.md
-# Keep Codex's default approval/sandbox prompts for risk-boundary changes; only loosen
-# them for trusted, low-risk tasks.
-codex "Follow the Coding Quality Loop in AGENTS.md to fix the failing test."
-```
-
-**Cursor** — project rule in `.cursor/rules`:
+The differentiator is that the gates are **executable**, not advisory. `scripts/quality_loop.py`
+is a portable, stdlib-only checker you can run right now:
 
 ```bash
-cp -r examples/cursor/.cursor ./.cursor
-# Then in chat: @coding-quality-loop fix the retry bug with verification evidence
+# 1. Byte-compile the helper and eval harness
+python3 -m py_compile scripts/*.py evals/*.py
+
+# 2. Validate the orchestration config
+python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
+
+# 3. Run the static eval cases (one per risk/behavior scenario)
+python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
+
+# 4. Run the behavioral eval harness (asserts each gate fires for the right reason)
+python3 evals/run_evals.py
 ```
 
-**Pi** — install as a skill, invoke with `/skill:`:
+Current result on a clean checkout: **9/9 static eval cases pass** and **15/15 behavioral
+gate cases pass.** The cases cover real scenarios rather than generic productivity claims:
+
+- low-risk docs change, medium multifile behavior change, high-risk migration + security escalation
+- the over-engineering trap (minimality brake catches an unnecessary dependency)
+- tiny task that must *not* require mission artifacts
+- medium work that requires a validation contract + independent review
+- security boundary that triggers a distinct reviewer and a hard gate
+- a repeated mistake that must become a durable harness update
+
+A lightweight, dependency-free GitHub Actions workflow
+([`.github/workflows/evals.yml`](.github/workflows/evals.yml)) runs all four checks on every push
+and PR, so the "evals pass" claim is continuously verifiable.
+
+### Per-record gates
+
+For medium/high-risk work, create and audit a state record:
 
 ```bash
-cp -r . ~/.agents/skills/coding-quality-loop   # or .agents/skills/ in-repo
-# Then in Pi: /skill:coding-quality-loop implement the change with a validation contract and independent review
+python3 scripts/quality_loop.py init-record --goal "Fix checkout retry bug" --risk-tier medium --output agent-record.json
+python3 scripts/quality_loop.py diff-audit --base origin/main
+python3 scripts/quality_loop.py verify-gates agent-record.json
 ```
 
-**Standalone / custom agent** — drive the steps from config:
-
-```bash
-python scripts/quality_loop.py check-config assets/quality-loop.config.example.json
-# Then route each step per examples/standalone/run-quality-loop.md
-```
-
-## Quick adoption paths
-
-Pick the smallest path that fits your risk and tooling:
-
-1. **Instruction-only** — paste the [Minimal Drop-In Prompt](SKILL.md#minimal-drop-in-prompt)
-   into one rule/system prompt. No scripts, no config.
-2. **Skill package** — load `SKILL.md` plus `references/` and `assets/` so the agent can pull
-   checklists, templates, and the state-record schema on demand.
-3. **Orchestrated multi-agent** — adopt `assets/quality-loop.config.example.json` and route
-   each lifecycle step to a role-based profile (see `references/agentic-orchestration.md`).
-4. **Enforced production mode** — add deterministic `policy_guard` hooks for secrets,
-   destructive migrations, auth/billing, and diff-size limits, and require human approval on
-   high-risk steps.
-
-## Quick start
-
-1. Load `SKILL.md` into your agent or copy the minimal drop-in prompt.
-2. For medium/high-risk work, create a state record:
-
-   ```bash
-   python scripts/quality_loop.py init-record --goal "Fix checkout retry bug" --risk-tier medium --output agent-record.json
-   ```
-
-3. Follow the lifecycle:
-
-   ```text
-   INTAKE -> EXPLORE -> PLAN -> MINIMALITY_GATE -> IMPLEMENT_SLICE -> VERIFY -> REVIEW -> PACKAGE
-   ```
-
-4. Audit the diff and verification record before handoff:
-
-   ```bash
-   python scripts/quality_loop.py diff-audit --base origin/main
-   python scripts/quality_loop.py verify-gates agent-record.json
-   ```
-
-5. Validate config and run the offline evals:
-
-   ```bash
-   python scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
-   ```
-
-## A real walkthrough
-
-`examples/walkthrough/` shows a bug fix moving through the full loop — task contract,
-minimality decision, verification evidence, and fresh-context review — with the matching
-state record in `examples/walkthrough/agent-record.json`.
-
-## How this maps to official docs
-
-The skill is portable but aligns with how today's agent platforms load instructions and
-enforce policy:
-
-- **Claude Code memory** — project/user/local `CLAUDE.md`, `.claude/rules/`, `@path` imports,
-  and `/init`; keep `CLAUDE.md` concise (~200 lines) and use path-scoped rules as it grows.
-  https://docs.anthropic.com/en/docs/claude-code/memory
-- **Claude Code hooks** — `PreToolUse` / `PostToolUse` / `Stop` hooks in a shareable
-  `.claude/settings.json` are the deterministic `policy_guard`.
-  https://docs.anthropic.com/en/docs/claude-code/hooks
-- **Codex AGENTS.md** — global `~/.codex/AGENTS.md`, project `AGENTS.md`, and nested
-  overrides. https://developers.openai.com/codex/guides/agents-md
-- **Codex skills** — `SKILL.md` directories with optional scripts/references/assets, invoked
-  with `$skill` or implicitly; progressive disclosure keeps context small.
-  https://developers.openai.com/codex/skills
-- **Codex customization** — `AGENTS.md`, memories, skills, MCP, and role-specialized
-  subagents pair workflow definitions with external systems.
-  https://developers.openai.com/codex/concepts/customization
-- **Cursor rules** — `.cursor/rules` in `.mdc` format with Always / Auto Attached /
-  Agent Requested / Manual rule types, referenced via `@ruleName`.
-  https://docs.cursor.com/en/context/rules
-- **Pi skills** — loaded from `~/.pi/agent/skills/`, `~/.agents/skills/`, `.pi/skills/`,
-  `.agents/skills/`, or settings; registered as `/skill:name` with progressive disclosure.
-  https://pi.dev/docs/latest/skills
-- **Anthropic Agent Skills** — `SKILL.md` folders with optional scripts/resources and
-  progressive disclosure (metadata first, full instructions when relevant, extra files on
-  demand). https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills
-
-The thinking behind the design draws on:
-
-- **Factory Missions architecture** — long, broad work split into focused units with fresh
-  agents, shared state, validation contracts, and orchestrator/worker/validator roles.
-  https://factory.ai/news/missions-architecture
-- **Aider repo map** — concise maps of important files/symbols/signatures beat reading the
-  whole tree, so agents request depth on demand. https://aider.chat/docs/repomap.html
-- **OpenAI Agent Improvement Loop** — the harness (instructions, tools, routing, output
-  requirements, validation checks) is the unit of improvement; traces and evals drive ranked,
-  durable changes. https://developers.openai.com/cookbook/examples/agents_sdk/agent_improvement_loop
-- **Codex best practices** — a configurable teammate with goal/context/constraints/done-when;
-  short accurate guidance beats long vague guidance; add tools only when they remove a real
-  manual loop. https://developers.openai.com/codex/learn/best-practices
+---
 
 ## What the helper enforces (and what it does not)
 
-`scripts/quality_loop.py` is a portable, stdlib-only checker that complements — but does not
-replace — CI, tests, security scanners, and human review. Be precise about what its gates
-actually verify.
+`scripts/quality_loop.py` complements — it does **not** replace — CI, tests, security scanners,
+and human review. Be precise about what its gates actually verify.
 
-**Enforced today (`verify-gates` / `check-record` on a state record):**
+**Enforced today (`verify-gates` / `check-record`):**
 
-- Non-trivial work (medium/mission task class, medium/high risk, or security-sensitive)
-  requires a named implementer, a validation contract, an independent review, and — at
-  `package`/`done` — a completion record.
+- Non-trivial work (medium/mission class, medium/high risk, or security-sensitive) requires a
+  named implementer, a validation contract, an independent review, and — at `package`/`done` —
+  a completion record.
 - **Deep artifact validation.** A validation contract or completion record is accepted only if
-  it is a string path to a file that actually exists, or an inline object that contains real
-  content (goal, acceptance criteria, and evidence fields). Bare booleans, numbers, empty
-  strings, nonexistent paths, and shape-only placeholder objects (e.g. `{"placeholder":"yes"}`)
-  are rejected.
+  it is a string path to a file that exists, or an inline object with real content (goal,
+  acceptance criteria, evidence). Bare booleans, numbers, empty strings, nonexistent paths, and
+  shape-only placeholders (e.g. `{"placeholder":"yes"}`) are rejected.
 - **Independent review integrity.** The reviewer must be named, distinct from the implementer,
   working with fresh context, must not have patched the code, and must record an approving
   verdict with no unresolved blocking findings. High-risk/security-sensitive work additionally
   requires a distinct security review.
 - **Repeated-failure → durable harness change.** If a record sets `repeated_failure: true` or
-  `repair_attempts >= 2`, it must also carry a `harness_update` (a rule/test/hook/checklist/
-  template change) as retrospective evidence. A clean final record can no longer hide a
-  repeated mistake that was only corrected in chat.
+  `repair_attempts >= 2`, it must carry a `harness_update` (a rule/test/hook/checklist/template
+  change) as retrospective evidence — so a clean final record cannot hide a repeated mistake
+  that was only corrected in chat.
 - Risk-tier-appropriate executable checks, no failed/unclassified commands, a recorded
   minimality decision, and `diff-audit` flags for secrets, dependency edits, migrations, and
   oversized diffs.
@@ -212,16 +226,66 @@ actually verify.
   *evidence* of those runs is present and well-formed.
 - Reviewer/implementer identity is compared as trimmed strings; it is not verified against
   session or cryptographic provenance, and fresh context is self-attested.
-- It is **not** a full mission-agent runtime: there is no automatic recovery, telemetry,
-  trace ingestion, or git-based worker handoff. The orchestration config describes routing for
-  8 machine steps; wiring those to real models/sessions is the host platform's job.
+- It is **not** a full mission-agent runtime: no automatic recovery, telemetry, trace ingestion,
+  or git-based worker handoff. The config describes routing for 8 machine steps; wiring those to
+  real models/sessions is the host platform's job.
 - Deterministic blocking of dangerous tool calls (the `policy_guard`) is documented but must be
-  wired as host hooks (e.g. Claude Code `PreToolUse`/`Stop`); the helper does not intercept
-  tool calls itself.
+  wired as host hooks (e.g. Claude Code `PreToolUse`/`Stop`); the helper does not intercept tool
+  calls itself.
+
+---
+
+## Release & pinning
+
+Skills are executable instruction/resource bundles, so treat them like any dependency:
+
+- **Inspect before you install.** Read `SKILL.md` and `scripts/quality_loop.py` — there is no
+  hidden network access or build step; the helper is stdlib-only.
+- **Pin for team use.** Install from a tagged release or a pinned tree SHA rather than a moving
+  branch, so everyone's agents load the same gates. The current packaged version is recorded in
+  `SKILL.md` frontmatter (`metadata.version`) and tracked in [`CHANGELOG.md`](CHANGELOG.md).
+- **Enforce the non-negotiables with hooks.** Advisory text is not a guarantee — wire the
+  `policy_guard` rules (secrets, destructive migrations, auth/billing, diff-size limits) as
+  deterministic host hooks for anything you cannot afford an agent to get wrong.
+
+---
+
+## How this maps to official docs
+
+Portable, but aligned with how today's platforms load instructions and enforce policy:
+
+- **Claude Code memory** — project/user/local `CLAUDE.md`, `.claude/rules/`, `@path` imports,
+  `/init`. https://docs.anthropic.com/en/docs/claude-code/memory
+- **Claude Code hooks** — `PreToolUse` / `PostToolUse` / `Stop` hooks in a shareable
+  `.claude/settings.json` are the deterministic `policy_guard`.
+  https://docs.anthropic.com/en/docs/claude-code/hooks
+- **Codex `AGENTS.md`** — global `~/.codex/AGENTS.md`, project `AGENTS.md`, nested overrides.
+  https://developers.openai.com/codex/guides/agents-md
+- **Codex skills** — `SKILL.md` directories with optional scripts/references/assets; progressive
+  disclosure keeps context small. https://developers.openai.com/codex/skills
+- **Cursor rules** — `.cursor/rules` in `.mdc` format (Always / Auto Attached / Agent Requested /
+  Manual), referenced via `@ruleName`. https://docs.cursor.com/en/context/rules
+- **Pi skills** — loaded from `~/.pi/agent/skills/`, `~/.agents/skills/`, `.pi/skills/`,
+  `.agents/skills/`, or settings; registered as `/skill:name`. https://pi.dev/docs/latest/skills
+- **Anthropic Agent Skills** — `SKILL.md` folders with optional scripts/resources and progressive
+  disclosure. https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills
+- **Agent Skills specification** — the open, cross-agent package shape this repo targets.
+  https://agentskills.io/specification
+
+The design also draws on Factory Missions (long work split into focused units with fresh agents
+and validation contracts), the Aider repo map (concise maps beat context stuffing), and the
+OpenAI agent improvement loop (the harness is the unit of improvement).
+
+---
 
 ## Philosophy
 
-The goal is bounded autonomy: small diffs, explicit contracts, deterministic evidence, and
-fresh-context review by an independent agent. The loop should not overcomplicate by default,
-and it should never claim success without verification evidence or a clear explanation of
-blocked checks.
+The goal is **bounded autonomy**: small diffs, explicit contracts, deterministic evidence, and
+fresh-context review by an independent agent. The loop should not overcomplicate by default, and
+it should never claim success without verification evidence or a clear explanation of blocked
+checks. The agent's job is not to maximize autonomy — it is to produce the smallest correct
+change with enough evidence that a human can trust, review, revert, or merge it.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
