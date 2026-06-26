@@ -21,3 +21,10 @@ jobs:
         run: python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
       - name: Run behavioral eval harness
         run: python3 evals/run_evals.py
+      - name: Gate example records (showcase must pass its own gate)
+        run: |
+          for rec in examples/*/agent-record.json; do
+            echo "== $rec =="
+            python3 scripts/quality_loop.py check-record "$rec"
+            python3 scripts/quality_loop.py verify-gates "$rec"
+          done

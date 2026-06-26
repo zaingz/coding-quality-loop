@@ -4,9 +4,13 @@ A real, end-to-end example of a **medium-risk bug fix** moving through the Codin
 Loop. The matching state record is `agent-record.json` in this folder; validate it with:
 
 ```bash
-python ../../scripts/quality_loop.py check-record agent-record.json
-python ../../scripts/quality_loop.py verify-gates agent-record.json
+python3 ../../scripts/quality_loop.py check-record agent-record.json
+python3 ../../scripts/quality_loop.py verify-gates agent-record.json
 ```
+
+This record passes **both** commands (exit 0): the showcase satisfies the same gate it
+teaches. CI re-runs `check-record` and `verify-gates` on every record under `examples/`, so
+the showcase can never silently drift out of compliance again.
 
 ## The bug
 
