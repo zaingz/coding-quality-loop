@@ -1,0 +1,326 @@
+#!/usr/bin/env python3
+"""Record-gate eval harness for the Coding Quality Loop.
+
+These cases exercise the *runtime* record gates in `scripts/quality_loop.py`
+(`verify-gates`, `check-record`, `diff-audit`) against constructed agent
+records. They complement the static intake-derivation cases in `evals/cases/`
+(run with `quality_loop.py eval-cases`), which assert `evaluate_input`.
+
+Run: python evals/run_evals.py   (exits non-zero if any case fails)
+
+Cases (safety-hardening behaviors enforced on actual records):
+  1. tiny work does NOT require mission artifacts
+  2. medium work requires a validation contract and independent review
+  3. security/high work requires a DISTINCT security review (a passing
+     class=security command is not sufficient); an approving review satisfies it
+  4. complexity brake catches an unnecessary dependency
+  5. the implementer cannot be the final validator
+  6. a repeated mistake triggers a durable retrospective harness update (docs)
+  7. package status without a completion record fails (shipping gate)
+  8. a rejected independent review fails
+  9. missing implementer fails
+ 10. boolean validation/completion placeholders fail
+ 11. malformed commands_run fails cleanly without crashing
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SCRIPT = ROOT / "scripts" / "quality_loop.py"
+
+PASS = "PASS"
+FAIL = "FAIL"
+
+
+def run_cli(*args: str, cwd: str | None = None) -> tuple[int, str, str]:
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), *args],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        check=False,
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def base_record(**overrides) -> dict:
+    record = {
+        "task_id": "t-eval",
+        "goal": "eval goal",
+        "task_class": None,
+        "risk_tier": "medium",
+        "acceptance_criteria": ["does the thing"],
+        "constraints": [],
+        "non_goals": [],
+        "assumptions": [],
+        "verification_plan": ["unit tests"],
+        "minimality_decision": {"rung": "reuse", "reason": "existing helper covers it"},
+        "plan": ["one slice"],
+        "commands_run": [{"cmd": "pytest", "class": "unit", "result": "pass"}],
+        "open_risks": [],
+        "review_findings": ["fresh-context review: approved"],
+        "implementer": None,
+        "validation_contract": None,
+        "independent_review": None,
+        "security_review": None,
+        "completion_record": None,
+        "security_sensitive": False,
+        "status": "intake",
+    }
+    record.update(overrides)
+    return record
+
+
+def passing_medium(**overrides) -> dict:
+    """A fully compliant medium record that should pass all gates."""
+    record = base_record(
+        risk_tier="medium",
+        task_class="medium",
+        status="done",
+        implementer="agent-a",
+        validation_contract="validation-contract.md",
+        completion_record="completion-record.md",
+        independent_review={
+            "reviewer": "agent-b",
+            "verdict": "approve",
+            "fresh_context": True,
+            "patched": False,
+            "findings": [],
+        },
+    )
+    record.update(overrides)
+    return record
+
+
+def verify_gates(tmp: Path, record: dict) -> tuple[int, str]:
+    path = tmp / "record.json"
+    path.write_text(json.dumps(record))
+    code, out, err = run_cli("verify-gates", str(path))
+    return code, out + err
+
+
+def check_record(tmp: Path, record: dict) -> tuple[int, str]:
+    path = tmp / "record.json"
+    path.write_text(json.dumps(record))
+    code, out, err = run_cli("check-record", str(path))
+    return code, out + err
+
+
+# --- Cases -----------------------------------------------------------------
+
+
+def case_tiny_no_artifacts(tmp: Path) -> tuple[bool, str]:
+    record = base_record(
+        risk_tier="low",
+        task_class="tiny",
+        commands_run=[{"cmd": "pytest test_x.py", "class": "unit", "result": "pass"}],
+        status="done",
+    )
+    code, output = verify_gates(tmp, record)
+    ok = code == 0 and "validation_contract" not in output and "completion_record" not in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_medium_requires_contract_and_review(tmp: Path) -> tuple[bool, str]:
+    incomplete = base_record(
+        risk_tier="medium",
+        task_class="medium",
+        status="review",
+    )
+    code_i, out_i = verify_gates(tmp, incomplete)
+    needs_contract = "validation_contract" in out_i
+    needs_review = "independent_review" in out_i
+    incomplete_fails = code_i == 1 and needs_contract and needs_review
+
+    code_c, out_c = verify_gates(tmp, passing_medium())
+    complete_passes = code_c == 0
+
+    ok = incomplete_fails and complete_passes
+    return ok, f"incomplete(exit={code_i},contract={needs_contract},review={needs_review}); complete(exit={code_c}: {out_c.strip()!r})"
+
+
+def case_security_requires_distinct_review(tmp: Path) -> tuple[bool, str]:
+    # A passing class=security command is NOT sufficient on its own.
+    self_attested = passing_medium(
+        risk_tier="high",
+        task_class="mission",
+        security_sensitive=True,
+        open_risks=["auth path"],
+        commands_run=[
+            {"cmd": "pytest", "class": "unit", "result": "pass"},
+            {"cmd": "self security scan", "class": "security", "result": "pass"},
+        ],
+        security_review=None,
+    )
+    code_s, out_s = verify_gates(tmp, self_attested)
+    self_fails = code_s == 1 and "security_review" in out_s
+
+    # A distinct, approving security review satisfies the hard gate.
+    reviewed = passing_medium(
+        risk_tier="high",
+        task_class="mission",
+        security_sensitive=True,
+        open_risks=["auth path"],
+        commands_run=[
+            {"cmd": "pytest", "class": "unit", "result": "pass"},
+            {"cmd": "semgrep", "class": "security", "result": "pass"},
+        ],
+        security_review={
+            "reviewer": "sec-c",
+            "verdict": "approve",
+            "fresh_context": True,
+            "patched": False,
+        },
+    )
+    code_r, out_r = verify_gates(tmp, reviewed)
+    reviewed_passes = code_r == 0
+
+    ok = self_fails and reviewed_passes
+    return ok, f"self-attested(exit={code_s},flagged={('security_review' in out_s)}); reviewed(exit={code_r}: {out_r.strip()!r})"
+
+
+def case_complexity_brake_dependency(tmp: Path) -> tuple[bool, str]:
+    repo = tmp / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    git("init")
+    git("config", "user.email", "eval@example.com")
+    git("config", "user.name", "eval")
+    (repo / "main.py").write_text("print('hi')\n")
+    git("add", "main.py")
+    git("commit", "-m", "base")
+
+    (repo / "requirements.txt").write_text("leftpad==1.0.0\n")
+    git("add", "requirements.txt")
+
+    code, out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(repo))
+    ok = code == 1 and "dependency files changed" in out
+    return ok, f"exit={code}; output={out.strip()!r}"
+
+
+def case_implementer_cannot_validate(tmp: Path) -> tuple[bool, str]:
+    record = passing_medium(
+        independent_review={
+            "reviewer": "agent-a",  # same as implementer
+            "verdict": "approve",
+            "fresh_context": True,
+            "patched": False,
+        },
+    )
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and "cannot be the implementer" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_repeated_mistake_retrospective(tmp: Path) -> tuple[bool, str]:
+    docs = [
+        ROOT / "SKILL.md",
+        ROOT / "references" / "engineering-operating-system.md",
+        ROOT / "references" / "lifecycle.md",
+        ROOT / "references" / "agentic-orchestration.md",
+        ROOT / "assets" / "AGENTS.template.md",
+    ]
+    text = "\n".join(d.read_text().lower() for d in docs if d.exists())
+    must_have = ["retrospective", "repeated mistake", "durable harness", "agents.md", "hooks"]
+    missing = [m for m in must_have if m not in text]
+    return (not missing), (f"missing={missing}" if missing else "all retrospective signals present")
+
+
+def case_package_requires_completion_record(tmp: Path) -> tuple[bool, str]:
+    record = passing_medium(status="package", completion_record=None)
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and "completion_record" in output and "package" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_rejected_review_fails(tmp: Path) -> tuple[bool, str]:
+    record = passing_medium(
+        independent_review={
+            "reviewer": "agent-b",
+            "verdict": "request_changes",
+            "fresh_context": True,
+            "patched": False,
+        },
+    )
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and "not approving" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_missing_implementer_fails(tmp: Path) -> tuple[bool, str]:
+    record = passing_medium(implementer=None)
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and "named implementer" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_boolean_placeholders_fail(tmp: Path) -> tuple[bool, str]:
+    # check-record rejects bare booleans explicitly; verify-gates treats them as no evidence.
+    record = passing_medium(validation_contract=True, completion_record=True)
+    code_c, out_c = check_record(tmp, record)
+    check_flags = code_c == 1 and "validation_contract" in out_c and "completion_record" in out_c
+
+    code_g, out_g = verify_gates(tmp, record)
+    gate_flags = code_g == 1 and "validation_contract" in out_g and "completion_record" in out_g
+
+    ok = check_flags and gate_flags
+    return ok, f"check(exit={code_c},flags={check_flags}); gate(exit={code_g},flags={gate_flags})"
+
+
+def case_malformed_commands_no_crash(tmp: Path) -> tuple[bool, str]:
+    record = passing_medium(commands_run=["not-a-dict", 123, {"cmd": "x", "result": "bogus"}])
+    code, output = verify_gates(tmp, record)
+    crashed = "Traceback" in output
+    ok = code == 1 and not crashed and "malformed" in output
+    return ok, f"exit={code}; crashed={crashed}; output={output.strip()!r}"
+
+
+CASES = [
+    ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
+    ("medium work requires validation contract and independent review", case_medium_requires_contract_and_review),
+    ("security/high work requires a distinct security review", case_security_requires_distinct_review),
+    ("complexity brake catches unnecessary dependency", case_complexity_brake_dependency),
+    ("implementer cannot be the final validator", case_implementer_cannot_validate),
+    ("repeated mistake triggers retrospective harness update", case_repeated_mistake_retrospective),
+    ("package status without completion record fails", case_package_requires_completion_record),
+    ("rejected independent review fails", case_rejected_review_fails),
+    ("missing implementer fails", case_missing_implementer_fails),
+    ("boolean validation/completion placeholders fail", case_boolean_placeholders_fail),
+    ("malformed commands_run fails cleanly without crashing", case_malformed_commands_no_crash),
+]
+
+
+def main() -> int:
+    failures = 0
+    for name, fn in CASES:
+        with tempfile.TemporaryDirectory() as td:
+            try:
+                ok, detail = fn(Path(td))
+            except Exception as exc:  # noqa: BLE001 - eval harness surfaces any error
+                ok, detail = False, f"exception: {exc!r}"
+        status = PASS if ok else FAIL
+        if not ok:
+            failures += 1
+        print(f"[{status}] {name}\n        {detail}")
+    total = len(CASES)
+    print(f"\n{total - failures}/{total} eval cases passed")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

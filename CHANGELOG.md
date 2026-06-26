@@ -32,6 +32,22 @@
   Skills, Factory Missions, Aider repo map, OpenAI Agent Improvement Loop, Pi, and Codex docs.
 - Bumped routing config to 1.2.0 (added orchestrator + security_reviewer profiles).
 
+Safety hardening (runtime record gates):
+
+- `verify-gates` now enforces the operating-system concepts against an actual agent
+  record, not just the static intake derivation: non-trivial work requires a named
+  `implementer`, a `validation_contract` with evidence, and an approving
+  `independent_review` whose reviewer differs from the implementer; `package`/`done`
+  require a `completion_record` with evidence; high-risk / `security_sensitive` work
+  requires a distinct approving `security_review` artifact (a self-run `class=security`
+  command no longer satisfies the gate).
+- `validation_contract` / `completion_record` must be objects or non-empty
+  paths/strings with evidence, never bare booleans/numbers (schema + `check-record`).
+- `check-record` validates `commands_run` entry shapes and review verdicts;
+  `verify-gates` handles malformed `commands_run` defensively (fails cleanly, no crash).
+- Added `evals/run_evals.py`: 11 record-gate cases covering the behaviors above,
+  complementing the static `eval-cases` intake-derivation suite in `evals/cases/`.
+
 ## 1.1.0
 
 - Made the skill agentic-first: each lifecycle step can be routed to a role-based agent

@@ -43,6 +43,19 @@ MINIMALITY_RUNGS = {
     "one_liner",
     "minimal_new_code",
 }
+COMMAND_RESULTS = {"pass", "fail", "blocked"}
+APPROVING_VERDICTS = {"approve", "approved"}
+NON_APPROVING_VERDICTS = {
+    "request_changes",
+    "needs_discussion",
+    "fail",
+    "failed",
+    "blocked",
+    "reject",
+    "rejected",
+}
+REVIEW_VERDICTS = APPROVING_VERDICTS | NON_APPROVING_VERDICTS
+BLOCKING_SEVERITIES = {"blocking", "blocker"}
 SECRET_PATTERNS = [
     re.compile(r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*['\"][^'\"]{8,}['\"]"),
     re.compile(r"-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
@@ -83,6 +96,50 @@ MIGRATION_MARKERS = (
 )
 
 
+def has_evidence(value: Any) -> bool:
+    """True only for real evidence: a non-empty path/string or a non-empty object.
+
+    Bare booleans and numbers are placeholders, not evidence, and never satisfy
+    a shipping gate.
+    """
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        return bool(value)
+    return False
+
+
+def review_findings(review: Any, label: str, implementer: Any) -> list[str]:
+    """Findings that block a record on an independent/security review artifact.
+
+    Requires a distinct, named reviewer (not the implementer), an approving
+    verdict, fresh context, no self-patching, and no unresolved blocking findings.
+    """
+    findings: list[str] = []
+    if not isinstance(review, dict):
+        findings.append(f"{label} is required and must be a review object")
+        return findings
+    reviewer = review.get("reviewer") or review.get("validator")
+    if not isinstance(reviewer, str) or not reviewer.strip():
+        findings.append(f"{label} needs a named reviewer")
+    elif isinstance(implementer, str) and reviewer.strip() == implementer.strip():
+        findings.append(f"{label} reviewer cannot be the implementer ({reviewer})")
+    verdict = str(review.get("verdict", "")).lower()
+    if verdict not in APPROVING_VERDICTS:
+        findings.append(f"{label} verdict is not approving (got {review.get('verdict')!r})")
+    if review.get("fresh_context") is not True:
+        findings.append(f"{label} must be done with fresh context")
+    if review.get("patched") is True:
+        findings.append(f"{label} reviewer must not patch the code under review")
+    for finding in review.get("findings", []) or []:
+        if isinstance(finding, dict) and str(finding.get("severity", "")).lower() in BLOCKING_SEVERITIES:
+            findings.append(f"{label} has an unresolved blocking finding")
+            break
+    return findings
+
+
 def load_json(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text())
@@ -111,7 +168,14 @@ def init_record(args: argparse.Namespace) -> int:
         "non_goals": [],
         "assumptions": [],
         "risk_tier": args.risk_tier,
+        "task_class": None,
+        "implementer": None,
+        "security_sensitive": False,
         "verification_plan": [],
+        "validation_contract": None,
+        "independent_review": None,
+        "security_review": None,
+        "completion_record": None,
         "repo_map": {
             "entry_points": [],
             "likely_files": [],
@@ -187,6 +251,44 @@ def check_record(args: argparse.Namespace) -> int:
     ]:
         if array_key in record and not isinstance(record[array_key], list):
             errors.append(f"{array_key} must be an array")
+
+    commands = record.get("commands_run")
+    if isinstance(commands, list):
+        for idx, cmd in enumerate(commands):
+            if not isinstance(cmd, dict):
+                errors.append(f"commands_run[{idx}] must be an object")
+                continue
+            if not isinstance(cmd.get("cmd"), str) or not cmd.get("cmd", "").strip():
+                errors.append(f"commands_run[{idx}].cmd must be a non-empty string")
+            if cmd.get("result") not in COMMAND_RESULTS:
+                errors.append(f"commands_run[{idx}].result must be one of: pass, fail, blocked")
+
+    for artifact_key in ("validation_contract", "completion_record"):
+        value = record.get(artifact_key)
+        if value is None:
+            continue
+        if isinstance(value, (bool, int, float)) and not isinstance(value, str):
+            errors.append(
+                f"{artifact_key} must be an object or a path/string with evidence, "
+                "not a bare boolean/number"
+            )
+        elif isinstance(value, str) and not value.strip():
+            errors.append(f"{artifact_key} must not be an empty string")
+
+    if "implementer" in record and record["implementer"] is not None:
+        if not isinstance(record["implementer"], str) or not record["implementer"].strip():
+            errors.append("implementer must be a non-empty string")
+
+    for review_key in ("independent_review", "security_review"):
+        review = record.get(review_key)
+        if review is None:
+            continue
+        if not isinstance(review, dict):
+            errors.append(f"{review_key} must be an object")
+            continue
+        verdict = str(review.get("verdict", "")).lower()
+        if verdict not in REVIEW_VERDICTS:
+            errors.append(f"{review_key}.verdict must be a recognized review verdict")
 
     if status in {"plan", "minimality_gate", "implement", "verify", "review", "package", "done"}:
         if not record.get("acceptance_criteria"):
@@ -288,17 +390,54 @@ def verify_gates(args: argparse.Namespace) -> int:
     record = load_json(Path(args.record))
     risk = record.get("risk_tier")
     status = record.get("status")
-    commands = record.get("commands_run", [])
+    task_class = record.get("task_class")
+    implementer = record.get("implementer")
+    security_sensitive = bool(record.get("security_sensitive"))
+    raw_commands = record.get("commands_run", [])
+    findings: list[str] = []
+    soft_warnings: list[str] = []
+
+    # Defensive: tolerate malformed commands_run without crashing.
+    commands = [c for c in raw_commands if isinstance(c, dict)] if isinstance(raw_commands, list) else []
+    malformed = (len(raw_commands) - len(commands)) if isinstance(raw_commands, list) else 1
+    if malformed:
+        findings.append(f"{malformed} malformed command entry(ies) in commands_run")
+
     command_classes = {cmd.get("class") for cmd in commands if cmd.get("result") == "pass"}
     blocked = [cmd for cmd in commands if cmd.get("result") == "blocked"]
     failed = [cmd for cmd in commands if cmd.get("result") == "fail"]
     missing_class = [cmd for cmd in commands if not cmd.get("class")]
-    findings: list[str] = []
+
+    non_trivial = (
+        task_class in {"medium", "mission"}
+        or risk in {"medium", "high"}
+        or security_sensitive
+    )
+    if task_class is None:
+        soft_warnings.append("task_class is unset; defaulting to risk-tier-derived gates")
 
     if failed:
         findings.append(f"{len(failed)} verification command(s) failed")
     if missing_class:
         findings.append(f"{len(missing_class)} command(s) missing class field")
+
+    if non_trivial:
+        if not isinstance(implementer, str) or not implementer.strip():
+            findings.append("non-trivial work requires a named implementer")
+        if not has_evidence(record.get("validation_contract")):
+            findings.append("non-trivial work requires a validation_contract with evidence")
+        findings.extend(
+            review_findings(record.get("independent_review"), "independent_review", implementer)
+        )
+        if status in {"package", "done"} and not has_evidence(record.get("completion_record")):
+            findings.append(
+                f"non-trivial work at status '{status}' requires a completion_record with evidence"
+            )
+
+    if security_sensitive or risk == "high":
+        findings.extend(
+            review_findings(record.get("security_review"), "security_review", implementer)
+        )
 
     if status in {"implement", "verify", "review", "package", "done", "iterating"} and not record.get("minimality_decision"):
         findings.append("minimality_decision is required before implementation can pass gates")
@@ -327,6 +466,9 @@ def verify_gates(args: argparse.Namespace) -> int:
 
     if blocked:
         findings.append(f"{len(blocked)} verification command(s) blocked; ensure rationale is recorded")
+
+    for note in soft_warnings:
+        print(f"note: {note}")
 
     if findings:
         for finding in findings:
