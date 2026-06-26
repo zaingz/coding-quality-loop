@@ -11,7 +11,7 @@ Codex, Cursor, Pi, and any custom agent runtime.
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-blue)
-![Offline evals](https://img.shields.io/badge/offline%20evals-9%2F9%20cases%20%2B%2022%2F22%20gates-brightgreen)
+![Offline evals](https://img.shields.io/badge/offline%20evals-9%2F9%20cases%20%2B%2023%2F23%20gates-brightgreen)
 ![Dependencies](https://img.shields.io/badge/runtime%20deps-none%20(stdlib%20only)-lightgrey)
 
 ---
@@ -169,7 +169,7 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
 python3 evals/run_evals.py
 ```
 
-Current result on a clean checkout: **9/9 static cases** and **22/22 behavioral cases pass.**
+Current result on a clean checkout: **9/9 static cases** and **23/23 behavioral cases pass.**
 The two suites prove different things and are labeled honestly:
 
 - The **static** suite (`eval-cases`) is an *intake-classification regression test*: it
@@ -227,10 +227,13 @@ and human review. Be precise about what its gates actually verify.
   `repair_attempts >= 2`, it must carry a `harness_update` (a rule/test/hook/checklist/template
   change) as retrospective evidence — so a clean final record cannot hide a repeated mistake
   that was only corrected in chat.
-- **Detected-risk floor.** A self-declared `low`/`tiny` tier cannot bypass the heavy gates: the
-  record's own goal/criteria/plan are scanned (word-boundary matched) for risk boundaries
-  (auth, payments, migrations, secrets, infra), and any hit forces high-risk + security-review
-  gates regardless of the declared tier.
+- **Detected-risk floor.** An *honestly described* boundary task cannot silently self-downgrade:
+  the record's own goal/criteria/plan are scanned (word-boundary matched) for risk boundaries
+  (auth/authz, secrets, crypto, payments, migrations, destructive, infra), and any hit forces
+  high-risk + security-review gates regardless of the declared tier. It is a text-scan heuristic
+  with a curated keyword set — it widens the net against honest mis-tiering, not a guarantee
+  against an agent that deliberately phrases around it (deterministic policy hooks remain the
+  backstop for adversarial cases).
 - **UNDERSTAND is gated.** Non-trivial work must carry a substantive context map (`repo_map`:
   entry points/likely files plus callers or tests) by implementation — the "map the change
   before editing" rule is checked, not just advised.

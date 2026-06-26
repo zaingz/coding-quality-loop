@@ -121,7 +121,8 @@ MIGRATION_MARKERS = (
 # is gaming the gate. These flag added skip/xfail/.only lines in test files.
 TEST_PATH_MARKERS = ("test", "spec", "__tests__")
 TEST_WEAKENING_PATTERNS = [
-    re.compile(r"^\+.*@(?:pytest\.mark\.)?(?:skip|xfail)\b"),
+    # Match @skip / @pytest.mark.skip / @mark.skipif / @unittest.skip etc.
+    re.compile(r"^\+.*@(?:[\w.]*\.)?(?:skipif|xfail|skip)\b"),
     re.compile(r"^\+.*\.(?:only|skip)\s*\("),
     re.compile(r"^\+.*\b(?:it|test|describe)\.skip\b"),
 ]
@@ -132,16 +133,29 @@ TEST_WEAKENING_PATTERNS = [
 BOUNDARY_KEYWORDS = {
     "authn": (
         "auth", "authentication", "authenticate", "login", "log in", "signin",
-        "sign-in", "session", "oauth", "sso", "jwt", "credential",
+        "sign-in", "session", "oauth", "sso", "jwt", "credential", "mfa", "2fa",
+        "totp", "multi-factor",
     ),
     "authz": (
-        "authorization", "authorize", "permission", "rbac", "access control",
-        "privilege", "admin endpoint",
+        "authorization", "authorize", "authz", "permission", "rbac", "acl",
+        "access control", "privilege", "admin", "grant", "admin endpoint",
     ),
-    "secrets": ("secret", "api key", "api-key", "token", "password", "private key"),
-    "payments": ("payment", "billing", "charge", "refund", "stripe", "checkout"),
-    "data_migration": ("migration", "migrate", "schema change", "alter table", "drop table"),
-    "destructive": ("delete from", "truncate", "drop database", "rm -rf"),
+    "secrets": (
+        "secret", "api key", "api-key", "token", "password", "private key",
+        "credentials", "access key", "signing key", "vault", "kms",
+    ),
+    "crypto": (
+        "tls", "ssl", "certificate", "encrypt", "encryption", "decrypt", "decryption",
+        "bcrypt", "scrypt", "argon2", "csrf", "cors", "saml", "xss",
+    ),
+    "payments": (
+        "payment", "billing", "charge", "refund", "stripe", "checkout",
+        "payout", "subscription", "chargeback", "pci",
+    ),
+    "data_migration": (
+        "migration", "migrate", "schema change", "alter table", "drop table", "backfill",
+    ),
+    "destructive": ("delete from", "truncate", "drop database", "rm -rf", "wipe"),
     "infra": ("production deploy", "prod deploy", "terraform", "kubernetes", "infrastructure"),
 }
 # Word-boundary matched so "auth" does not fire on "author", "token" not on
@@ -608,7 +622,7 @@ def verify_gates(args: argparse.Namespace) -> int:
     # Ground-truth risk floor: if the record's own text hits a known boundary, a
     # self-declared low/tiny tier cannot bypass the heavy gates. Forcing risk and
     # security_sensitive here makes the floor flow into every downstream check.
-    _floor, boundary_markers = detect_risk_floor(record)
+    _, boundary_markers = detect_risk_floor(record)
     if boundary_markers:
         if risk != "high":
             findings.append(

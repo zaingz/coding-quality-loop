@@ -9,8 +9,9 @@ text" is actually true. All changes stay stdlib-only with offline, model-free CI
   agent-declared `risk_tier`/`task_class`/`security_sensitive`, so a record with goal "Disable
   auth check on admin endpoint" declared `low`/`tiny` with no evidence passed clean. New
   `detect_risk_floor` word-boundary-scans the record's own goal/criteria/plan for risk
-  boundaries (auth, payments, migrations, secrets, infra) and forces high-risk + security-review
-  gates regardless of the declared tier.
+  boundaries (auth/authz, secrets, crypto, payments, migrations, destructive, infra) and forces
+  high-risk + security-review gates regardless of the declared tier. It is a curated text-scan
+  heuristic — it catches honest mis-tiering, not an agent that deliberately phrases around it.
 - **Fixed the flagship walkthrough (P0).** `examples/walkthrough/agent-record.json` failed the
   `verify-gates` command its own README tells you to run (missing `implementer`,
   `validation_contract`, structured `independent_review`, `completion_record`). It now passes
@@ -37,9 +38,10 @@ text" is actually true. All changes stay stdlib-only with offline, model-free CI
   worktree-isolation principle to mission topology; relabeled the eval suites honestly (static =
   intake-classification regression, behavioral = the gates; evidence is attested, not
   re-executed).
-- **Evals:** behavioral harness grew from 15 to **22** cases (self-downgrade block + compliant-
-  high pass, untracked secret, empty context map, wrong-content artifact, unknown command class,
-  missing command evidence). Static suite unchanged at 9/9. Added opt-in trigger-eval data
+- **Evals:** behavioral harness grew from 15 to **23** cases (self-downgrade block + boundary-
+  phrasing coverage + compliant-high pass, untracked secret, empty context map, wrong-content
+  artifact, unknown command class, missing command evidence). Static suite unchanged at 9/9.
+  Added opt-in trigger-eval data
   (`evals/triggers/cases.json`, should/should-NOT-trigger) kept out of offline CI by design.
 
 ## 1.2.3

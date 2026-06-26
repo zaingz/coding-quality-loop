@@ -434,6 +434,35 @@ def case_self_downgrade_auth_fails(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; output={output.strip()!r}"
 
 
+def case_floor_catches_more_boundary_phrasings(tmp: Path) -> tuple[bool, str]:
+    # The floor vocabulary must cover how engineers actually phrase boundary work,
+    # not just the canonical word. Each self-downgraded phrasing must fail.
+    phrasings = [
+        "Fix the authz middleware ordering",
+        "Add an MFA bypass for service accounts",
+        "Disable TLS certificate verification in the client",
+        "Process a payout to the vendor account",
+        "Grant admin to the support team",
+    ]
+    results = []
+    for goal in phrasings:
+        record = base_record(
+            goal=goal,
+            risk_tier="low",
+            task_class="tiny",
+            security_sensitive=False,
+            commands_run=[],
+            validation_contract=None,
+            independent_review=None,
+            completion_record=None,
+            status="done",
+        )
+        code, output = verify_gates(tmp, record)
+        results.append(code == 1 and "boundary" in output)
+    ok = all(results)
+    return ok, f"caught={results} for {phrasings}"
+
+
 def case_declared_high_auth_passes(tmp: Path) -> tuple[bool, str]:
     # The floor must not false-block a properly-declared, fully-reviewed boundary
     # task: a compliant high-risk auth record with a distinct security review passes.
@@ -500,6 +529,7 @@ CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
     ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
     ("self-downgrade of a boundary task fails the floor", case_self_downgrade_auth_fails),
+    ("floor covers common boundary phrasings (authz/mfa/tls/payout/admin)", case_floor_catches_more_boundary_phrasings),
     ("compliant declared-high boundary task passes the floor", case_declared_high_auth_passes),
     ("non-trivial work with an empty context map fails", case_empty_repo_map_fails),
     ("existing file with wrong content fails the artifact gate", case_wrong_content_artifact_fails),
