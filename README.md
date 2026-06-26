@@ -2,11 +2,7 @@
 
 # Coding Quality Loop
 
-**Bounded autonomy for coding agents.**
-
-Stop an agent from turning a vague ticket into a big, unverified diff — make it ship the
-*smallest correct change* with a task contract, validation evidence, and an independent
-fresh-context review.
+### Make your AI coding agent ship changes you can trust — not giant diffs you have to babysit.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-111111?style=flat-square)](LICENSE)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
@@ -17,15 +13,23 @@ fresh-context review.
 
 </div>
 
-`coding-quality-loop` is a portable [Agent Skill](https://agentskills.io/specification): one
-`SKILL.md` plus optional `assets/`, `references/`, `scripts/`, and `evals/`. Drop it into Claude
-Code, Codex, Cursor, Pi, or any skills-aware host — as a copy-paste prompt, a loadable skill, or
-a multi-agent orchestration config.
+AI coding agents are fast — but point one at a vague ticket and it will refactor things nobody
+asked for, pull in a dependency you didn't want, claim "tests pass" without showing them, and sign
+off on its own work. You're left holding a big change you can't tell is correct.
+
+**Coding Quality Loop makes the agent work like a careful engineer instead.** It pins down what
+"done" means before writing any code, changes as little as possible, proves the change with a test
+you can actually see, and has a *separate* agent review the work before it reaches you. What comes
+back is small, checked, and reversible — something you can read, trust, and merge in minutes.
+
+It's a portable [Agent Skill](https://agentskills.io/specification) — drop it into Claude Code,
+Codex, Cursor, Pi, or any skills-aware host as a copy-paste prompt, a loadable skill, or a
+multi-agent config. No new tools, no lock-in.
 
 ---
 
 **Contents** ·
-[How it works](#how-it-works) ·
+[What's different](#whats-different) ·
 [Quickstart](#quickstart-30-seconds) ·
 [The loop](#the-loop) ·
 [What it enforces (and what it doesn't)](#what-it-enforces--and-what-it-deliberately-does-not) ·
@@ -38,39 +42,42 @@ a multi-agent orchestration config.
 
 ---
 
-## How it works
+## What's different
 
-Point a capable coding agent at a one-line ticket and it will happily refactor a module, add a
-dependency nobody asked for, assert "tests pass" without showing them, and sign off on its own
-work. One model doing intake, architecture, implementation, **and** self-review inflates its own
-confidence — and hands you a diff you can't trust enough to merge or revert.
+Same agent, same model — the difference is the process wrapped around it.
 
-The loop changes that behavior. Before touching code, the agent writes down what "done" means and
-maps only the files that matter. It picks the *smallest* change that is correct, implements one
-reviewable slice, records the exact commands that prove it, and then a **separate** agent checks
-the diff against the contract — not against the implementer's optimism. Ceremony scales with risk:
-a typo runs no artifacts; a payment-path migration runs the full loop.
+You ask your agent to *"fix the checkout retry bug."*
 
-The boundary — explicit scope, recorded evidence, independent review — is the product.
+| Without the loop | With the loop |
+|---|---|
+| a sprawling diff across many files | a focused fix in one or two files |
+| a new dependency you didn't ask for | no new dependencies |
+| "looks right to me" | a test that **fails before the fix and passes after** — shown, not claimed |
+| you review it cold, by yourself | a *second* agent already checked it against the goal |
+| hope you can undo it | a one-line rollback, written down |
 
-### Before / after
+That's the whole idea: smaller changes, real proof, and a second set of eyes — so you read,
+trust, and merge in minutes instead of babysitting. The work also scales to the risk: a typo just
+gets fixed; a payment migration runs the full process. See a real worked example in
+[`examples/walkthrough/`](examples/walkthrough/README.md).
 
-A risky one-liner like *"fix the checkout retry bug"* normally becomes a sprawling diff with a
-"looks right to me" sign-off. With the loop it becomes:
+<details>
+<summary>What the agent actually produces, step by step (for the curious)</summary>
 
 | Step | What the agent produces |
 |---|---|
-| Task contract | goal, acceptance criteria, constraints, risk tier (`medium`) |
+| Task contract | goal, acceptance criteria, constraints, risk tier |
 | Context map | the 2–3 relevant files, callers, and tests — not the whole tree |
-| Minimality decision | smallest safe "rung" chosen; bigger rewrites explicitly rejected |
+| Minimality decision | the smallest safe change; bigger rewrites explicitly rejected |
 | Small diff | one focused change, existing conventions, no new deps |
-| Verification evidence | failing-then-passing regression test + typecheck, recorded |
-| Independent review | a *separate* agent checks the diff against the contract → approve |
-| Handoff | PR summary with evidence table, risk note, and a one-line rollback |
+| Verification evidence | a failing-then-passing test + typecheck, recorded |
+| Independent review | a separate agent checks the diff against the contract → approve |
+| Handoff | a PR summary with an evidence table, a risk note, and a one-line rollback |
 
-See it end to end in [`examples/walkthrough/`](examples/walkthrough/README.md) — and note the
-state record there passes the same [`verify-gates`](scripts/quality_loop.py) check the loop
-enforces.
+The state record in the walkthrough passes the same [`verify-gates`](scripts/quality_loop.py)
+check the loop enforces — the proof isn't just prose.
+
+</details>
 
 ---
 
