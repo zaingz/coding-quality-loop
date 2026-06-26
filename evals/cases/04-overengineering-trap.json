@@ -1,0 +1,24 @@
+{
+  "name": "overengineering-trap-minimality",
+  "description": "A small validation tweak where the agent proposes a new dependency and a plugin abstraction despite a one-liner being available. Minimality gate must flag overengineering.",
+  "input": {
+    "goal": "Reject empty email on the signup form",
+    "signals": ["behavior_change"],
+    "proposed_solution": {
+      "introduces": ["new_dependency", "new_abstraction"],
+      "lower_rung_available": true
+    }
+  },
+  "expected": {
+    "risk_tier": "medium",
+    "required_gates": [
+      "targeted_tests",
+      "relevant_tests",
+      "typecheck_or_build",
+      "caller_review",
+      "fresh_review"
+    ],
+    "minimality_flags": ["overengineering"],
+    "escalate": false
+  }
+}

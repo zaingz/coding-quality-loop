@@ -1,0 +1,24 @@
+{
+  "name": "medium-multifile-behavior-change",
+  "description": "Change retry behavior across a shared client and its callers. Multi-file behavior change, medium risk.",
+  "input": {
+    "goal": "Add bounded exponential backoff to the HTTP client retry path",
+    "signals": ["multi_file", "behavior_change", "shared_utility"],
+    "proposed_solution": {
+      "introduces": [],
+      "lower_rung_available": false
+    }
+  },
+  "expected": {
+    "risk_tier": "medium",
+    "required_gates": [
+      "targeted_tests",
+      "relevant_tests",
+      "typecheck_or_build",
+      "caller_review",
+      "fresh_review"
+    ],
+    "minimality_flags": [],
+    "escalate": false
+  }
+}

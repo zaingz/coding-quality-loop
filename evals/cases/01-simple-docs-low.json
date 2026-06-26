@@ -1,0 +1,18 @@
+{
+  "name": "simple-docs-low-risk",
+  "description": "Fix a typo and clarify a sentence in the README. Low risk, no behavior change.",
+  "input": {
+    "goal": "Fix typo and clarify install step in README",
+    "signals": ["docs", "copy"],
+    "proposed_solution": {
+      "introduces": [],
+      "lower_rung_available": false
+    }
+  },
+  "expected": {
+    "risk_tier": "low",
+    "required_gates": ["self_review"],
+    "minimality_flags": [],
+    "escalate": false
+  }
+}

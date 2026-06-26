@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Coding Quality Loop Orchestration Config",
+  "type": "object",
+  "required": ["version", "profiles", "steps"],
+  "properties": {
+    "version": {"type": "string"},
+    "description": {"type": "string"},
+    "profiles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["role"],
+        "properties": {
+          "role": {"type": "string"},
+          "model": {"type": ["string", "null"]},
+          "tools": {"type": "array", "items": {"type": "string"}},
+          "independent_session": {"type": "boolean"},
+          "deterministic": {"type": "boolean"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["step", "profile", "required_artifacts", "gates"],
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": ["INTAKE", "EXPLORE", "PLAN", "MINIMALITY_GATE", "IMPLEMENT_SLICE", "VERIFY", "REVIEW", "PACKAGE"]
+          },
+          "profile": {"type": "string"},
+          "model_class": {
+            "type": "string",
+            "enum": ["cheap_fast", "strong_reasoning", "code_specialized", "deterministic"]
+          },
+          "tools": {"type": "array", "items": {"type": "string"}},
+          "independent_session": {"type": "boolean"},
+          "required_artifacts": {"type": "array", "items": {"type": "string"}},
+          "gates": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    },
+    "policy_guard": {"type": "object"},
+    "routing_defaults": {"type": "object"}
+  },
+  "additionalProperties": true
+}

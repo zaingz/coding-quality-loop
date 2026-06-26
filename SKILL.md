@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Coding Quality Loop
@@ -26,6 +26,48 @@ Default lifecycle:
 INTAKE -> EXPLORE -> PLAN -> MINIMALITY_GATE -> IMPLEMENT_SLICE -> VERIFY -> REVIEW -> PACKAGE -> DONE | ITERATE | ESCALATE
 ```
 
+## Agentic Orchestration (First-Class)
+
+This skill is **agentic-first**: each lifecycle step can be run by a different agent, model,
+or tool profile, so teams use the best model for each use case. Profiles are defined by
+**role, not vendor** — map each role onto whatever models your platform provides.
+
+Selection heuristics:
+
+- Cheap/fast models for deterministic summarization and routing (INTAKE, EXPLORE, VERIFY
+  orchestration, PACKAGE).
+- Strong reasoning models for architecture and risk (PLAN, MINIMALITY_GATE).
+- Code-specialized models for implementation (IMPLEMENT_SLICE).
+- An **independent** model or fresh session for REVIEW, so the reviewer does not inherit the
+  implementer's confidence.
+- Deterministic hooks or command guards for policy enforcement (`policy_guard`) — never a model.
+
+**Start simple:** one implementer + one independent reviewer + deterministic policy hooks.
+Add specialized agents (`planner`, `minimality_reviewer`, `repo_mapper`) only when risk or
+complexity justifies the coordination cost. Over-parallelization is an anti-pattern.
+
+### Default Agentic Routing
+
+| Step | Profile | Default model class | Independent? |
+|---|---|---|---|
+| INTAKE | `contract_agent` | cheap/fast | no |
+| EXPLORE | `repo_mapper` | cheap/fast | no |
+| PLAN | `planner` | strong reasoning | no |
+| MINIMALITY_GATE | `minimality_reviewer` | strong reasoning | no |
+| IMPLEMENT_SLICE | `implementer` | code-specialized | no |
+| VERIFY | `verification_runner` | cheap/fast + exec | no |
+| REVIEW | `fresh_reviewer` | strong reasoning | **yes (separate session)** |
+| PACKAGE | `packager` | cheap/fast | no |
+| (all steps) | `policy_guard` | deterministic hook | enforced |
+
+Risk-scaled topology: `low` = one agent runs the loop; `medium` = implementer + independent
+reviewer + real checks; `high` = dedicated planner, minimality reviewer, implementer,
+independent reviewer, plus enforced security/migration blocks and human approval.
+
+See `references/agentic-orchestration.md` for the full matrix and per-platform mapping, and
+`assets/quality-loop.config.example.json` for the machine-readable routing config. Validate
+the config with `python scripts/quality_loop.py check-config assets/quality-loop.config.example.json`.
+
 ## Installation
 
 Install this package anywhere an agent can load a Markdown skill, rule, or system instruction.
@@ -35,6 +77,8 @@ Install this package anywhere an agent can load a Markdown skill, rule, or syste
 - Codex or GitHub bots: include the minimal drop-in prompt in the agent’s system/developer instruction and make the helper script available inside the worktree.
 - PI-style or custom orchestrators: model the lifecycle states as explicit workflow nodes, then wire repo-map, verification, reviewer, and policy-hook tools from `references/tool-contracts.md`.
 - Simple CLI wrappers: call the lifecycle in order and use `scripts/quality_loop.py` for state-record checks, diff audit, and verification-gate sanity checks.
+
+Copy-paste starting points live in `examples/` (Claude Code `CLAUDE.md`, Codex `AGENTS.md`, Cursor `.cursor/rules`, and a standalone runbook), each with a one-line invocation.
 
 ## Core Instructions
 
@@ -172,6 +216,8 @@ This skill includes helper scripts:
 - `scripts/quality_loop.py check-record`: validate that a state record has the fields required by this lifecycle.
 - `scripts/quality_loop.py diff-audit`: summarize a git diff and flag common review risks such as large diffs, dependency-file edits, migrations, and possible secret additions.
 - `scripts/quality_loop.py verify-gates`: check whether recorded evidence satisfies the expected gates for a risk tier.
+- `scripts/quality_loop.py check-config`: validate an agentic orchestration config (steps, profiles, gates, routing defaults).
+- `scripts/quality_loop.py eval-cases`: run offline eval cases that pin risk-tier, required-gate, and minimality logic.
 
 These tools are advisory. They do not replace human review, test execution, security scanning, or CI.
 
@@ -182,6 +228,8 @@ python scripts/quality_loop.py init-record --goal "Fix invoice total rounding" -
 python scripts/quality_loop.py check-record agent-record.json
 python scripts/quality_loop.py diff-audit --base origin/main
 python scripts/quality_loop.py verify-gates agent-record.json
+python scripts/quality_loop.py check-config assets/quality-loop.config.example.json
+python scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
 ```
 
 `diff-audit` exits non-zero when it finds warnings such as possible secrets, dependency edits, migrations, large diffs, or large file counts. Treat it as a coarse guardrail, not as a substitute for dedicated scanners such as gitleaks or trufflehog on high-risk work.
@@ -257,6 +305,10 @@ Implement one small slice at a time using existing conventions. Run the smallest
 
 ## Additional References
 
+- `references/agentic-orchestration.md`: configurable step agents, model-selection heuristics, and per-platform mapping.
 - `references/lifecycle.md`: detailed lifecycle, state transitions, and risk gates.
 - `references/tool-contracts.md`: suggested contracts for repo-map, verification, reviewer, and policy-hook tools.
 - `references/reviewer-checklists.md`: fresh-context review prompts and issue severity rubric.
+- `assets/quality-loop.config.example.json`: machine-readable step-to-agent routing config.
+- `examples/`: one-line usage for Claude Code, Codex, Cursor, and standalone agents, plus a real walkthrough.
+- `evals/`: offline eval harness that pins risk-tier and minimality logic.

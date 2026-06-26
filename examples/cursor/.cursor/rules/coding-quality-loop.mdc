@@ -1,0 +1,32 @@
+---
+description: Coding Quality Loop - smallest correct, verified change with fresh-context review
+globs:
+alwaysApply: true
+---
+
+# Coding Quality Loop
+
+Produce the smallest correct change with enough evidence to trust, review, revert, or merge.
+
+Lifecycle: `INTAKE -> EXPLORE -> PLAN -> MINIMALITY_GATE -> IMPLEMENT_SLICE -> VERIFY -> REVIEW -> PACKAGE`.
+
+- **INTAKE**: goal, acceptance criteria, constraints, assumptions, risk tier
+  (`low|medium|high`), verification plan.
+- **EXPLORE / PLAN**: map only relevant files, callers, tests, config; name likely files and
+  the checks you will run.
+- **MINIMALITY_GATE**: highest valid rung — no change, delete, reuse, stdlib, native, existing
+  dependency, one-liner, minimal new code. Never trade away security, validation,
+  authorization, accessibility, or data-loss protection.
+- **IMPLEMENT_SLICE**: one small, reviewable slice in existing conventions.
+- **VERIFY**: smallest sufficient checks first; record exact commands and results. Green tests
+  are necessary, not sufficient.
+- **REVIEW**: independent fresh-context review against the original contract.
+- **PACKAGE**: goal, files changed, minimality decision, evidence, risks, rollback, follow-ups.
+
+Escalate before destructive migrations, secret exposure, payments/billing, production infra,
+ambiguous user-facing behavior, or after two failed repair loops.
+
+This is an Always rule. For focused workflows, add Manual rules and invoke with
+`@coding-quality-loop` (https://docs.cursor.com/en/context/rules).
+
+One-line usage in chat: `@coding-quality-loop fix the retry bug and provide verification evidence`.

@@ -337,6 +337,172 @@ def verify_gates(args: argparse.Namespace) -> int:
     return 0
 
 
+REQUIRED_STEPS = [
+    "INTAKE",
+    "EXPLORE",
+    "PLAN",
+    "MINIMALITY_GATE",
+    "IMPLEMENT_SLICE",
+    "VERIFY",
+    "REVIEW",
+    "PACKAGE",
+]
+
+LOW_SIGNALS = {"docs", "copy", "comment", "formatting", "ui_copy"}
+MEDIUM_SIGNALS = {
+    "multi_file",
+    "behavior_change",
+    "api_contract",
+    "shared_utility",
+    "persistence_adjacent",
+    "auth_adjacent",
+}
+HIGH_SIGNALS = {
+    "authn",
+    "authz",
+    "payments",
+    "billing",
+    "data_migration",
+    "destructive",
+    "secrets",
+    "production_infra",
+    "external_side_effect",
+    "concurrency",
+}
+
+GATES_LOW = ["self_review"]
+GATES_MEDIUM = [
+    "targeted_tests",
+    "relevant_tests",
+    "typecheck_or_build",
+    "caller_review",
+    "fresh_review",
+]
+GATES_HIGH = GATES_MEDIUM + ["security_review", "rollback_plan", "human_approval"]
+
+
+def derive_risk_tier(signals: list[str]) -> str:
+    signal_set = set(signals)
+    if signal_set & HIGH_SIGNALS:
+        return "high"
+    if signal_set & MEDIUM_SIGNALS:
+        return "medium"
+    return "low"
+
+
+def required_gates_for_tier(tier: str) -> list[str]:
+    return {"low": GATES_LOW, "medium": GATES_MEDIUM, "high": GATES_HIGH}.get(tier, [])
+
+
+def minimality_flags(proposed: dict[str, Any]) -> list[str]:
+    introduces = proposed.get("introduces", [])
+    lower_rung_available = proposed.get("lower_rung_available", False)
+    if introduces and lower_rung_available:
+        return ["overengineering"]
+    return []
+
+
+def evaluate_input(case_input: dict[str, Any]) -> dict[str, Any]:
+    signals = case_input.get("signals", [])
+    tier = derive_risk_tier(signals)
+    proposed = case_input.get("proposed_solution", {})
+    return {
+        "risk_tier": tier,
+        "required_gates": required_gates_for_tier(tier),
+        "minimality_flags": minimality_flags(proposed),
+        "escalate": tier == "high",
+    }
+
+
+def check_config(args: argparse.Namespace) -> int:
+    config = load_json(Path(args.config))
+    errors: list[str] = []
+
+    for key in ("version", "profiles", "steps"):
+        if key not in config:
+            errors.append(f"missing required field: {key}")
+
+    profiles = config.get("profiles", {})
+    if not isinstance(profiles, dict) or not profiles:
+        errors.append("profiles must be a non-empty object")
+
+    steps = config.get("steps", [])
+    if not isinstance(steps, list) or not steps:
+        errors.append("steps must be a non-empty array")
+    else:
+        seen = []
+        for idx, step in enumerate(steps):
+            name = step.get("step")
+            seen.append(name)
+            if name not in REQUIRED_STEPS:
+                errors.append(f"step[{idx}] has unknown step name: {name!r}")
+            profile = step.get("profile")
+            if profile not in profiles:
+                errors.append(f"step {name!r} references undefined profile: {profile!r}")
+            if not step.get("required_artifacts"):
+                errors.append(f"step {name!r} must declare required_artifacts")
+            if not step.get("gates"):
+                errors.append(f"step {name!r} must declare gates")
+        missing_steps = [s for s in REQUIRED_STEPS if s not in seen]
+        if missing_steps:
+            errors.append("missing lifecycle steps: " + ", ".join(missing_steps))
+
+    if "policy_guard" not in config:
+        errors.append("config should define policy_guard for deterministic enforcement")
+
+    routing = config.get("routing_defaults", {})
+    for tier in ("low", "medium", "high"):
+        if tier not in routing:
+            errors.append(f"routing_defaults missing tier: {tier}")
+
+    if errors:
+        for error in errors:
+            print(f"error: {error}", file=sys.stderr)
+        return 1
+    print("config ok")
+    return 0
+
+
+def eval_cases(args: argparse.Namespace) -> int:
+    cases_dir = Path(args.cases_dir)
+    if cases_dir.is_dir():
+        case_files = sorted(cases_dir.glob("*.json"))
+    else:
+        case_files = [cases_dir]
+    if not case_files:
+        print(f"error: no eval cases found in {cases_dir}", file=sys.stderr)
+        return 2
+
+    if args.config:
+        cfg_args = argparse.Namespace(config=args.config)
+        if check_config(cfg_args) != 0:
+            print("error: config check failed", file=sys.stderr)
+            return 1
+
+    total = 0
+    failed = 0
+    for case_file in case_files:
+        case = load_json(case_file)
+        name = case.get("name", case_file.stem)
+        expected = case.get("expected", {})
+        actual = evaluate_input(case.get("input", {}))
+        mismatches: list[str] = []
+        for key in ("risk_tier", "required_gates", "minimality_flags", "escalate"):
+            if key in expected and expected[key] != actual[key]:
+                mismatches.append(f"{key}: expected {expected[key]!r}, got {actual[key]!r}")
+        total += 1
+        if mismatches:
+            failed += 1
+            print(f"FAIL {name}")
+            for mismatch in mismatches:
+                print(f"  - {mismatch}")
+        else:
+            print(f"PASS {name}")
+
+    print(f"\n{total - failed}/{total} eval cases passed")
+    return 1 if failed else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Coding Quality Loop helper")
     sub = parser.add_subparsers(required=True)
@@ -362,6 +528,15 @@ def main() -> int:
     p_gates = sub.add_parser("verify-gates", help="Check verification evidence against risk tier")
     p_gates.add_argument("record")
     p_gates.set_defaults(func=verify_gates)
+
+    p_config = sub.add_parser("check-config", help="Validate an orchestration config")
+    p_config.add_argument("config")
+    p_config.set_defaults(func=check_config)
+
+    p_eval = sub.add_parser("eval-cases", help="Run static eval cases against expected gates")
+    p_eval.add_argument("cases_dir", help="Directory of *.json cases or a single case file")
+    p_eval.add_argument("--config", help="Optional orchestration config to validate first")
+    p_eval.set_defaults(func=eval_cases)
 
     args = parser.parse_args()
     return args.func(args)

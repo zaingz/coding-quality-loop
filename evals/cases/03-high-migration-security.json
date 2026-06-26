@@ -1,0 +1,27 @@
+{
+  "name": "high-risk-migration-security-escalation",
+  "description": "Add a NOT NULL column with backfill plus an authorization check change. Migration + authz, high risk, must escalate.",
+  "input": {
+    "goal": "Add tenant_id to orders with backfill and enforce tenant-scoped authorization",
+    "signals": ["data_migration", "authz", "multi_file"],
+    "proposed_solution": {
+      "introduces": [],
+      "lower_rung_available": false
+    }
+  },
+  "expected": {
+    "risk_tier": "high",
+    "required_gates": [
+      "targeted_tests",
+      "relevant_tests",
+      "typecheck_or_build",
+      "caller_review",
+      "fresh_review",
+      "security_review",
+      "rollback_plan",
+      "human_approval"
+    ],
+    "minimality_flags": [],
+    "escalate": true
+  }
+}

@@ -1,0 +1,38 @@
+# Coding Quality Loop (Codex AGENTS.md)
+
+Follow the Coding Quality Loop: produce the smallest correct change with enough evidence to
+trust, review, revert, or merge it.
+
+Lifecycle: `INTAKE -> EXPLORE -> PLAN -> MINIMALITY_GATE -> IMPLEMENT_SLICE -> VERIFY -> REVIEW -> PACKAGE`.
+
+1. **INTAKE** — goal, acceptance criteria, constraints, assumptions, risk tier
+   (`low|medium|high`), verification plan.
+2. **EXPLORE / PLAN** — map only relevant files, callers, tests, config; name likely files
+   and the checks you will run.
+3. **MINIMALITY_GATE** — pick the highest valid rung (no change, delete, reuse, stdlib,
+   native, existing dependency, one-liner, minimal new code). Never trade away security,
+   validation, authorization, accessibility, or data-loss protection.
+4. **IMPLEMENT_SLICE** — one small, reviewable slice in existing conventions.
+5. **VERIFY** — run the smallest sufficient checks first; record exact commands and results.
+6. **REVIEW** — independent fresh-context review against the contract.
+7. **PACKAGE** — goal, files changed, minimality decision, evidence, risks, rollback, follow-ups.
+
+Escalate before destructive migrations, secret exposure, payments/billing, production infra,
+ambiguous user-facing behavior, or after two failed repair loops.
+
+## Agentic routing
+
+Use Codex subagents for role separation (planner, implementer, independent reviewer) and back
+`verification_runner` / `repo_mapper` with MCP servers
+(https://developers.openai.com/codex/concepts/customization). This loop can also ship as a
+Codex skill directory (`SKILL.md` + scripts/references) invoked with `$coding-quality-loop`
+(https://developers.openai.com/codex/skills). AGENTS.md precedence: global
+`~/.codex/AGENTS.md`, then project, then nested overrides
+(https://developers.openai.com/codex/guides/agents-md).
+
+## One-line usage
+
+```bash
+codex --ask-for-approval never "Follow the Coding Quality Loop in AGENTS.md to fix the failing test and summarize verification evidence."
+codex --cd services/payments --ask-for-approval never "List the instruction sources you loaded, then run the loop on the refund bug."
+```
