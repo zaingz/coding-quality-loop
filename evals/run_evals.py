@@ -40,6 +40,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "quality_loop.py"
 
+sys.path.insert(0, str(ROOT / "scripts"))
+import quality_loop  # noqa: E402  (used for the static evaluate_input consistency check)
+
 PASS = "PASS"
 FAIL = "FAIL"
 
@@ -442,7 +445,7 @@ def case_floor_catches_more_boundary_phrasings(tmp: Path) -> tuple[bool, str]:
         "Add an MFA bypass for service accounts",
         "Disable TLS certificate verification in the client",
         "Process a payout to the vendor account",
-        "Grant admin to the support team",
+        "Add an RBAC permission for the billing service",
     ]
     results = []
     for goal in phrasings:
@@ -461,6 +464,69 @@ def case_floor_catches_more_boundary_phrasings(tmp: Path) -> tuple[bool, str]:
         results.append(code == 1 and "boundary" in output)
     ok = all(results)
     return ok, f"caught={results} for {phrasings}"
+
+
+def case_secret_guard_flags_real_keys(tmp: Path) -> tuple[bool, str]:
+    # The placeholder guard must skip only obvious stubs, never suppress a real
+    # value that merely starts with 'your_'; and quoted secrets must match too.
+    def flag(s: str) -> bool:
+        return any(p.search(s) for p in quality_loop.SECRET_PATTERNS)
+
+    must_flag = [
+        "api_key = your_realProductionKey99AAA",
+        'passwd = "hunter2hunter2hunter2"',
+        "credential = abcd1234abcd1234",
+    ]
+    must_skip = [
+        "api_key = REPLACE_ME",
+        "token = ${TOKEN}",
+        "api_key = <your-key-here>",
+    ]
+    flagged = all(flag(s) for s in must_flag)
+    skipped = all(not flag(s) for s in must_skip)
+    return (flagged and skipped), f"flagged_real={flagged} skipped_stubs={skipped}"
+
+
+def case_floor_ignores_benign_common_words(tmp: Path) -> tuple[bool, str]:
+    # The floor must NOT force ceremony onto benign copy/docs that merely contain
+    # a common word (admin / token / session) - that is the process theater the
+    # skill disclaims. Each tiny/low record should pass without a boundary warning.
+    benign = [
+        "Improve the admin dashboard welcome copy",
+        "Rename the Token component in the design system",
+        "Tidy the user session summary wording",
+    ]
+    results = []
+    for goal in benign:
+        record = base_record(
+            goal=goal,
+            risk_tier="low",
+            task_class="tiny",
+            commands_run=[{"cmd": "read", "class": "lint", "result": "pass", "evidence": "looks good"}],
+            status="done",
+        )
+        code, output = verify_gates(tmp, record)
+        results.append(code == 0 and "boundary" not in output)
+    ok = all(results)
+    return ok, f"clean={results} for {benign}"
+
+
+def case_small_low_ships_without_completion_record(tmp: Path) -> tuple[bool, str]:
+    # Consistency: the runtime gate and evaluate_input must agree that a small,
+    # low-risk task ships with handoff evidence, not a formal completion record.
+    record = base_record(
+        goal="rename a local helper for clarity",
+        risk_tier="low",
+        task_class="small",
+        commands_run=[{"cmd": "pytest test_helper.py", "class": "unit", "result": "pass", "evidence": "3 passed"}],
+        status="done",
+    )
+    code, output = verify_gates(tmp, record)
+    runtime_ok = code == 0 and "completion_record" not in output
+    static = quality_loop.evaluate_input({"signals": []})  # empty signals -> small/low
+    static_ok = static["task_class"] == "small" and static["requires_completion_record"] is False
+    ok = runtime_ok and static_ok
+    return ok, f"runtime(exit={code}) static(class={static['task_class']},req_cr={static['requires_completion_record']})"
 
 
 def case_declared_high_auth_passes(tmp: Path) -> tuple[bool, str]:
@@ -529,7 +595,10 @@ CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
     ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
     ("self-downgrade of a boundary task fails the floor", case_self_downgrade_auth_fails),
-    ("floor covers common boundary phrasings (authz/mfa/tls/payout/admin)", case_floor_catches_more_boundary_phrasings),
+    ("floor covers common boundary phrasings (authz/mfa/tls/payout/rbac)", case_floor_catches_more_boundary_phrasings),
+    ("floor ignores benign common words (admin/token/session copy)", case_floor_ignores_benign_common_words),
+    ("small low-risk task ships without a completion record (runtime==static)", case_small_low_ships_without_completion_record),
+    ("secret guard flags real keys and skips only stubs", case_secret_guard_flags_real_keys),
     ("compliant declared-high boundary task passes the floor", case_declared_high_auth_passes),
     ("non-trivial work with an empty context map fails", case_empty_repo_map_fails),
     ("existing file with wrong content fails the artifact gate", case_wrong_content_artifact_fails),

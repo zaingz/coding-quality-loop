@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-111111?style=flat-square)](LICENSE)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-9%2F9%20%2B%2023%2F23-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-9%2F9%20%2B%2026%2F26-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 [![hosts](https://img.shields.io/badge/works%20with-Claude%20Code%20·%20Codex%20·%20Cursor%20·%20Pi-111111?style=flat-square)](#install--use-matrix)
 
@@ -142,10 +142,13 @@ replace them.
 
 **Enforced today** (`verify-gates` / `check-record` / `diff-audit`, pinned by [evals](evals/)):
 
-- Non-trivial work requires a named implementer, a real **validation contract**, an approving
-  **independent review** by someone *other than* the implementer (fresh context, no self-patching),
-  and — at ship — a **completion record** with evidence. Bare booleans, empty strings, nonexistent
-  paths, and shape-only placeholders are rejected.
+- Non-trivial work (medium/mission, or any medium/high-risk or security-sensitive task) requires a
+  named implementer, a real **validation contract**, an approving **independent review** by someone
+  *other than* the implementer (fresh context, no self-patching), and — at ship — a **completion
+  record** with evidence. Required fields must be present and non-empty; bare booleans, empty
+  strings, and nonexistent paths are rejected. (It checks *shape* — that the evidence exists and is
+  well-formed — not whether the content is substantive. A small low-risk task ships with handoff
+  evidence, not a formal completion record.)
 - **Detected-risk floor.** An *honestly described* boundary task cannot silently self-downgrade:
   the record's own goal/criteria/plan are scanned (word-boundary matched) for auth/authz, secrets,
   crypto, payments, migrations, destructive, and infra boundaries; any hit forces high-risk +
@@ -169,6 +172,10 @@ rest trustable):
 - The detected-risk floor is a curated text-scan heuristic — it catches honest mis-tiering, not an
   agent deliberately phrasing around it. **Deterministic policy hooks** remain the backstop for
   anything you cannot afford an agent to get wrong.
+- **`verify-gates` reads the record, not the diff.** It confirms the agent's recorded evidence is
+  present and well-formed; it does not inspect the actual change. `diff-audit` (which reads real git
+  state — secrets, untracked files, diff size, dependency/migration edits) and your CI are the
+  blocking layer. Wire `diff-audit`'s exit code as a hard fail for anything that must not slip.
 - It is not a model runtime: no recovery, telemetry, or git-worker handoff. Wiring the routed
   steps to real models/sessions is the host's job.
 
@@ -185,7 +192,7 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
 python3 evals/run_evals.py                                                      # 4. behavioral gates
 ```
 
-Current result: **9/9 static cases** + **23/23 behavioral cases pass**, re-run on every push by a
+Current result: **9/9 static cases** + **26/26 behavioral cases pass**, re-run on every push by a
 dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). The two suites prove
 different things, and are labeled honestly:
 

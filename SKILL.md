@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "1.3.0"
+  version: "1.3.2"
 ---
 
 # Coding Quality Loop
@@ -182,7 +182,7 @@ Make this checkable: when a verification failure recurs, record it on the state 
 
 ## Shipping Gate
 
-An agent **may not claim completion** for a non-trivial (small/medium/mission) task unless a completion record exists with verification evidence. Tiny tasks may ship with a contract + evidence + risks in the handoff. Enforce this with a `Stop`/PostToolUse hook in production (see **Harness Implementation Modes**).
+An agent **may not claim completion** for a medium or mission task — or any high-risk or security-sensitive work — unless a completion record exists with verification evidence. Tiny and small low-risk tasks may ship with a contract + evidence + risks in the handoff; the runtime gate enforces exactly this threshold (it does not demand a completion record for small low-risk work). Enforce the gate with a `Stop`/PostToolUse hook in production (see **Harness Implementation Modes**).
 
 ## Quality Gates by Task Type
 
@@ -228,7 +228,7 @@ Helper script commands (advisory; they do not replace human review, tests, scann
 - `init-record` — create a task state record from a goal.
 - `check-record` — validate a state record against this lifecycle.
 - `diff-audit` — summarize a git diff and flag large diffs, dependency edits, migrations, and possible secrets.
-- `verify-gates` — check recorded evidence against the risk tier, including deep validation of the validation contract and completion record (real file path or a complete inline object, never a placeholder) and the repeated-failure → `harness_update` rule.
+- `verify-gates` — check the recorded evidence against the risk tier: the validation contract and completion record must be a real existing file or an inline object whose required fields are present and non-empty (it rejects bare booleans, empty strings, and nonexistent paths — it checks *shape*, not whether the content is substantive), plus the repeated-failure → `harness_update` rule. It reads the **record**, not the diff; pair it with `diff-audit` and CI for the actual block.
 - `check-config` — validate an agentic orchestration config.
 - `eval-cases` — run offline eval cases that pin task-class, risk-tier, required-gate, security-reviewer, completion-record, complexity-brake, and retrospective logic.
 

@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.3.2
+
+Follow-ups from an independent max-effort review — small, in-philosophy fixes (no new subsystems).
+
+- **Resolved a self-contradiction in the shipping gate.** `evaluate_input` (static evals) required
+  a completion record for the `small` class while the runtime `verify_gates` did not — two
+  definitions of "non-trivial" in one file. Aligned both: the completion-record gate fires for
+  medium/mission, medium/high risk, or security-sensitive work; a small low-risk task ships with
+  handoff evidence (matching its task-class description). Updated `SKILL.md`/`README.md` to match.
+- **Fixed a secret-scan false negative.** The unquoted-assignment placeholder guard treated any
+  value starting with `your_` as a stub, so `api_key = your_realProductionKey` was suppressed. The
+  guard now anchors on exact stub words only. Added `passwd`/`pwd`/`credential`/`private_key`
+  keywords to both the quoted and unquoted patterns (quoted secrets with these keywords were also
+  missed).
+- **De-noised the detected-risk floor.** Dropped the false-positive-prone bare words
+  (`admin`, `grant`, `session`, `token`) that forced full high-risk ceremony onto benign copy/docs
+  ("improve the admin dashboard copy") — the exact process theater the skill disclaims. Precise
+  multi-word/domain terms are kept (`admin endpoint`, `oauth`, `rbac`, `payout`, …).
+- **Right-sized the wording.** "deep validation / never a placeholder" and "shape-only placeholders
+  are rejected" now accurately say required fields must be present and non-empty (shape, not
+  substance); the README states plainly that `verify-gates` lints the record and `diff-audit` + CI
+  are the actual block.
+- **Evals:** behavioral suite 23 → **26** (small+low ships without a completion record and the two
+  halves agree; secret guard flags real keys and skips only stubs; floor ignores benign common
+  words). Static unchanged at 9/9.
+
 ## 1.3.0
 
 Enforcement hardening — closes reproduced gate bypasses so "deterministic gates beat advisory

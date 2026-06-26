@@ -68,7 +68,10 @@ NON_APPROVING_VERDICTS = {
 REVIEW_VERDICTS = APPROVING_VERDICTS | NON_APPROVING_VERDICTS
 BLOCKING_SEVERITIES = {"blocking", "blocker"}
 SECRET_PATTERNS = [
-    re.compile(r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*['\"][^'\"]{8,}['\"]"),
+    re.compile(
+        r"(?i)(api[_-]?key|secret|token|password|passwd|pwd|credential|private[_-]?key)"
+        r"\s*[:=]\s*['\"][^'\"]{8,}['\"]"
+    ),
     re.compile(r"-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
     re.compile(r"ghp_[A-Za-z0-9_]{20,}"),
     re.compile(r"AKIA[A-Z0-9]{16}"),
@@ -77,10 +80,12 @@ SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9]{20,}"),
     re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"),
     # Unquoted assignment - the most common .env/shell/YAML leak shape - with a
-    # placeholder guard so REPLACE_ME / <...> / ${...} style stubs do not flag.
+    # placeholder guard that skips only obvious stubs (REPLACE_ME / <...> / ${...} /
+    # example / dummy). It anchors on exact stub words, NOT a 'your_' prefix, so a
+    # real value like `api_key = your_realProductionKey` is still flagged.
     re.compile(
-        r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*"
-        r"(?!['\"]?(?:replace_me|change_me|your_|xxx|placeholder|<|\$\{))[^\s'\"]{8,}"
+        r"(?i)(api[_-]?key|secret|token|password|passwd|pwd|credential|private[_-]?key)\s*[:=]\s*"
+        r"(?!['\"]?(?:replace_me|change_me|changeme|placeholder|example|dummy|xxx+|<|\$\{))[^\s'\"]{8,}"
     ),
     re.compile(r"(?:sk|rk)_live_[A-Za-z0-9]{16,}"),
     re.compile(r"gh[opusr]_[A-Za-z0-9]{20,}"),
@@ -131,17 +136,21 @@ TEST_WEAKENING_PATTERNS = [
 # tier must not let auth/payment/migration/secret/infra work bypass the heavy
 # gates, so detect_risk_floor scans the goal/criteria/plan and forces a floor.
 BOUNDARY_KEYWORDS = {
+    # Bare common-English words (admin, grant, session, token) are deliberately
+    # excluded: they over-fire on benign copy/docs ("admin dashboard copy",
+    # "design token", "session summary") and that noise IS the process theater the
+    # skill disclaims. Precise multi-word and domain terms are kept.
     "authn": (
         "auth", "authentication", "authenticate", "login", "log in", "signin",
-        "sign-in", "session", "oauth", "sso", "jwt", "credential", "mfa", "2fa",
+        "sign-in", "oauth", "sso", "jwt", "credential", "mfa", "2fa",
         "totp", "multi-factor",
     ),
     "authz": (
         "authorization", "authorize", "authz", "permission", "rbac", "acl",
-        "access control", "privilege", "admin", "grant", "admin endpoint",
+        "access control", "privilege", "admin endpoint",
     ),
     "secrets": (
-        "secret", "api key", "api-key", "token", "password", "private key",
+        "secret", "api key", "api-key", "password", "private key",
         "credentials", "access key", "signing key", "vault", "kms",
     ),
     "crypto": (
@@ -869,7 +878,13 @@ def evaluate_input(case_input: dict[str, Any]) -> dict[str, Any]:
     task_class = derive_task_class(signals)
     proposed = case_input.get("proposed_solution", {})
     security = requires_security_reviewer(signals)
-    non_trivial = task_class != "tiny"
+    # The completion-record shipping gate fires for the same work the runtime
+    # verify_gates treats as non-trivial: medium/mission class, medium/high risk,
+    # or security-sensitive. A small low-risk task ships with handoff evidence
+    # (contract + evidence + risks), not a formal completion record.
+    requires_completion = (
+        task_class in {"medium", "mission"} or tier in {"medium", "high"} or security
+    )
     return {
         "risk_tier": tier,
         "task_class": task_class,
@@ -878,7 +893,7 @@ def evaluate_input(case_input: dict[str, Any]) -> dict[str, Any]:
         "escalate": tier == "high",
         "requires_validation_contract": task_class in {"medium", "mission"},
         "requires_independent_review": task_class in {"medium", "mission"},
-        "requires_completion_record": non_trivial,
+        "requires_completion_record": requires_completion,
         "requires_security_reviewer": security,
         "hard_gate": security or tier == "high",
         "harness_update": "repeated_mistake" in set(signals),
