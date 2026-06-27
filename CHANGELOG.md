@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.0
+
+- Add an optional, advisory **persistent per-project memory** layer: a stdlib-only files
+  lessons-store (default, checked-in to `.quality-loop/memory/`) behind a backend-agnostic
+  `memory-recall` / `memory-commit` / `memory-prune` / `memory-status` CLI.
+- Document two optional loop-integrated backends: `honcho` (reasoning-based lessons recall)
+  and `graphify` (code-graph relevance), selectable via the config `memory` block, degrading
+  gracefully to the files backend.
+- Memory is retrieval-not-stuffing: only a <=40-line `MEMORY.md` index auto-loads; recall is
+  budget-capped and relevance-scoped. Writes are advisory (no new hard gate).
+- New offline eval harness `evals/run_memory_evals.py` pins recall determinism/budget, commit
+  distillation, prune, config validation, and docs presence; wired into CI.
+
 ## 1.3.2
 
 Follow-ups from an independent max-effort review — small, in-philosophy fixes (no new subsystems).
