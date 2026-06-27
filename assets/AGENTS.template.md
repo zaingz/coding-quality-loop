@@ -42,6 +42,14 @@ trust, review, revert, or merge it.
 - New dependencies without justification.
 - Ambiguous user-facing behavior, or repeated verification failure after two repair attempts.
 
+## Project memory (optional, advisory)
+
+- Recall prior lessons before mapping a change:
+  `python3 scripts/quality_loop.py memory-recall --goal "<goal>" --files <changed,files> --risk <low|medium|high>`
+- Commit a durable lesson at retrospective:
+  `python3 scripts/quality_loop.py memory-commit agent-record.json`
+- Lessons live in `.quality-loop/memory/`. Writes are advisory; never store secrets as lessons.
+
 ## Project-Specific Notes
 
 - <conventions, gotchas, protected paths, deploy notes>

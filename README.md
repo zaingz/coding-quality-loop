@@ -179,6 +179,16 @@ rest trustable):
 - It is not a model runtime: no recovery, telemetry, or git-worker handoff. Wiring the routed
   steps to real models/sessions is the host's job.
 
+### Persistent project memory (optional)
+
+The loop can keep a tiny per-project ledger of **distilled lessons** (failure modes,
+conventions, gotchas) in `.quality-loop/memory/`, recalled on demand into a hard budget at
+INTAKE and written at retrospective — so a lesson learned once is not relearned. It is
+retrieval, not context stuffing: only a <=40-line index auto-loads. The default backend is
+stdlib-only and checked-in; optional `honcho` (reasoning recall) and `graphify` (code-graph
+relevance) backends plug in via config and degrade gracefully to files. Writes are advisory —
+it adds no new hard gate. See [`references/memory.md`](references/memory.md).
+
 ---
 
 ## Proof you can run

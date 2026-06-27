@@ -249,6 +249,13 @@ def case_reference_modules_present(tmp: Path) -> tuple[bool, str]:
     return (not missing), (f"missing={missing}" if missing else "all reference modules present")
 
 
+def case_skill_documents_memory(tmp: Path) -> tuple[bool, str]:
+    text = (ROOT / "SKILL.md").read_text().lower()
+    must_have = ["persistent project memory", "memory-recall", "memory-commit", "references/memory.md"]
+    missing = [m for m in must_have if m not in text]
+    return (not missing), (f"missing={missing}" if missing else "SKILL.md documents memory")
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
@@ -263,6 +270,7 @@ CASES = [
     ("memory-status reports the store location and counts", case_cli_status),
     ("validate_memory_config + check-config accept/reject the memory block", case_check_config_validates_memory_block),
     ("memory reference modules exist with required content", case_reference_modules_present),
+    ("SKILL.md documents the persistent memory step", case_skill_documents_memory),
 ]
 
 

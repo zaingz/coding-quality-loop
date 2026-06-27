@@ -169,6 +169,27 @@ Close the loop. Every **repeated** mistake becomes a durable harness change — 
 
 Make this checkable: when a verification failure recurs, record it on the state record with `repeated_failure: true` (or `repair_attempts >= 2`) and capture the durable fix in `harness_update`. `verify-gates` then requires the `harness_update` evidence before the record can pass, so a clean final record cannot silently bury a repeated mistake.
 
+### PERSISTENT PROJECT MEMORY (optional, advisory)
+
+Across tasks, the loop can keep a small per-project ledger of **distilled lessons** —
+failure modes, conventions, gotchas, and preferences — so a lesson learned once is recalled
+later instead of relearned. It is retrieval, not context stuffing: only a <=40-line
+`MEMORY.md` index may auto-load, and recall is budget-capped and relevance-scoped.
+
+- **Recall at INTAKE / CONTEXT MAP** (recommended, not gated):
+  `python3 scripts/quality_loop.py memory-recall --goal "<goal>" --files a,b,c --risk medium --budget 1500`
+  Consider the returned lessons before mapping the change.
+- **Commit at RETROSPECTIVE** (manual; you decide it is worth keeping):
+  `python3 scripts/quality_loop.py memory-commit agent-record.json`
+  Distills `harness_update`, `minimality_decision`, and notable `review_findings` into lesson
+  rows under `.quality-loop/memory/`.
+- **Prune periodically:** `python3 scripts/quality_loop.py memory-prune`.
+
+Writes are advisory — `verify-gates` adds no new hard block. Optional backends (`honcho` for
+reasoning recall, `graphify` for code-graph relevance) plug in via the config `memory` block
+and degrade to the dependency-free files backend when absent. See `references/memory.md`,
+`references/memory-honcho.md`, and `references/memory-graphify.md`.
+
 ## Hard Rules
 
 - **Understand before editing.** No edit before the change is mapped (CONTEXT MAP + mental-model graph).
@@ -319,6 +340,10 @@ Implement one small slice at a time in existing conventions. Run the smallest su
 - `references/lifecycle.md`: detailed lifecycle, state transitions, task classes, risk gates, quality gates by task type.
 - `references/tool-contracts.md`: contracts for repo-map, verification, reviewer, security review, policy hook, and completion record.
 - `references/reviewer-checklists.md`: fresh-context, simplicity, and security review prompts and severity rubric.
+- `references/memory.md`: persistent per-project lessons memory — capability model, the
+  backend-agnostic recall/commit/prune contract, storage, lifecycle wiring, and anti-bloat rules.
+- `references/memory-honcho.md` and `references/memory-graphify.md`: optional loop-integrated
+  memory backends (Honcho reasoning recall; Graphify code-graph relevance).
 - `assets/`: task contract, context map, validation contract, plan, execution/decision logs, completion record, PR summary, `AGENTS.template.md`, state-record schema, and routing config.
 - `examples/`: one-line usage for Claude Code, Codex, Cursor, Pi, and standalone agents, plus a real walkthrough.
 - `evals/`: offline eval harness pinning task-class, risk-tier, minimality, security-reviewer, completion-record, and retrospective logic.
