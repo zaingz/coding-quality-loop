@@ -256,6 +256,22 @@ def case_skill_documents_memory(tmp: Path) -> tuple[bool, str]:
     return (not missing), (f"missing={missing}" if missing else "SKILL.md documents memory")
 
 
+def case_status_reports_backends(tmp: Path) -> tuple[bool, str]:
+    mem_dir = tmp / ".quality-loop" / "memory"
+    mem.append_lesson(mem_dir, mem.normalize_lesson({"lesson": "x lesson here", "kind": "gotcha"}, "2026-06-27"))
+    cfg = tmp / "ql.json"
+    cfg.write_text(json.dumps({"memory": {"lessons_store": "honcho", "graph_relevance": "graphify", "location": "checked_in"}}))
+    code, out, err = run_cli("memory-status", "--config", str(cfg), cwd=str(tmp))
+    data = json.loads(out) if code == 0 else {}
+    ok = (
+        code == 0
+        and data.get("lessons_store") == "honcho"
+        and data.get("graph_relevance") == "graphify"
+        and data.get("lesson_count") == 1
+    )
+    return ok, f"code={code}; out={out.strip()!r}; err={err.strip()!r}"
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
@@ -271,6 +287,7 @@ CASES = [
     ("validate_memory_config + check-config accept/reject the memory block", case_check_config_validates_memory_block),
     ("memory reference modules exist with required content", case_reference_modules_present),
     ("SKILL.md documents the persistent memory step", case_skill_documents_memory),
+    ("memory-status --config reports the configured backends", case_status_reports_backends),
 ]
 
 

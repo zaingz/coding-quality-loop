@@ -207,7 +207,7 @@ def cmd_recall(args: Any) -> int:
     mem_dir = resolve_memory_dir(args.location)
     lessons = load_lessons(mem_dir)
     selected = recall(lessons, args.goal or "", _split_files(args.files), args.risk, args.budget)
-    if selected:
+    if selected and not getattr(args, "no_bump", False):
         bump_hits(mem_dir, [str(l.get("id", "")) for l in selected])
     if args.json:
         print(json.dumps(selected, indent=2))
@@ -272,7 +272,6 @@ def distill_record(
 ) -> list[dict[str, Any]]:
     risk = record.get("risk_tier") if record.get("risk_tier") in RISK_TIERS else "low"
     task_id = str(record.get("task_id", ""))
-    goal = str(record.get("goal", "")).strip()
     scope = override_scope or files_to_globs(_record_files(record))
     raw_rows: list[dict[str, Any]] = []
 
@@ -399,13 +398,31 @@ def validate_memory_config(memory: Any) -> list[str]:
 
 
 def cmd_status(args: Any) -> int:
-    mem_dir = resolve_memory_dir(args.location)
+    lessons_store, graph_relevance, location = "files", "none", args.location
+    config_error = None
+    config_path = getattr(args, "config", None)
+    if config_path:
+        try:
+            cfg = json.loads(Path(config_path).read_text(encoding="utf-8"))
+            mem_cfg = cfg.get("memory") or {}
+            lessons_store = mem_cfg.get("lessons_store", "files")
+            graph_relevance = mem_cfg.get("graph_relevance", "none")
+            location = mem_cfg.get("location", args.location)
+        except (OSError, json.JSONDecodeError) as exc:
+            config_error = f"could not read {config_path}: {exc}"
+    mem_dir = resolve_memory_dir(location)
     lessons = load_lessons(mem_dir)
-    print(json.dumps({
+    status: dict[str, Any] = {
         "memory_dir": str(mem_dir),
         "exists": (mem_dir / "lessons.jsonl").is_file(),
-        "location": args.location,
+        "location": location,
+        "lessons_store": lessons_store,
+        "graph_relevance": graph_relevance,
         "lesson_count": len(lessons),
         "kinds": count_kinds(lessons),
-    }, indent=2))
+        "note": "files is the coded backend; honcho/graphify are agent-driven and degrade to files when unavailable",
+    }
+    if config_error:
+        status["config_error"] = config_error
+    print(json.dumps(status, indent=2))
     return 0

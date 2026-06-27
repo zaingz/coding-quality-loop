@@ -21,9 +21,9 @@ adapter degrades to `files` / `none`; a task never blocks on memory infrastructu
 - **recall(goal, files, risk, budget)** -> a budget-capped, relevance-scoped digest of prior
   lessons. Files backend: `python3 scripts/quality_loop.py memory-recall --goal "..."
   --files a,b --risk medium --budget 1500`.
-- **commit(record | --lesson)** -> distills `harness_update`, `minimality_decision`, and
+- **commit(record [, --lesson])** -> distills `harness_update`, `minimality_decision`, and
   `review_findings` from an agent record into lesson rows. Files backend:
-  `python3 scripts/quality_loop.py memory-commit agent-record.json`.
+  `python3 scripts/quality_loop.py memory-commit agent-record.json`. The record path is always required; `--lesson` overrides what is distilled from it.
 - **prune()** -> dedup + age-out + cap. Files backend:
   `python3 scripts/quality_loop.py memory-prune`.
 

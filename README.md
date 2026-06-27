@@ -200,6 +200,7 @@ python3 -m py_compile scripts/*.py evals/*.py                                   
 python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json   # 2. config
 python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json   # 3. static
 python3 evals/run_evals.py                                                      # 4. behavioral gates
+python3 evals/run_memory_evals.py                                              # 5. memory gates
 ```
 
 Current result: **9/9 static cases** + **26/26 behavioral cases pass**, re-run on every push by a

@@ -1050,12 +1050,13 @@ def main() -> int:
     p_mrecall.add_argument("--budget", type=int, default=1500)
     p_mrecall.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_mrecall.add_argument("--json", action="store_true")
+    p_mrecall.add_argument("--no-bump", action="store_true", help="Read-only: do not increment hit counts or rewrite the store")
     p_mrecall.set_defaults(func=qlmem.cmd_recall)
 
     p_mcommit = sub.add_parser("memory-commit", help="Distill an agent record into durable lessons")
     p_mcommit.add_argument("record")
     p_mcommit.add_argument("--lesson", help="Commit this exact lesson instead of distilling the record")
-    p_mcommit.add_argument("--kind", choices=sorted(qlmem.LESSON_KINDS), default="gotcha")
+    p_mcommit.add_argument("--kind", choices=sorted(qlmem.LESSON_KINDS), default="gotcha", help="Kind for an explicit --lesson (distillation derives the kind otherwise)")
     p_mcommit.add_argument("--scope", help="Override scope glob, e.g. 'src/payments/**'")
     p_mcommit.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_mcommit.set_defaults(func=qlmem.cmd_commit)
@@ -1068,6 +1069,7 @@ def main() -> int:
 
     p_mstatus = sub.add_parser("memory-status", help="Show memory store location and lesson counts")
     p_mstatus.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_mstatus.add_argument("--config", help="Read memory backend selection from this quality-loop config file")
     p_mstatus.set_defaults(func=qlmem.cmd_status)
 
     args = parser.parse_args()
