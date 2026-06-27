@@ -961,8 +961,14 @@ def case_prune_dedups_ages_and_caps(tmp: Path) -> tuple[bool, str]:
         and "Payment retries must be idempotent!" not in texts
         and "Old never-recalled note" not in texts
     )
-    # cap test
-    many = [mem.normalize_lesson({"lesson": f"distinct lesson number {i}", "kind": "gotcha"}, "2026-06-27") for i in range(10)]
+    # cap test — genuinely distinct lessons (must NOT dedup at 0.92)
+    distinct = [
+        "always validate input", "use db transactions", "retry with backoff",
+        "log correlation ids", "handle timeouts explicitly",
+        "prefer immutable data", "avoid god objects", "test edge cases",
+        "document public apis", "sanitize user input",
+    ]
+    many = [mem.normalize_lesson({"lesson": s, "kind": "gotcha"}, "2026-06-27") for s in distinct]
     capped = mem.prune(many, max_n=4, max_age_days=3650, now=_date(2026, 6, 27))
     ok = ok and len(capped) == 4
     return ok, f"pruned={texts}; capped={len(capped)}"
@@ -1019,7 +1025,7 @@ def prune(
             continue
         fresh.append(l)
     deduped: list[dict[str, Any]] = []
-    for l in sorted(fresh, key=lambda x: (-int(x.get("hits", 0)), str(x.get("created", "")))):
+    for l in sorted(fresh, key=lambda x: (int(x.get("hits", 0)), str(x.get("created", ""))), reverse=True):
         text = str(l.get("lesson", ""))
         if any(
             difflib.SequenceMatcher(None, text, str(k.get("lesson", ""))).ratio() >= 0.92

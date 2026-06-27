@@ -352,10 +352,10 @@ def prune(
             continue
         fresh.append(l)
     deduped: list[dict[str, Any]] = []
-    for l in sorted(fresh, key=lambda x: (-int(x.get("hits", 0)), str(x.get("created", "")))):
+    for l in sorted(fresh, key=lambda x: (int(x.get("hits", 0)), str(x.get("created", ""))), reverse=True):
         text = str(l.get("lesson", ""))
         if any(
-            difflib.SequenceMatcher(None, text, str(k.get("lesson", ""))).ratio() >= 0.97
+            difflib.SequenceMatcher(None, text, str(k.get("lesson", ""))).ratio() >= 0.92
             for k in deduped
         ):
             continue
