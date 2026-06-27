@@ -5,9 +5,10 @@
 ### Make your AI coding agent ship changes you can trust — not giant diffs you have to babysit.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-111111?style=flat-square)](LICENSE)
+[![version](https://img.shields.io/badge/version-1.4.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-9%2F9%20%2B%2026%2F26-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-9%2F9%20%2B%2026%2F26%20%2B%2020%2F20-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 [![hosts](https://img.shields.io/badge/works%20with-Claude%20Code%20·%20Codex%20·%20Cursor%20·%20Pi-111111?style=flat-square)](#install--use-matrix)
 
@@ -33,6 +34,7 @@ multi-agent config. No new tools, no lock-in.
 [Quickstart](#quickstart-30-seconds) ·
 [The loop](#the-loop) ·
 [What it enforces (and what it doesn't)](#what-it-enforces--and-what-it-deliberately-does-not) ·
+[Project memory](#project-memory) ·
 [Proof you can run](#proof-you-can-run) ·
 [Install matrix](#install--use-matrix) ·
 [What's in the box](#whats-in-the-box) ·
@@ -55,9 +57,10 @@ You ask your agent to *"fix the checkout retry bug."*
 | "looks right to me" | a test that **fails before the fix and passes after** — shown, not claimed |
 | you review it cold, by yourself | a *second* agent already checked it against the goal |
 | hope you can undo it | a one-line rollback, written down |
+| relearns the same lesson next session | remembers it — and recalls it next time |
 
-That's the whole idea: smaller changes, real proof, and a second set of eyes — so you read,
-trust, and merge in minutes instead of babysitting. The work also scales to the risk: a typo just
+That's the whole idea: smaller changes, real proof, a second set of eyes, and memory that
+sticks — so you read, trust, and merge in minutes instead of babysitting. The work also scales to the risk: a typo just
 gets fixed; a payment migration runs the full process. See a real worked example in
 [`examples/walkthrough/`](examples/walkthrough/README.md).
 
@@ -119,6 +122,10 @@ smallest approach, once to confirm nothing crept in before review.
   └─ RETROSPECT ──── turn every repeated mistake into a durable harness change, not a chat fix
 ```
 
+Across tasks, those durable lessons can persist in an optional
+[per-project memory](#project-memory) — so the agent recalls them next time instead of
+relearning them.
+
 ### Ceremony scales with risk
 
 A tiny task must **not** be forced through mission ceremony. A medium task must **not** ship
@@ -179,15 +186,33 @@ rest trustable):
 - It is not a model runtime: no recovery, telemetry, or git-worker handoff. Wiring the routed
   steps to real models/sessions is the host's job.
 
-### Persistent project memory (optional)
+---
 
-The loop can keep a tiny per-project ledger of **distilled lessons** (failure modes,
-conventions, gotchas) in `.quality-loop/memory/`, recalled on demand into a hard budget at
-INTAKE and written at retrospective — so a lesson learned once is not relearned. It is
-retrieval, not context stuffing: only a <=40-line index auto-loads. The default backend is
-stdlib-only and checked-in; optional `honcho` (reasoning recall) and `graphify` (code-graph
-relevance) backends plug in via config and degrade gracefully to files. Writes are advisory —
-it adds no new hard gate. See [`references/memory.md`](references/memory.md).
+## Project memory
+
+Most agents relearn the same lesson every session. The loop can keep a tiny, per-project ledger of
+**distilled lessons** — failure modes, conventions ("no new dependencies here"), and gotchas
+("this module broke twice") — so a lesson learned once is *recalled the next time*, not
+rediscovered. New in v1.4.0.
+
+It is **retrieval, not context stuffing**: only a ≤40-line index auto-loads, and recall is
+budget-capped and scoped to the goal and files of the task at hand. Lessons are distilled (never
+raw transcripts), **secrets are redacted before they are written**, and writes stay **advisory** —
+memory adds no new gate.
+
+```bash
+# recall relevant prior lessons before mapping a change
+python3 scripts/quality_loop.py memory-recall --goal "fix checkout retry" \
+  --files src/payments/charge.py --risk high
+# at retrospective, keep a lesson worth remembering
+python3 scripts/quality_loop.py memory-commit agent-record.json
+```
+
+The default backend is **stdlib-only and checked-in** (`.quality-loop/memory/` — git-diffable and
+team-shared). Two optional, loop-integrated backends plug in via config and degrade gracefully to
+files: **[Honcho](https://honcho.dev)** (reasoning-based recall) and
+**[Graphify](https://github.com/safishamsi/graphify)** (code-graph relevance). See
+[`references/memory.md`](references/memory.md).
 
 ---
 
@@ -203,8 +228,8 @@ python3 evals/run_evals.py                                                      
 python3 evals/run_memory_evals.py                                              # 5. memory gates
 ```
 
-Current result: **9/9 static cases** + **26/26 behavioral cases pass**, re-run on every push by a
-dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). The two suites prove
+Current result: **9/9 static** + **26/26 behavioral** + **20/20 memory cases pass**, re-run on every
+push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). The suites prove
 different things, and are labeled honestly:
 
 - The **static** suite is an *intake-classification regression test* — it pins the routing table
@@ -213,6 +238,9 @@ different things, and are labeled honestly:
   constructed records and asserts hard-to-fake behavior (a self-downgraded boundary task is
   blocked, placeholder/wrong-content artifacts are rejected, the implementer can't be the reviewer,
   untracked secrets are flagged). One case is a docs-presence lint, not a gate.
+- The **memory** suite drives the `memory-recall` / `commit` / `prune` CLI against constructed
+  stores and asserts the anti-bloat and safety invariants hold — the index stays ≤40 lines even
+  with multi-line lessons, recall respects its budget, and secrets are redacted before they land.
 
 For medium/high-risk work, create and audit a state record:
 
@@ -267,11 +295,13 @@ coding-quality-loop/
 ├── assets/             # templates + schemas loaded on demand (contract, validation contract,
 │                       #   plan, logs, completion record, PR summary, record schema, config)
 ├── references/         # deep-dive docs pulled only when needed (lifecycle, orchestration,
-│                       #   reviewer checklists, tool contracts, engineering-OS, philosophy)
+│                       #   reviewer checklists, tool contracts, engineering-OS, philosophy,
+│                       #   the memory contract + Honcho/Graphify backends)
 ├── examples/           # host-native copy-paste: claude-code, codex, cursor, pi, standalone,
 │                       #   + a real before/after walkthrough with a passing state record
 ├── evals/              # offline eval cases + harness that prove the gates fire
-└── scripts/            # quality_loop.py — stdlib-only checker (no third-party deps)
+├── scripts/            # quality_loop.py + quality_loop_memory.py — stdlib-only, no third-party deps
+└── .quality-loop/      # per-project lessons memory (git-diffable; grows as the agent learns)
 ```
 
 Copying the folder into any skills-aware host *is* the install. There is no build step.
@@ -325,6 +355,11 @@ an optional, stdlib-only accelerator for teams that want runnable record gates.
 
 **Will it work with my agent?** If it loads `SKILL.md` or accepts a system prompt, yes — Claude
 Code, Codex, Cursor, Pi, and standalone runtimes are covered with copy-paste files.
+
+**Does it remember across sessions?** Optionally, yes. With [project memory](#project-memory)
+enabled, distilled lessons persist per-project and are recalled — budget-capped — at the start of
+the next task, so the agent stops relearning the same thing. It's advisory (no new gate),
+stdlib-only by default, and redacts secrets before writing.
 
 ---
 
