@@ -329,3 +329,46 @@ def cmd_commit(args: Any) -> int:
     write_index(mem_dir, existing)
     print(f"committed {added} lesson(s) to {mem_dir / 'lessons.jsonl'}")
     return 0
+
+
+def _parse_date(value: Any) -> date | None:
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+def prune(
+    lessons: list[dict[str, Any]],
+    max_n: int = 200,
+    max_age_days: int = 365,
+    now: date | None = None,
+) -> list[dict[str, Any]]:
+    now = now or date.today()
+    fresh: list[dict[str, Any]] = []
+    for l in lessons:
+        created = _parse_date(l.get("created"))
+        if created and int(l.get("hits", 0)) == 0 and (now - created).days > max_age_days:
+            continue
+        fresh.append(l)
+    deduped: list[dict[str, Any]] = []
+    for l in sorted(fresh, key=lambda x: (-int(x.get("hits", 0)), str(x.get("created", "")))):
+        text = str(l.get("lesson", ""))
+        if any(
+            difflib.SequenceMatcher(None, text, str(k.get("lesson", ""))).ratio() >= 0.97
+            for k in deduped
+        ):
+            continue
+        deduped.append(l)
+    deduped.sort(key=lambda x: (int(x.get("hits", 0)), str(x.get("created", ""))), reverse=True)
+    return deduped[:max_n]
+
+
+def cmd_prune(args: Any) -> int:
+    mem_dir = resolve_memory_dir(args.location)
+    lessons = load_lessons(mem_dir)
+    kept = prune(lessons, max_n=args.max, max_age_days=args.max_age_days)
+    save_lessons(mem_dir, kept)
+    write_index(mem_dir, kept)
+    print(f"pruned {len(lessons) - len(kept)} lesson(s); {len(kept)} remain")
+    return 0

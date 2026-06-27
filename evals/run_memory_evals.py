@@ -13,6 +13,7 @@ import json
 import subprocess
 import sys
 import tempfile
+from datetime import date as _date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -167,6 +168,43 @@ def case_cli_commit_writes_and_dedups(tmp: Path) -> tuple[bool, str]:
     return ok, f"code1={code1}; code2={code2}; count={len(lessons)}; err={err1.strip()!r}"
 
 
+def case_prune_dedups_ages_and_caps(tmp: Path) -> tuple[bool, str]:
+    base = [
+        {"lesson": "Payment retries must be idempotent", "kind": "failure_mode",
+         "risk_tier": "high", "created": "2026-06-20", "hits": 3},
+        {"lesson": "Payment retries must be idempotent!", "kind": "failure_mode",
+         "risk_tier": "high", "created": "2026-06-21", "hits": 0},  # near-duplicate -> dropped
+        {"lesson": "Old never-recalled note", "kind": "gotcha",
+         "risk_tier": "low", "created": "2020-01-01", "hits": 0},   # aged + 0 hits -> dropped
+    ]
+    lessons = [mem.normalize_lesson(r, "2026-06-27") for r in base]
+    pruned = mem.prune(lessons, max_n=200, max_age_days=365, now=_date(2026, 6, 27))
+    texts = [l["lesson"] for l in pruned]
+    ok = (
+        "Payment retries must be idempotent" in texts
+        and "Payment retries must be idempotent!" not in texts
+        and "Old never-recalled note" not in texts
+    )
+    # cap test
+    many = [mem.normalize_lesson({"lesson": f"distinct lesson number {i}", "kind": "gotcha"}, "2026-06-27") for i in range(10)]
+    capped = mem.prune(many, max_n=4, max_age_days=3650, now=_date(2026, 6, 27))
+    ok = ok and len(capped) == 4
+    return ok, f"pruned={texts}; capped={len(capped)}"
+
+
+def case_cli_prune(tmp: Path) -> tuple[bool, str]:
+    mem_dir = tmp / ".quality-loop" / "memory"
+    for r in [
+        {"lesson": "alpha lesson here", "kind": "gotcha"},
+        {"lesson": "alpha lesson here", "kind": "gotcha"},  # exact dup id -> file has 2 lines? no, append twice
+    ]:
+        mem.append_lesson(mem_dir, mem.normalize_lesson(r, "2026-06-27"))
+    code, out, err = run_cli("memory-prune", cwd=str(tmp))
+    remaining = mem.load_lessons(mem_dir)
+    ok = code == 0 and len(remaining) == 1
+    return ok, f"code={code}; remaining={len(remaining)}; out={out.strip()!r}; err={err.strip()!r}"
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
@@ -176,6 +214,8 @@ CASES = [
     ("memory-recall prints a digest, bumps hits, and writes a <=40-line index", case_cli_recall_bumps_hits_and_index),
     ("distill_record turns a record into scoped, kind-tagged lessons", case_distill_record),
     ("memory-commit writes lessons and is idempotent (dedup by id)", case_cli_commit_writes_and_dedups),
+    ("prune dedups near-duplicates, ages out 0-hit stale, and caps", case_prune_dedups_ages_and_caps),
+    ("memory-prune collapses duplicates on disk", case_cli_prune),
 ]
 
 

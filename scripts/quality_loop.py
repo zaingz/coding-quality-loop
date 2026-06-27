@@ -1056,6 +1056,12 @@ def main() -> int:
     p_mcommit.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_mcommit.set_defaults(func=qlmem.cmd_commit)
 
+    p_mprune = sub.add_parser("memory-prune", help="Dedup + cap the lessons ledger")
+    p_mprune.add_argument("--max", type=int, default=200)
+    p_mprune.add_argument("--max-age-days", type=int, default=365)
+    p_mprune.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_mprune.set_defaults(func=qlmem.cmd_prune)
+
     args = parser.parse_args()
     return args.func(args)
 
