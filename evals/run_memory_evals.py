@@ -69,9 +69,17 @@ def case_lesson_io_roundtrip(tmp: Path) -> tuple[bool, str]:
     return ok, f"loaded={loaded}"
 
 
+def case_schema_and_seed_valid(tmp: Path) -> tuple[bool, str]:
+    schema = json.loads((ROOT / "assets" / "lesson.schema.json").read_text())
+    seed = mem.load_lessons(ROOT / ".quality-loop" / "memory")
+    ok = schema.get("type") == "object" and "lesson" in schema.get("properties", {}) and seed == []
+    return ok, f"schema_type={schema.get('type')}; seed_count={len(seed)}"
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
+    ("lesson.schema.json is valid and the seed store loads empty", case_schema_and_seed_valid),
 ]
 
 
