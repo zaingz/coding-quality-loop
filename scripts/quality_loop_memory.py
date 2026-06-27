@@ -89,8 +89,7 @@ def normalize_lesson(raw: dict[str, Any], created: str) -> dict[str, Any]:
     text = _clean_lesson_text(raw.get("lesson", ""))
     kind = raw.get("kind") if raw.get("kind") in LESSON_KINDS else "gotcha"
     risk = raw.get("risk_tier") if raw.get("risk_tier") in RISK_TIERS else "low"
-    hits_raw = raw.get("hits", 0)
-    hits = 0 if isinstance(hits_raw, bool) else int(hits_raw) if isinstance(hits_raw, int) else 0
+    hits = _safe_int(raw.get("hits", 0))
     return {
         "id": raw.get("id") or lesson_id(text),
         "created": raw.get("created") or created,
@@ -134,12 +133,17 @@ def save_lessons(mem_dir: Path, lessons: list[dict[str, Any]]) -> None:
     body = "".join(json.dumps(l, sort_keys=True) + "\n" for l in lessons)
     # Unique temp file per writer (matches quality_loop.write_json) so concurrent
     # writers cannot clobber a shared temp path before the atomic os.replace.
-    with tempfile.NamedTemporaryFile(
-        "w", delete=False, dir=mem_dir, prefix="lessons.", suffix=".tmp", encoding="utf-8"
-    ) as fh:
-        fh.write(body)
-        tmp_path = Path(fh.name)
-    os.replace(tmp_path, path)
+    # On any write failure, remove the temp file and surface the real error
+    # rather than leaking it or masking the cause.
+    fd, tmp_name = tempfile.mkstemp(dir=mem_dir, prefix="lessons.", suffix=".tmp")
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        os.replace(tmp_path, path)
+    except OSError:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def score_lesson(lesson: dict[str, Any], goal_tokens: set[str], files: list[str], risk: str) -> float:
