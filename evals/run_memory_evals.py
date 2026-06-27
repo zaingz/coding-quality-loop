@@ -233,6 +233,22 @@ def case_check_config_validates_memory_block(tmp: Path) -> tuple[bool, str]:
     return ok, f"good={good}; bad={bad}; check_config_exit={code}; err={err.strip()!r}"
 
 
+def case_reference_modules_present(tmp: Path) -> tuple[bool, str]:
+    docs = {
+        "memory.md": ["recall", "commit", "prune", "lessons_store", "graph_relevance", "anti-bloat"],
+        "memory-honcho.md": ["workspace", "peer", "add_messages_to_session", "query_conclusions", "privacy"],
+        "memory-graphify.md": ["graphify", "graph-relevance", "token_budget", "context map"],
+    }
+    missing: list[str] = []
+    for fname, terms in docs.items():
+        path = ROOT / "references" / fname
+        text = path.read_text().lower() if path.exists() else ""
+        for term in terms:
+            if term.lower() not in text:
+                missing.append(f"{fname}:{term}")
+    return (not missing), (f"missing={missing}" if missing else "all reference modules present")
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
@@ -246,6 +262,7 @@ CASES = [
     ("memory-prune collapses duplicates on disk", case_cli_prune),
     ("memory-status reports the store location and counts", case_cli_status),
     ("validate_memory_config + check-config accept/reject the memory block", case_check_config_validates_memory_block),
+    ("memory reference modules exist with required content", case_reference_modules_present),
 ]
 
 
