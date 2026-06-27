@@ -76,10 +76,50 @@ def case_schema_and_seed_valid(tmp: Path) -> tuple[bool, str]:
     return ok, f"schema_type={schema.get('type')}; seed_count={len(seed)}"
 
 
+def _seed(mem_dir: Path) -> None:
+    rows = [
+        {"lesson": "Payment retries must be idempotent", "kind": "failure_mode",
+         "risk_tier": "high", "scope_globs": ["src/payments/**"], "keywords": ["retry", "idempotent"]},
+        {"lesson": "No new dependencies in this repo without justification", "kind": "convention",
+         "risk_tier": "medium", "scope_globs": ["**"], "keywords": ["dependency"]},
+        {"lesson": "The CSS build step is flaky on CI", "kind": "gotcha",
+         "risk_tier": "low", "scope_globs": ["web/**"], "keywords": ["css", "build"]},
+    ]
+    for r in rows:
+        mem.append_lesson(mem_dir, mem.normalize_lesson(r, "2026-06-01"))
+
+
+def case_recall_ranks_and_is_deterministic(tmp: Path) -> tuple[bool, str]:
+    mem_dir = tmp / ".quality-loop" / "memory"
+    _seed(mem_dir)
+    lessons = mem.load_lessons(mem_dir)
+    out1 = mem.recall(lessons, "fix payment retry bug", ["src/payments/charge.py"], "high", 1500)
+    out2 = mem.recall(lessons, "fix payment retry bug", ["src/payments/charge.py"], "high", 1500)
+    top_is_payment = out1 and out1[0]["lesson"].startswith("Payment retries")
+    deterministic = [l["id"] for l in out1] == [l["id"] for l in out2]
+    # an unrelated query returns nothing (only positive scores survive)
+    none_out = mem.recall(lessons, "translate the homepage to French", ["i18n/fr.po"], "low", 1500)
+    ok = bool(top_is_payment) and deterministic and none_out == []
+    return ok, f"top={out1[0]['lesson'] if out1 else None!r}; det={deterministic}; none={none_out}"
+
+
+def case_recall_respects_budget(tmp: Path) -> tuple[bool, str]:
+    mem_dir = tmp / ".quality-loop" / "memory"
+    _seed(mem_dir)
+    lessons = mem.load_lessons(mem_dir)
+    # tiny budget: at most one line of digest, hard-capped
+    selected = mem.recall(lessons, "dependency retry css", ["src/payments/x.py", "web/y.css"], "medium", 40)
+    digest = mem.format_digest(selected, 40)
+    ok = len(digest) <= 40 and len(selected) >= 1
+    return ok, f"digest_len={len(digest)}; selected={len(selected)}; digest={digest!r}"
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
     ("lesson.schema.json is valid and the seed store loads empty", case_schema_and_seed_valid),
+    ("recall ranks by relevance, is deterministic, drops non-matches", case_recall_ranks_and_is_deterministic),
+    ("recall + digest respect the hard char budget", case_recall_respects_budget),
 ]
 
 

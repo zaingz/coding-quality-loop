@@ -43,8 +43,21 @@ def lesson_id(text: str) -> str:
     return hashlib.sha1(text.strip().encode("utf-8")).hexdigest()[:12]
 
 
+_STOPWORDS = {
+    "the", "and", "for", "with", "this", "that", "you", "are", "not", "but",
+    "its", "into", "from", "was", "were", "has", "have", "had", "will", "your",
+    "our", "their", "them", "then", "than", "out", "via", "per", "off", "all",
+    "any", "can", "may", "use", "using", "add", "fix", "must", "should", "when",
+    "where", "which", "while", "here", "there",
+}
+
+
 def _tokens(text: str) -> set[str]:
-    return {w.lower() for w in _WORD_RE.findall(text or "") if len(w) > 2}
+    return {
+        w.lower()
+        for w in _WORD_RE.findall(text or "")
+        if len(w) > 2 and w.lower() not in _STOPWORDS
+    }
 
 
 def normalize_lesson(raw: dict[str, Any], created: str) -> dict[str, Any]:
@@ -99,3 +112,59 @@ def save_lessons(mem_dir: Path, lessons: list[dict[str, Any]]) -> None:
         encoding="utf-8",
     )
     os.replace(tmp, path)
+
+
+def score_lesson(lesson: dict[str, Any], goal_tokens: set[str], files: list[str], risk: str) -> float:
+    keywords = {str(k).lower() for k in lesson.get("keywords", [])} | _tokens(lesson.get("lesson", ""))
+    keyword_overlap = len(goal_tokens & keywords) if goal_tokens else 0
+    path_match = False
+    for glob in lesson.get("scope_globs", []):
+        if glob == "**":
+            continue  # repo-wide membership is not a concrete relevance signal
+        if any(fnmatch.fnmatch(f, glob) for f in files):
+            path_match = True
+            break
+    if keyword_overlap == 0 and not path_match:
+        return 0.0  # no concrete relevance -> not recalled
+    score = 2.0 * keyword_overlap
+    if path_match:
+        score += 3.0
+    if risk and lesson.get("risk_tier") == risk:
+        score += 1.0
+    score += min(int(lesson.get("hits", 0)), 5) * 0.1
+    return score
+
+
+def render_line(lesson: dict[str, Any]) -> str:
+    return f"- [{lesson.get('kind', '?')}/{lesson.get('risk_tier', '?')}] {str(lesson.get('lesson', '')).strip()}"
+
+
+def recall(
+    lessons: list[dict[str, Any]],
+    goal: str,
+    files: list[str],
+    risk: str,
+    budget_chars: int,
+) -> list[dict[str, Any]]:
+    goal_tokens = _tokens(goal)
+    scored = [(score_lesson(l, goal_tokens, files, risk), l) for l in lessons]
+    scored = [(s, l) for s, l in scored if s > 0]
+    scored.sort(key=lambda sl: (-sl[0], str(sl[1].get("id", ""))))
+    selected: list[dict[str, Any]] = []
+    used = 0
+    for _, l in scored:
+        line_len = len(render_line(l)) + 1
+        if selected and used + line_len > budget_chars:
+            break
+        selected.append(l)
+        used += line_len
+    return selected
+
+
+def format_digest(lessons: list[dict[str, Any]], budget_chars: int) -> str:
+    if not lessons:
+        return "No prior lessons matched."
+    body = "\n".join(render_line(l) for l in lessons)
+    if len(body) > budget_chars:
+        body = body[:budget_chars].rstrip()
+    return body
