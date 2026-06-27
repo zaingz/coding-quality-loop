@@ -472,21 +472,44 @@ Expected: FAIL on the two new cases — `AttributeError: module 'quality_loop_me
 
 - [ ] **Step 3: Implement scoring, recall, and digest in the module**
 
-Append to `scripts/quality_loop_memory.py`:
+First, replace the two-line `_tokens` helper in `scripts/quality_loop_memory.py` (added in Task 1) with this stopword-filtered version, so common English words like "the" cannot create false keyword matches. Keep `_WORD_RE` unchanged; add `_STOPWORDS` directly above `_tokens`:
+
+```python
+_STOPWORDS = {
+    "the", "and", "for", "with", "this", "that", "you", "are", "not", "but",
+    "its", "into", "from", "was", "were", "has", "have", "had", "will", "your",
+    "our", "their", "them", "then", "than", "out", "via", "per", "off", "all",
+    "any", "can", "may", "use", "using", "add", "fix", "must", "should", "when",
+    "where", "which", "while", "here", "there",
+}
+
+
+def _tokens(text: str) -> set[str]:
+    return {
+        w.lower()
+        for w in _WORD_RE.findall(text or "")
+        if len(w) > 2 and w.lower() not in _STOPWORDS
+    }
+```
+
+Then append the scoring, recall, and digest functions to the END of `scripts/quality_loop_memory.py`. `score_lesson` requires a **concrete** relevance signal — a keyword overlap or a concrete path-glob match (`"**"` does NOT count as concrete) — before any risk/hit boost applies, so an unrelated query recalls nothing:
 
 ```python
 def score_lesson(lesson: dict[str, Any], goal_tokens: set[str], files: list[str], risk: str) -> float:
-    score = 0.0
-    kw = {str(k).lower() for k in lesson.get("keywords", [])} | _tokens(lesson.get("lesson", ""))
-    if goal_tokens and kw:
-        score += 2.0 * len(goal_tokens & kw)
+    keywords = {str(k).lower() for k in lesson.get("keywords", [])} | _tokens(lesson.get("lesson", ""))
+    keyword_overlap = len(goal_tokens & keywords) if goal_tokens else 0
+    path_match = False
     for glob in lesson.get("scope_globs", []):
         if glob == "**":
-            score += 0.5  # repo-wide lessons are weakly relevant to any file set
-            break
+            continue  # repo-wide membership is not a concrete relevance signal
         if any(fnmatch.fnmatch(f, glob) for f in files):
-            score += 3.0
+            path_match = True
             break
+    if keyword_overlap == 0 and not path_match:
+        return 0.0  # no concrete relevance -> not recalled
+    score = 2.0 * keyword_overlap
+    if path_match:
+        score += 3.0
     if risk and lesson.get("risk_tier") == risk:
         score += 1.0
     score += min(int(lesson.get("hits", 0)), 5) * 0.1
