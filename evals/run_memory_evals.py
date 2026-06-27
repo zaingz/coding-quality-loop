@@ -131,6 +131,42 @@ def case_cli_recall_bumps_hits_and_index(tmp: Path) -> tuple[bool, str]:
     return ok, f"code={code}; bumped={bumped}; index_lines={len(index)}; err={err.strip()!r}"
 
 
+def case_distill_record(tmp: Path) -> tuple[bool, str]:
+    record = {
+        "task_id": "t-42",
+        "goal": "Fix checkout retry double-charge",
+        "risk_tier": "high",
+        "repeated_failure": True,
+        "harness_update": {"type": "test", "change": "added idempotency regression test for retries"},
+        "minimality_decision": {"rung": "reuse", "reason": "existing retry helper already guards this"},
+        "review_findings": ["fresh-context review: watch for partial writes on timeout"],
+        "repo_map": {"likely_files": ["src/payments/charge.py:do_charge"], "entry_points": []},
+    }
+    rows = mem.distill_record(record, "2026-06-27")
+    kinds = {r["kind"] for r in rows}
+    has_failure = any("idempotency regression" in r["lesson"] and r["kind"] == "failure_mode" for r in rows)
+    scoped = all(any(g.startswith("src/payments") for g in r["scope_globs"]) for r in rows)
+    ok = len(rows) >= 2 and has_failure and "preference" in kinds and scoped
+    return ok, f"rows={len(rows)}; kinds={kinds}; has_failure={has_failure}; scoped={scoped}"
+
+
+def case_cli_commit_writes_and_dedups(tmp: Path) -> tuple[bool, str]:
+    record = {
+        "task_id": "t-7", "goal": "Harden upload path", "risk_tier": "medium",
+        "harness_update": "Validate content-type before streaming uploads",
+        "minimality_decision": {"rung": "stdlib", "reason": "mimetypes covers it"},
+        "repo_map": {"likely_files": ["src/upload/handler.py"]},
+    }
+    rec_path = tmp / "agent-record.json"
+    rec_path.write_text(json.dumps(record))
+    code1, out1, err1 = run_cli("memory-commit", str(rec_path), cwd=str(tmp))
+    code2, _, _ = run_cli("memory-commit", str(rec_path), cwd=str(tmp))  # idempotent
+    lessons = mem.load_lessons(tmp / ".quality-loop" / "memory")
+    ids = [l["id"] for l in lessons]
+    ok = code1 == 0 and code2 == 0 and len(ids) == len(set(ids)) and len(lessons) >= 1
+    return ok, f"code1={code1}; code2={code2}; count={len(lessons)}; err={err1.strip()!r}"
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
@@ -138,6 +174,8 @@ CASES = [
     ("recall ranks by relevance, is deterministic, drops non-matches", case_recall_ranks_and_is_deterministic),
     ("recall + digest respect the hard char budget", case_recall_respects_budget),
     ("memory-recall prints a digest, bumps hits, and writes a <=40-line index", case_cli_recall_bumps_hits_and_index),
+    ("distill_record turns a record into scoped, kind-tagged lessons", case_distill_record),
+    ("memory-commit writes lessons and is idempotent (dedup by id)", case_cli_commit_writes_and_dedups),
 ]
 
 

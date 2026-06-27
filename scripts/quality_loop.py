@@ -1048,6 +1048,14 @@ def main() -> int:
     p_mrecall.add_argument("--json", action="store_true")
     p_mrecall.set_defaults(func=qlmem.cmd_recall)
 
+    p_mcommit = sub.add_parser("memory-commit", help="Distill an agent record into durable lessons")
+    p_mcommit.add_argument("record")
+    p_mcommit.add_argument("--lesson", help="Commit this exact lesson instead of distilling the record")
+    p_mcommit.add_argument("--kind", choices=sorted(qlmem.LESSON_KINDS), default="gotcha")
+    p_mcommit.add_argument("--scope", help="Override scope glob, e.g. 'src/payments/**'")
+    p_mcommit.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_mcommit.set_defaults(func=qlmem.cmd_commit)
+
     args = parser.parse_args()
     return args.func(args)
 

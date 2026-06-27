@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -212,4 +213,119 @@ def cmd_recall(args: Any) -> int:
         print(json.dumps(selected, indent=2))
     else:
         print(format_digest(selected, args.budget))
+    return 0
+
+
+def artifact_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        parts = [
+            str(v).strip()
+            for v in value.values()
+            if isinstance(v, (str, int, float)) and not isinstance(v, bool) and str(v).strip()
+        ]
+        return "; ".join(parts)
+    return ""
+
+
+def files_to_globs(files: list[str]) -> list[str]:
+    globs: list[str] = []
+    for f in files:
+        directory = "/".join(f.split("/")[:-1])
+        glob = (directory + "/**") if directory else f
+        if glob and glob not in globs:
+            globs.append(glob)
+    return globs or ["**"]
+
+
+def _make_row(
+    lesson: str, kind: str, risk: str, scope: list[str], task_id: str
+) -> dict[str, Any]:
+    return {
+        "lesson": lesson,
+        "kind": kind,
+        "risk_tier": risk,
+        "scope_globs": scope,
+        "keywords": sorted(_tokens(lesson))[:12],
+        "source_task_id": task_id,
+    }
+
+
+def _record_files(record: dict[str, Any]) -> list[str]:
+    files: list[str] = []
+    repo_map = record.get("repo_map") or {}
+    for key in ("likely_files", "entry_points"):
+        for entry in repo_map.get(key, []) or []:
+            path = str(entry).split(":")[0].strip()
+            if path and path not in files:
+                files.append(path)
+    return files
+
+
+def distill_record(
+    record: dict[str, Any],
+    created: str,
+    override_lesson: str | None = None,
+    override_kind: str | None = None,
+    override_scope: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    risk = record.get("risk_tier") if record.get("risk_tier") in RISK_TIERS else "low"
+    task_id = str(record.get("task_id", ""))
+    goal = str(record.get("goal", "")).strip()
+    scope = override_scope or files_to_globs(_record_files(record))
+    raw_rows: list[dict[str, Any]] = []
+
+    if override_lesson and override_lesson.strip():
+        raw_rows.append(_make_row(override_lesson.strip(), override_kind or "gotcha", risk, scope, task_id))
+    else:
+        harness = artifact_text(record.get("harness_update"))
+        if harness:
+            kind = "failure_mode" if record.get("repeated_failure") else "convention"
+            raw_rows.append(_make_row(harness, kind, risk, scope, task_id))
+        decision = record.get("minimality_decision") or {}
+        reason = str(decision.get("reason", "")).strip()
+        if reason:
+            rung = decision.get("rung", "")
+            raw_rows.append(
+                _make_row(f"Prefer rung '{rung}': {reason}", "preference", risk, scope, task_id)
+            )
+        for finding in record.get("review_findings", []) or []:
+            text = finding if isinstance(finding, str) else artifact_text(finding)
+            text = str(text).strip()
+            if text and "approv" not in text.lower():
+                raw_rows.append(_make_row(f"Review note: {text}", "gotcha", risk, scope, task_id))
+
+    return [normalize_lesson(r, created) for r in raw_rows if str(r.get("lesson", "")).strip()]
+
+
+def cmd_commit(args: Any) -> int:
+    record = json.loads(Path(args.record).read_text(encoding="utf-8"))
+    mem_dir = resolve_memory_dir(args.location)
+    created = date.today().isoformat()
+    override_scope = [args.scope] if getattr(args, "scope", None) else None
+    rows = distill_record(
+        record, created,
+        override_lesson=getattr(args, "lesson", None),
+        override_kind=getattr(args, "kind", None),
+        override_scope=override_scope,
+    )
+    if not rows:
+        print(
+            "no lesson distilled (record has no harness_update/minimality/review and no --lesson)",
+            file=sys.stderr,
+        )
+        return 1
+    existing = load_lessons(mem_dir)
+    existing_ids = {l.get("id") for l in existing}
+    added = 0
+    for row in rows:
+        if row["id"] in existing_ids:
+            continue
+        append_lesson(mem_dir, row)
+        existing.append(row)
+        existing_ids.add(row["id"])
+        added += 1
+    write_index(mem_dir, existing)
+    print(f"committed {added} lesson(s) to {mem_dir / 'lessons.jsonl'}")
     return 0
