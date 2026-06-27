@@ -114,12 +114,30 @@ def case_recall_respects_budget(tmp: Path) -> tuple[bool, str]:
     return ok, f"digest_len={len(digest)}; selected={len(selected)}; digest={digest!r}"
 
 
+def case_cli_recall_bumps_hits_and_index(tmp: Path) -> tuple[bool, str]:
+    mem_dir = tmp / ".quality-loop" / "memory"
+    _seed(mem_dir)
+    code, out, err = run_cli(
+        "memory-recall", "--goal", "payment retry", "--files", "src/payments/charge.py",
+        "--risk", "high", "--budget", "1500", cwd=str(tmp),
+    )
+    digest_ok = code == 0 and "Payment retries" in out
+    after = {l["id"]: l for l in mem.load_lessons(mem_dir)}
+    payment = next((l for l in after.values() if l["lesson"].startswith("Payment retries")), None)
+    bumped = payment is not None and payment["hits"] == 1
+    index = (mem_dir / "MEMORY.md").read_text().splitlines()
+    index_ok = (mem_dir / "MEMORY.md").is_file() and len(index) <= 40
+    ok = digest_ok and bumped and index_ok
+    return ok, f"code={code}; bumped={bumped}; index_lines={len(index)}; err={err.strip()!r}"
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
     ("lesson.schema.json is valid and the seed store loads empty", case_schema_and_seed_valid),
     ("recall ranks by relevance, is deterministic, drops non-matches", case_recall_ranks_and_is_deterministic),
     ("recall + digest respect the hard char budget", case_recall_respects_budget),
+    ("memory-recall prints a digest, bumps hits, and writes a <=40-line index", case_cli_recall_bumps_hits_and_index),
 ]
 
 

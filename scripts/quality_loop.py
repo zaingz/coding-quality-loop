@@ -18,6 +18,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import quality_loop_memory as qlmem
+
 
 RISK_TIERS = {"low", "medium", "high"}
 STATUSES = {
@@ -1036,6 +1038,15 @@ def main() -> int:
     p_eval.add_argument("cases_dir", help="Directory of *.json cases or a single case file")
     p_eval.add_argument("--config", help="Optional orchestration config to validate first")
     p_eval.set_defaults(func=eval_cases)
+
+    p_mrecall = sub.add_parser("memory-recall", help="Recall relevant prior lessons (budget-capped)")
+    p_mrecall.add_argument("--goal", default="")
+    p_mrecall.add_argument("--files", default="")
+    p_mrecall.add_argument("--risk", choices=sorted(RISK_TIERS), default="low")
+    p_mrecall.add_argument("--budget", type=int, default=1500)
+    p_mrecall.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_mrecall.add_argument("--json", action="store_true")
+    p_mrecall.set_defaults(func=qlmem.cmd_recall)
 
     args = parser.parse_args()
     return args.func(args)

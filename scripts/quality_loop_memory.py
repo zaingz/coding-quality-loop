@@ -168,3 +168,48 @@ def format_digest(lessons: list[dict[str, Any]], budget_chars: int) -> str:
     if len(body) > budget_chars:
         body = body[:budget_chars].rstrip()
     return body
+
+
+def write_index(mem_dir: Path, lessons: list[dict[str, Any]], max_lines: int = 40) -> None:
+    mem_dir.mkdir(parents=True, exist_ok=True)
+    ranked = sorted(
+        lessons,
+        key=lambda x: (int(x.get("hits", 0)), str(x.get("created", ""))),
+        reverse=True,
+    )
+    header = [
+        "# Project Memory (index)",
+        "",
+        f"{len(lessons)} lesson(s). Recall detail with: python3 scripts/quality_loop.py memory-recall.",
+        "",
+    ]
+    body_budget = max(max_lines - len(header), 0)
+    body = [render_line(l) for l in ranked[:body_budget]]
+    (mem_dir / "MEMORY.md").write_text("\n".join(header + body) + "\n", encoding="utf-8")
+
+
+def bump_hits(mem_dir: Path, ids: list[str]) -> None:
+    idset = set(ids)
+    lessons = load_lessons(mem_dir)
+    for l in lessons:
+        if l.get("id") in idset:
+            l["hits"] = int(l.get("hits", 0)) + 1
+    save_lessons(mem_dir, lessons)
+    write_index(mem_dir, lessons)
+
+
+def _split_files(value: str | None) -> list[str]:
+    return [f.strip() for f in (value or "").split(",") if f.strip()]
+
+
+def cmd_recall(args: Any) -> int:
+    mem_dir = resolve_memory_dir(args.location)
+    lessons = load_lessons(mem_dir)
+    selected = recall(lessons, args.goal or "", _split_files(args.files), args.risk, args.budget)
+    if selected:
+        bump_hits(mem_dir, [str(l.get("id", "")) for l in selected])
+    if args.json:
+        print(json.dumps(selected, indent=2))
+    else:
+        print(format_digest(selected, args.budget))
+    return 0
