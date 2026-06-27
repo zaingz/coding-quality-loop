@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -61,8 +62,31 @@ def _tokens(text: str) -> set[str]:
     }
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    """Coerce a possibly hand-edited JSONL value to int without crashing."""
+    if isinstance(value, bool):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _clean_lesson_text(text: Any) -> str:
+    """Collapse internal whitespace (keeps MEMORY.md one physical line per
+    lesson) and redact secrets before a lesson is persisted to the checked-in
+    store. Redaction reuses the project's existing patterns; if the main module
+    is unavailable, whitespace collapsing still applies."""
+    collapsed = " ".join(str(text or "").split())
+    try:
+        from quality_loop import redact
+    except ImportError:
+        return collapsed
+    return redact(collapsed)
+
+
 def normalize_lesson(raw: dict[str, Any], created: str) -> dict[str, Any]:
-    text = str(raw.get("lesson", "")).strip()
+    text = _clean_lesson_text(raw.get("lesson", ""))
     kind = raw.get("kind") if raw.get("kind") in LESSON_KINDS else "gotcha"
     risk = raw.get("risk_tier") if raw.get("risk_tier") in RISK_TIERS else "low"
     hits_raw = raw.get("hits", 0)
@@ -107,12 +131,15 @@ def append_lesson(mem_dir: Path, lesson: dict[str, Any]) -> None:
 def save_lessons(mem_dir: Path, lessons: list[dict[str, Any]]) -> None:
     mem_dir.mkdir(parents=True, exist_ok=True)
     path = mem_dir / "lessons.jsonl"
-    tmp = path.with_name("lessons.jsonl.tmp")
-    tmp.write_text(
-        "".join(json.dumps(l, sort_keys=True) + "\n" for l in lessons),
-        encoding="utf-8",
-    )
-    os.replace(tmp, path)
+    body = "".join(json.dumps(l, sort_keys=True) + "\n" for l in lessons)
+    # Unique temp file per writer (matches quality_loop.write_json) so concurrent
+    # writers cannot clobber a shared temp path before the atomic os.replace.
+    with tempfile.NamedTemporaryFile(
+        "w", delete=False, dir=mem_dir, prefix="lessons.", suffix=".tmp", encoding="utf-8"
+    ) as fh:
+        fh.write(body)
+        tmp_path = Path(fh.name)
+    os.replace(tmp_path, path)
 
 
 def score_lesson(lesson: dict[str, Any], goal_tokens: set[str], files: list[str], risk: str) -> float:
@@ -132,7 +159,7 @@ def score_lesson(lesson: dict[str, Any], goal_tokens: set[str], files: list[str]
         score += 3.0
     if risk and lesson.get("risk_tier") == risk:
         score += 1.0
-    score += min(int(lesson.get("hits", 0)), 5) * 0.1
+    score += min(_safe_int(lesson.get("hits", 0)), 5) * 0.1
     return score
 
 
@@ -175,7 +202,7 @@ def write_index(mem_dir: Path, lessons: list[dict[str, Any]], max_lines: int = 4
     mem_dir.mkdir(parents=True, exist_ok=True)
     ranked = sorted(
         lessons,
-        key=lambda x: (int(x.get("hits", 0)), str(x.get("created", ""))),
+        key=lambda x: (_safe_int(x.get("hits", 0)), str(x.get("created", ""))),
         reverse=True,
     )
     header = [
@@ -194,7 +221,7 @@ def bump_hits(mem_dir: Path, ids: list[str]) -> None:
     lessons = load_lessons(mem_dir)
     for l in lessons:
         if l.get("id") in idset:
-            l["hits"] = int(l.get("hits", 0)) + 1
+            l["hits"] = _safe_int(l.get("hits", 0)) + 1
     save_lessons(mem_dir, lessons)
     write_index(mem_dir, lessons)
 
@@ -204,15 +231,16 @@ def _split_files(value: str | None) -> list[str]:
 
 
 def cmd_recall(args: Any) -> int:
+    budget = max(1, _safe_int(getattr(args, "budget", 1500), 1500))
     mem_dir = resolve_memory_dir(args.location)
     lessons = load_lessons(mem_dir)
-    selected = recall(lessons, args.goal or "", _split_files(args.files), args.risk, args.budget)
+    selected = recall(lessons, args.goal or "", _split_files(args.files), args.risk, budget)
     if selected and not getattr(args, "no_bump", False):
         bump_hits(mem_dir, [str(l.get("id", "")) for l in selected])
     if args.json:
         print(json.dumps(selected, indent=2))
     else:
-        print(format_digest(selected, args.budget))
+        print(format_digest(selected, budget))
     return 0
 
 
@@ -247,7 +275,7 @@ def _make_row(
         "kind": kind,
         "risk_tier": risk,
         "scope_globs": scope,
-        "keywords": sorted(_tokens(lesson))[:12],
+        "keywords": sorted(_tokens(_clean_lesson_text(lesson)))[:12],
         "source_task_id": task_id,
     }
 
@@ -299,7 +327,15 @@ def distill_record(
 
 
 def cmd_commit(args: Any) -> int:
-    record = json.loads(Path(args.record).read_text(encoding="utf-8"))
+    record_path = Path(args.record)
+    try:
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"error: could not read record {args.record!r}: {exc}", file=sys.stderr)
+        return 1
+    if not isinstance(record, dict):
+        print(f"error: record {args.record!r} is not a JSON object", file=sys.stderr)
+        return 1
     mem_dir = resolve_memory_dir(args.location)
     created = date.today().isoformat()
     override_scope = [args.scope] if getattr(args, "scope", None) else None
@@ -347,11 +383,11 @@ def prune(
     fresh: list[dict[str, Any]] = []
     for l in lessons:
         created = _parse_date(l.get("created"))
-        if created and int(l.get("hits", 0)) == 0 and (now - created).days > max_age_days:
+        if created and _safe_int(l.get("hits", 0)) == 0 and (now - created).days > max_age_days:
             continue
         fresh.append(l)
     deduped: list[dict[str, Any]] = []
-    for l in sorted(fresh, key=lambda x: (int(x.get("hits", 0)), str(x.get("created", ""))), reverse=True):
+    for l in sorted(fresh, key=lambda x: (_safe_int(x.get("hits", 0)), str(x.get("created", ""))), reverse=True):
         text = str(l.get("lesson", ""))
         if any(
             difflib.SequenceMatcher(None, text, str(k.get("lesson", ""))).ratio() >= 0.92
@@ -359,7 +395,7 @@ def prune(
         ):
             continue
         deduped.append(l)
-    deduped.sort(key=lambda x: (int(x.get("hits", 0)), str(x.get("created", ""))), reverse=True)
+    deduped.sort(key=lambda x: (_safe_int(x.get("hits", 0)), str(x.get("created", ""))), reverse=True)
     return deduped[:max_n]
 
 

@@ -32,6 +32,7 @@ adapter degrades to `files` / `none`; a task never blocks on memory infrastructu
 - Default (checked-in): `.quality-loop/memory/lessons.jsonl` + a <=40-line `MEMORY.md`
   index (the only surface a host may auto-load).
 - Override (machine-local): `memory.location="local"` -> `~/.quality-loop/<project-slug>/`.
+- Paths resolve relative to the **current working directory** — run the CLI from the repo root, or set `memory.location: "local"` to anchor at `~/.quality-loop/<project-slug>/`.
 - `graphify-out/` is always gitignored (regenerable cache, not memory).
 
 ## Lifecycle wiring (manual, advisory)

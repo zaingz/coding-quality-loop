@@ -147,7 +147,7 @@ def case_distill_record(tmp: Path) -> tuple[bool, str]:
     kinds = {r["kind"] for r in rows}
     has_failure = any("idempotency regression" in r["lesson"] and r["kind"] == "failure_mode" for r in rows)
     scoped = all(any(g.startswith("src/payments") for g in r["scope_globs"]) for r in rows)
-    ok = len(rows) >= 2 and has_failure and "preference" in kinds and scoped
+    ok = len(rows) == 3 and has_failure and {"failure_mode", "preference", "gotcha"} <= kinds and scoped
     return ok, f"rows={len(rows)}; kinds={kinds}; has_failure={has_failure}; scoped={scoped}"
 
 
@@ -272,6 +272,87 @@ def case_status_reports_backends(tmp: Path) -> tuple[bool, str]:
     return ok, f"code={code}; out={out.strip()!r}; err={err.strip()!r}"
 
 
+def case_index_caps_multiline_lessons(tmp: Path) -> tuple[bool, str]:
+    mem_dir = tmp / ".quality-loop" / "memory"
+    rows = [
+        mem.normalize_lesson(
+            {"lesson": f"line one\nline two\nline three of lesson {i}", "kind": "gotcha"},
+            "2026-06-27",
+        )
+        for i in range(36)
+    ]
+    mem.write_index(mem_dir, rows)
+    lines = (mem_dir / "MEMORY.md").read_text().splitlines()
+    single = all("\n" not in r["lesson"] for r in rows)
+    ok = len(lines) <= 40 and single
+    return ok, f"index_lines={len(lines)}; single_line_lessons={single}"
+
+
+def case_secrets_redacted_on_commit(tmp: Path) -> tuple[bool, str]:
+    rec = {
+        "task_id": "s1", "goal": "rotate key", "risk_tier": "high",
+        "harness_update": "rotated leaked AWS key AKIAIOSFODNN7EXAMPLE in the deploy script",
+        "repo_map": {"likely_files": ["deploy/run.sh"]},
+    }
+    p = tmp / "rec.json"
+    p.write_text(json.dumps(rec))
+    code, out, err = run_cli("memory-commit", str(p), cwd=str(tmp))
+    body = (tmp / ".quality-loop" / "memory" / "lessons.jsonl").read_text()
+    idx = (tmp / ".quality-loop" / "memory" / "MEMORY.md").read_text()
+    ok = (
+        code == 0
+        and "AKIAIOSFODNN7EXAMPLE" not in body
+        and "AKIAIOSFODNN7EXAMPLE" not in idx
+        and "[REDACTED]" in body
+    )
+    return ok, f"code={code}; secret_in_store={'AKIAIOSFODNN7EXAMPLE' in body}; err={err.strip()!r}"
+
+
+def case_recall_path_only_and_keyword_only(tmp: Path) -> tuple[bool, str]:
+    mem_dir = tmp / ".quality-loop" / "memory"
+    mem.append_lesson(mem_dir, mem.normalize_lesson(
+        {"lesson": "the deploy script needs a rollback step", "kind": "gotcha",
+         "risk_tier": "low", "scope_globs": ["deploy/**"], "keywords": []}, "2026-06-27"))
+    mem.append_lesson(mem_dir, mem.normalize_lesson(
+        {"lesson": "throttle the webhook sender", "kind": "convention",
+         "risk_tier": "low", "scope_globs": ["svc/**"], "keywords": ["webhook", "throttle"]}, "2026-06-27"))
+    lessons = mem.load_lessons(mem_dir)
+    path_only = mem.recall(lessons, "unrelated words entirely", ["deploy/run.sh"], "low", 1500)
+    kw_only = mem.recall(lessons, "fix the webhook throttle", ["x/y.py"], "low", 1500)
+    ok = (
+        len(path_only) == 1 and "rollback step" in path_only[0]["lesson"]
+        and len(kw_only) == 1 and "webhook sender" in kw_only[0]["lesson"]
+    )
+    return ok, f"path_only={[l['lesson'] for l in path_only]}; kw_only={[l['lesson'] for l in kw_only]}"
+
+
+def case_recall_no_bump(tmp: Path) -> tuple[bool, str]:
+    mem_dir = tmp / ".quality-loop" / "memory"
+    mem.append_lesson(mem_dir, mem.normalize_lesson(
+        {"lesson": "payment retries must be idempotent", "kind": "failure_mode",
+         "risk_tier": "high", "scope_globs": ["src/payments/**"], "keywords": ["retry", "idempotent"]}, "2026-06-27"))
+    idx_before = (mem_dir / "MEMORY.md").read_text() if (mem_dir / "MEMORY.md").is_file() else ""
+    code, out, err = run_cli(
+        "memory-recall", "--goal", "payment retry", "--files", "src/payments/charge.py",
+        "--risk", "high", "--no-bump", cwd=str(tmp))
+    hits = [l["hits"] for l in mem.load_lessons(mem_dir)]
+    idx_after = (mem_dir / "MEMORY.md").read_text() if (mem_dir / "MEMORY.md").is_file() else ""
+    ok = code == 0 and hits == [0] and idx_before == idx_after
+    return ok, f"code={code}; hits={hits}; index_unchanged={idx_before == idx_after}"
+
+
+def case_budget_clamped(tmp: Path) -> tuple[bool, str]:
+    mem_dir = tmp / ".quality-loop" / "memory"
+    mem.append_lesson(mem_dir, mem.normalize_lesson(
+        {"lesson": "some payment lesson here", "kind": "gotcha",
+         "risk_tier": "low", "scope_globs": ["src/**"], "keywords": ["payment"]}, "2026-06-27"))
+    code, out, err = run_cli(
+        "memory-recall", "--goal", "payment", "--files", "src/x.py",
+        "--risk", "low", "--budget", "0", cwd=str(tmp))
+    ok = code == 0 and out.strip() != ""
+    return ok, f"code={code}; out={out.strip()!r}"
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
@@ -288,6 +369,11 @@ CASES = [
     ("memory reference modules exist with required content", case_reference_modules_present),
     ("SKILL.md documents the persistent memory step", case_skill_documents_memory),
     ("memory-status --config reports the configured backends", case_status_reports_backends),
+    ("MEMORY.md stays <=40 lines even with multi-line lesson text", case_index_caps_multiline_lessons),
+    ("secrets in a committed record are redacted before persistence", case_secrets_redacted_on_commit),
+    ("recall fires on path-only and keyword-only matches (OR contract)", case_recall_path_only_and_keyword_only),
+    ("memory-recall --no-bump leaves hits and index unchanged", case_recall_no_bump),
+    ("memory-recall clamps a non-positive --budget", case_budget_clamped),
 ]
 
 
