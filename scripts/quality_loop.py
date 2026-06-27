@@ -943,6 +943,10 @@ def check_config(args: argparse.Namespace) -> int:
         if tier not in routing:
             errors.append(f"routing_defaults missing tier: {tier}")
 
+    memory = config.get("memory")
+    if memory is not None:
+        errors.extend(qlmem.validate_memory_config(memory))
+
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
@@ -1061,6 +1065,10 @@ def main() -> int:
     p_mprune.add_argument("--max-age-days", type=int, default=365)
     p_mprune.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_mprune.set_defaults(func=qlmem.cmd_prune)
+
+    p_mstatus = sub.add_parser("memory-status", help="Show memory store location and lesson counts")
+    p_mstatus.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_mstatus.set_defaults(func=qlmem.cmd_status)
 
     args = parser.parse_args()
     return args.func(args)

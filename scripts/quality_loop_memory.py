@@ -372,3 +372,40 @@ def cmd_prune(args: Any) -> int:
     write_index(mem_dir, kept)
     print(f"pruned {len(lessons) - len(kept)} lesson(s); {len(kept)} remain")
     return 0
+
+
+def count_kinds(lessons: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for l in lessons:
+        kind = str(l.get("kind", "?"))
+        counts[kind] = counts.get(kind, 0) + 1
+    return counts
+
+
+def validate_memory_config(memory: Any) -> list[str]:
+    if not isinstance(memory, dict):
+        return ["memory must be an object"]
+    errors: list[str] = []
+    if memory.get("lessons_store", "files") not in {"files", "honcho"}:
+        errors.append("memory.lessons_store must be 'files' or 'honcho'")
+    if memory.get("graph_relevance", "none") not in {"none", "graphify"}:
+        errors.append("memory.graph_relevance must be 'none' or 'graphify'")
+    if memory.get("location", "checked_in") not in {"checked_in", "local"}:
+        errors.append("memory.location must be 'checked_in' or 'local'")
+    budget = memory.get("recall_budget_chars", 1500)
+    if isinstance(budget, bool) or not isinstance(budget, int) or budget <= 0:
+        errors.append("memory.recall_budget_chars must be a positive integer")
+    return errors
+
+
+def cmd_status(args: Any) -> int:
+    mem_dir = resolve_memory_dir(args.location)
+    lessons = load_lessons(mem_dir)
+    print(json.dumps({
+        "memory_dir": str(mem_dir),
+        "exists": (mem_dir / "lessons.jsonl").is_file(),
+        "location": args.location,
+        "lesson_count": len(lessons),
+        "kinds": count_kinds(lessons),
+    }, indent=2))
+    return 0

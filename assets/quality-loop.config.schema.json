@@ -46,7 +46,19 @@
       }
     },
     "policy_guard": {"type": "object"},
-    "routing_defaults": {"type": "object"}
+    "routing_defaults": {"type": "object"},
+    "memory": {
+      "type": "object",
+      "properties": {
+        "lessons_store": {"type": "string", "enum": ["files", "honcho"]},
+        "graph_relevance": {"type": "string", "enum": ["none", "graphify"]},
+        "location": {"type": "string", "enum": ["checked_in", "local"]},
+        "recall_budget_chars": {"type": "integer", "minimum": 1},
+        "honcho": {"type": "object"},
+        "graphify": {"type": "object"}
+      },
+      "additionalProperties": true
+    }
   },
   "additionalProperties": true
 }

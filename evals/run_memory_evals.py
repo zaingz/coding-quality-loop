@@ -211,6 +211,28 @@ def case_cli_prune(tmp: Path) -> tuple[bool, str]:
     return ok, f"code={code}; remaining={len(remaining)}; out={out.strip()!r}; err={err.strip()!r}"
 
 
+def case_cli_status(tmp: Path) -> tuple[bool, str]:
+    mem_dir = tmp / ".quality-loop" / "memory"
+    mem.append_lesson(mem_dir, mem.normalize_lesson({"lesson": "be careful here", "kind": "gotcha"}, "2026-06-27"))
+    code, out, err = run_cli("memory-status", cwd=str(tmp))
+    data = json.loads(out) if code == 0 else {}
+    ok = code == 0 and data.get("lesson_count") == 1 and "memory_dir" in data
+    return ok, f"code={code}; out={out.strip()!r}; err={err.strip()!r}"
+
+
+def case_check_config_validates_memory_block(tmp: Path) -> tuple[bool, str]:
+    good = mem.validate_memory_config(
+        {"lessons_store": "files", "graph_relevance": "none", "location": "checked_in", "recall_budget_chars": 1500}
+    )
+    bad = mem.validate_memory_config(
+        {"lessons_store": "redis", "graph_relevance": "neo4j", "location": "cloud", "recall_budget_chars": 0}
+    )
+    # the shipped example config must validate via the CLI
+    code, out, err = run_cli("check-config", str(ROOT / "assets" / "quality-loop.config.example.json"))
+    ok = good == [] and len(bad) == 4 and code == 0
+    return ok, f"good={good}; bad={bad}; check_config_exit={code}; err={err.strip()!r}"
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
@@ -222,6 +244,8 @@ CASES = [
     ("memory-commit writes lessons and is idempotent (dedup by id)", case_cli_commit_writes_and_dedups),
     ("prune dedups near-duplicates, ages out 0-hit stale, and caps", case_prune_dedups_ages_and_caps),
     ("memory-prune collapses duplicates on disk", case_cli_prune),
+    ("memory-status reports the store location and counts", case_cli_status),
+    ("validate_memory_config + check-config accept/reject the memory block", case_check_config_validates_memory_block),
 ]
 
 

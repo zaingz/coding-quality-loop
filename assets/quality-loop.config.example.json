@@ -98,5 +98,13 @@
     "low": {"agents": ["implementer"], "policy_guard": true, "note": "One agent runs the whole loop."},
     "medium": {"agents": ["implementer", "fresh_reviewer", "verification_runner"], "policy_guard": true, "note": "Independent reviewer + real checks."},
     "high": {"agents": ["orchestrator", "planner", "minimality_reviewer", "implementer", "verification_runner", "fresh_reviewer", "security_reviewer"], "policy_guard": true, "human_approval": true, "security_reviewer_at_boundaries": true, "note": "Full split with enforced security/migration blocks; security_reviewer required at risk boundaries."}
+  },
+  "memory": {
+    "lessons_store": "files",
+    "graph_relevance": "none",
+    "location": "checked_in",
+    "recall_budget_chars": 1500,
+    "honcho": {"workspace_id": null, "peer_id": null, "session_template": null, "target_peer": null},
+    "graphify": {"out_dir": "graphify-out", "token_budget": 2000}
   }
 }
