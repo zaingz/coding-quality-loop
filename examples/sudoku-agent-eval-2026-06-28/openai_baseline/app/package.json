@@ -1,0 +1,11 @@
+{
+  "name": "sudoku-app",
+  "version": "1.0.0",
+  "description": "A playable browser Sudoku game with a puzzle generator and zero runtime dependencies.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "start": "node server.js"
+  },
+  "license": "MIT"
+}

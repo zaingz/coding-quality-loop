@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sudoku</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="app__header">
+        <h1>Sudoku</h1>
+        <div class="controls">
+          <label class="control">
+            Difficulty
+            <select id="difficulty" aria-label="Select difficulty">
+              <option value="easy">Easy</option>
+              <option value="medium" selected>Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </label>
+          <button id="new-game" type="button">New puzzle</button>
+        </div>
+      </header>
+
+      <div
+        id="board"
+        class="board"
+        role="grid"
+        aria-label="Sudoku board, 9 by 9 grid"
+      ></div>
+
+      <div class="actions">
+        <button id="check" type="button">Check</button>
+        <button id="reveal" type="button">Solve</button>
+        <button id="reset" type="button">Reset</button>
+        <button id="clear" type="button">Clear cell</button>
+      </div>
+
+      <nav class="keypad" aria-label="Digit keypad">
+        <button class="keypad__key" type="button" data-digit="1">1</button>
+        <button class="keypad__key" type="button" data-digit="2">2</button>
+        <button class="keypad__key" type="button" data-digit="3">3</button>
+        <button class="keypad__key" type="button" data-digit="4">4</button>
+        <button class="keypad__key" type="button" data-digit="5">5</button>
+        <button class="keypad__key" type="button" data-digit="6">6</button>
+        <button class="keypad__key" type="button" data-digit="7">7</button>
+        <button class="keypad__key" type="button" data-digit="8">8</button>
+        <button class="keypad__key" type="button" data-digit="9">9</button>
+      </nav>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+
+      <details class="help">
+        <summary>How to play</summary>
+        <p>
+          Click a cell or move with the arrow keys, then type 1-9 to fill it.
+          Press Backspace or Delete (or "Clear cell") to empty a cell. Given
+          numbers are locked. Duplicate numbers in a row, column, or box are
+          highlighted. Use "Check" to validate, "Solve" to reveal the answer,
+          and "Reset" to return to the starting puzzle.
+        </p>
+      </details>
+    </main>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "sudoku-baseline",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A dependency-free browser Sudoku game with importable core logic.",
+  "scripts": {
+    "test": "node --test",
+    "start": "node --version >/dev/null && echo 'Open index.html in a browser, or run: npx serve .'"
+  }
+}

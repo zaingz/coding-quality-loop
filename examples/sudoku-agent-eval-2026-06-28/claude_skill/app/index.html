@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sudoku</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <h1>Sudoku</h1>
+
+      <div class="toolbar" role="group" aria-label="Game controls">
+        <label class="field">
+          Difficulty
+          <select id="difficulty" aria-label="Select difficulty">
+            <option value="easy">Easy</option>
+            <option value="medium" selected>Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </label>
+        <button id="new-game" type="button">New puzzle</button>
+        <button id="reset" type="button">Reset</button>
+        <button id="check" type="button">Check</button>
+        <button id="solve" type="button">Reveal solution</button>
+      </div>
+
+      <div
+        id="board"
+        class="board"
+        role="grid"
+        aria-label="Sudoku board"
+      ></div>
+
+      <div class="pad" role="group" aria-label="Number pad">
+        <button type="button" data-digit="1">1</button>
+        <button type="button" data-digit="2">2</button>
+        <button type="button" data-digit="3">3</button>
+        <button type="button" data-digit="4">4</button>
+        <button type="button" data-digit="5">5</button>
+        <button type="button" data-digit="6">6</button>
+        <button type="button" data-digit="7">7</button>
+        <button type="button" data-digit="8">8</button>
+        <button type="button" data-digit="9">9</button>
+        <button type="button" data-digit="0" class="erase">Erase</button>
+      </div>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+
+      <details class="help">
+        <summary>How to play / keyboard</summary>
+        <ul>
+          <li>Click a cell or use arrow keys to move.</li>
+          <li>Type 1-9 to fill, Backspace/Delete/0 to clear.</li>
+          <li>Given (clue) cells are locked and shown in bold.</li>
+          <li>Duplicate digits in a row, column, or box are highlighted in red.</li>
+        </ul>
+      </details>
+    </main>
+
+    <script type="module" src="ui.js"></script>
+  </body>
+</html>

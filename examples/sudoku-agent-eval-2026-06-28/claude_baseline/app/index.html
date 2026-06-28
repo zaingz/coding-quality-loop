@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sudoku</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="app__header">
+      <h1>Sudoku</h1>
+      <p id="status" class="status" role="status" aria-live="polite">Select a cell and enter digits 1&ndash;9.</p>
+    </header>
+
+    <section class="controls" aria-label="Game controls">
+      <label class="control">
+        <span>Difficulty</span>
+        <select id="difficulty">
+          <option value="easy">Easy</option>
+          <option value="medium" selected>Medium</option>
+          <option value="hard">Hard</option>
+        </select>
+      </label>
+      <button id="new-game" type="button">New puzzle</button>
+      <button id="check" type="button">Check</button>
+      <button id="reset" type="button">Reset</button>
+      <button id="solve" type="button">Reveal solution</button>
+    </section>
+
+    <div id="board" class="board" role="grid" aria-label="Sudoku board"></div>
+
+    <section class="pad" aria-label="Number pad">
+      <button class="pad__btn" data-digit="1" type="button">1</button>
+      <button class="pad__btn" data-digit="2" type="button">2</button>
+      <button class="pad__btn" data-digit="3" type="button">3</button>
+      <button class="pad__btn" data-digit="4" type="button">4</button>
+      <button class="pad__btn" data-digit="5" type="button">5</button>
+      <button class="pad__btn" data-digit="6" type="button">6</button>
+      <button class="pad__btn" data-digit="7" type="button">7</button>
+      <button class="pad__btn" data-digit="8" type="button">8</button>
+      <button class="pad__btn" data-digit="9" type="button">9</button>
+      <button class="pad__btn pad__btn--clear" data-digit="0" type="button">Clear</button>
+    </section>
+
+    <footer class="app__footer">
+      <p>Keyboard: arrow keys move, 1&ndash;9 enter a digit, 0/Backspace/Delete clears.</p>
+    </footer>
+  </main>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

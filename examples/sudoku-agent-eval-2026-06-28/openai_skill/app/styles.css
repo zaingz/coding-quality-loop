@@ -1,0 +1,200 @@
+:root {
+  --bg: #f4f6fb;
+  --panel: #ffffff;
+  --ink: #1f2933;
+  --muted: #6b7280;
+  --line: #c5ccd6;
+  --line-strong: #334155;
+  --given: #1f2933;
+  --entry: #2563eb;
+  --selected: #dbeafe;
+  --peer: #eef2ff;
+  --conflict-bg: #fee2e2;
+  --conflict-ink: #b91c1c;
+  --ok: #047857;
+  --accent: #2563eb;
+  --focus: #1d4ed8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+.app {
+  width: 100%;
+  max-width: 32rem;
+  padding: 1.25rem;
+}
+
+.app__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+.controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  color: var(--muted);
+  gap: 0.2rem;
+}
+
+select,
+button {
+  font: inherit;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  background: var(--line-strong);
+  border: 3px solid var(--line-strong);
+  border-radius: 0.5rem;
+  gap: 1px;
+  overflow: hidden;
+}
+
+.cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  border: none;
+  font-size: clamp(1.1rem, 5vw, 1.6rem);
+  font-weight: 600;
+  color: var(--entry);
+  aspect-ratio: 1 / 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Thicker separators between 3x3 boxes. */
+.cell[data-col="2"],
+.cell[data-col="5"] {
+  border-right: 2px solid var(--line-strong);
+}
+.cell[data-row="2"],
+.cell[data-row="5"] {
+  border-bottom: 2px solid var(--line-strong);
+}
+
+.cell.given {
+  color: var(--given);
+  cursor: default;
+  background: #f1f5f9;
+}
+
+.cell.peer {
+  background: var(--peer);
+}
+
+.cell.selected {
+  background: var(--selected);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.cell.conflict {
+  background: var(--conflict-bg);
+  color: var(--conflict-ink);
+}
+
+.cell.selected.conflict {
+  box-shadow: inset 0 0 0 2px var(--conflict-ink);
+}
+
+.actions,
+.keypad {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.actions {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.keypad {
+  grid-template-columns: repeat(9, 1fr);
+}
+
+.keypad__key {
+  padding: 0.6rem 0;
+  font-weight: 600;
+}
+
+.status {
+  min-height: 1.5rem;
+  margin: 1rem 0 0;
+  font-weight: 600;
+  text-align: center;
+}
+
+.status.ok {
+  color: var(--ok);
+}
+.status.error {
+  color: var(--conflict-ink);
+}
+
+.help {
+  margin-top: 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.help summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+@media (max-width: 24rem) {
+  .actions {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

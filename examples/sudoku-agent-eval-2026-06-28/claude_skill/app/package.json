@@ -1,0 +1,10 @@
+{
+  "name": "sudoku-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dependency-free browser Sudoku with deterministically tested core logic.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

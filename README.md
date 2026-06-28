@@ -250,6 +250,16 @@ python3 scripts/quality_loop.py diff-audit --base origin/main
 python3 scripts/quality_loop.py verify-gates agent-record.json
 ```
 
+### End-to-end agent eval
+
+[`examples/sudoku-agent-eval-2026-06-28/`](examples/sudoku-agent-eval-2026-06-28/README.md) is a
+committed before/after experiment: four coding agents built the same browser Sudoku app from
+identical requirements — two **with** the skill, two without. The two skill variants averaged
+**90.8** vs **83.3** for the baselines (independent judges, fixed rubric), with stronger planning,
+more robust solvers, and better verification evidence. Every variant's app source, the skill
+variants' lifecycle artifacts, and the [consolidated report](examples/sudoku-agent-eval-2026-06-28/evaluation-report.md)
+are committed, and each test suite reruns with `npm test --prefix <variant>/app`.
+
 ---
 
 ## Install & use matrix
@@ -298,7 +308,7 @@ coding-quality-loop/
 │                       #   reviewer checklists, tool contracts, engineering-OS, philosophy,
 │                       #   the memory contract + Honcho/Graphify backends)
 ├── examples/           # host-native copy-paste: claude-code, codex, cursor, pi, standalone,
-│                       #   + a real before/after walkthrough with a passing state record
+│                       #   a real before/after walkthrough, + a committed 4-agent Sudoku eval
 ├── evals/              # offline eval cases + harness that prove the gates fire
 ├── scripts/            # quality_loop.py + quality_loop_memory.py — stdlib-only, no third-party deps
 └── .quality-loop/      # per-project lessons memory (git-diffable; grows as the agent learns)

@@ -1,0 +1,208 @@
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --line: #c4c9d4;
+  --line-strong: #2b2f38;
+  --text: #1f2430;
+  --given: #1f2430;
+  --entry: #2563eb;
+  --accent: #2563eb;
+  --accent-soft: #dbe5ff;
+  --peer: #eef2fb;
+  --error-bg: #fde2e2;
+  --error-text: #b42318;
+  --success: #15803d;
+  --focus: #1d4ed8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  padding: 1.5rem 1rem 3rem;
+}
+
+.app {
+  width: 100%;
+  max-width: 30rem;
+}
+
+.app__header {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.app__header h1 {
+  margin: 0;
+  font-size: 2rem;
+  letter-spacing: 0.04em;
+}
+
+.status {
+  min-height: 1.25rem;
+  margin: 0.4rem 0 0;
+  font-weight: 600;
+}
+
+.status--error {
+  color: var(--error-text);
+}
+
+.status--success {
+  color: var(--success);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.control--select {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: left;
+  gap: 0.15rem;
+}
+
+button,
+select {
+  font: inherit;
+  padding: 0.5rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button:focus-visible,
+select:focus-visible,
+.cell:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  background: var(--line-strong);
+  border: 3px solid var(--line-strong);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  gap: 1px;
+}
+
+.cell {
+  background: var(--surface);
+  border: none;
+  font-size: clamp(1rem, 5vw, 1.6rem);
+  font-weight: 500;
+  color: var(--entry);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  aspect-ratio: 1 / 1;
+  user-select: none;
+  transition: background 0.08s ease;
+}
+
+/* Thicker separators between 3x3 boxes. */
+.cell[data-col='2'],
+.cell[data-col='5'] {
+  margin-right: 1px;
+  box-shadow: 2px 0 0 0 var(--line-strong);
+}
+
+.cell[data-row='2'],
+.cell[data-row='5'] {
+  margin-bottom: 1px;
+  box-shadow: 0 2px 0 0 var(--line-strong);
+}
+
+.cell[data-row='2'][data-col='2'],
+.cell[data-row='2'][data-col='5'],
+.cell[data-row='5'][data-col='2'],
+.cell[data-row='5'][data-col='5'] {
+  box-shadow: 2px 0 0 0 var(--line-strong), 0 2px 0 0 var(--line-strong);
+}
+
+.cell--given {
+  color: var(--given);
+  font-weight: 700;
+  background: #f0f2f6;
+  cursor: default;
+}
+
+.cell--peer {
+  background: var(--peer);
+}
+
+.cell--same {
+  background: var(--accent-soft);
+}
+
+.cell--selected {
+  background: var(--accent-soft);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.cell--given.cell--selected {
+  background: #dfe4ee;
+}
+
+.cell--error {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.4rem;
+  margin-top: 1rem;
+}
+
+.keypad button {
+  padding: 0.7rem 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.keypad__erase {
+  grid-column: span 5;
+}
+
+@media (min-width: 30rem) {
+  .keypad__erase {
+    grid-column: auto;
+  }
+}
+
+.hint {
+  margin-top: 1rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: #5b6172;
+}

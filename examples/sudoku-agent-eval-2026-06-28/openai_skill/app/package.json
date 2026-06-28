@@ -1,0 +1,11 @@
+{
+  "name": "sudoku-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local browser Sudoku game with zero runtime dependencies.",
+  "scripts": {
+    "test": "node --test",
+    "start": "node --version >/dev/null && echo 'Open index.html in a browser, or run: npx --yes serve .'"
+  }
+}

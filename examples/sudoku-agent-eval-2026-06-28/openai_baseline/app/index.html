@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sudoku</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="app__header">
+        <h1>Sudoku</h1>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </header>
+
+      <div class="controls" role="group" aria-label="Game controls">
+        <label class="control control--select">
+          Difficulty
+          <select id="difficulty" aria-label="Select difficulty">
+            <option value="easy">Easy</option>
+            <option value="medium" selected>Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </label>
+        <button id="new-game" type="button">New Puzzle</button>
+        <button id="reset" type="button">Reset</button>
+        <button id="check" type="button">Check</button>
+        <button id="solve" type="button">Solve</button>
+      </div>
+
+      <div
+        id="board"
+        class="board"
+        role="grid"
+        aria-label="Sudoku board"
+      ></div>
+
+      <div class="keypad" role="group" aria-label="Number input">
+        <button type="button" data-digit="1">1</button>
+        <button type="button" data-digit="2">2</button>
+        <button type="button" data-digit="3">3</button>
+        <button type="button" data-digit="4">4</button>
+        <button type="button" data-digit="5">5</button>
+        <button type="button" data-digit="6">6</button>
+        <button type="button" data-digit="7">7</button>
+        <button type="button" data-digit="8">8</button>
+        <button type="button" data-digit="9">9</button>
+        <button type="button" data-digit="0" class="keypad__erase">Erase</button>
+      </div>
+
+      <p class="hint">
+        Click a cell or use arrow keys to move. Type 1-9 to fill, Backspace or 0
+        to clear.
+      </p>
+    </main>
+
+    <script type="module" src="src/app.js"></script>
+  </body>
+</html>
