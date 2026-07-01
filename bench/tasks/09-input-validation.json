@@ -1,0 +1,1 @@
+{"id":"09-input-validation","kind":"security","prompt":"Validate uploaded filenames before writing to disk.","hidden_tests":["path traversal rejected","valid nested name accepted","extension preserved"],"trap_flags":["security_boundary"]}

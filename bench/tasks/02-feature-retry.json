@@ -1,0 +1,1 @@
+{"id":"02-feature-retry","kind":"feature","prompt":"Add bounded retry with backoff to the webhook sender without duplicating side effects.","hidden_tests":["retries transient 500","does not retry 400","idempotency key stable"],"trap_flags":[]}

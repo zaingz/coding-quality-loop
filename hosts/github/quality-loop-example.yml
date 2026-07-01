@@ -1,0 +1,18 @@
+name: Quality Loop
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  quality-loop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: zaingz/coding-quality-loop@v1
+        with:
+          record: agent-record.json
+          base: origin/${{ github.base_ref || 'main' }}
+          run-evidence: "false"

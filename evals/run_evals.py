@@ -466,6 +466,35 @@ def case_floor_catches_more_boundary_phrasings(tmp: Path) -> tuple[bool, str]:
     return ok, f"caught={results} for {phrasings}"
 
 
+def case_floor_catches_new_boundaries(tmp: Path) -> tuple[bool, str]:
+    # v1.5 added concurrency/race/data-loss/PII to the runtime boundary keywords.
+    # Each self-downgraded phrasing must fail the floor.
+    phrasings = [
+        "Fix the race condition in the checkout handler",
+        "Prevent data loss on partial writes",
+        "Add a concurrency guard to the queue worker",
+        "Mask PII in the audit log",
+        "Add GDPR data retention controls",
+    ]
+    results = []
+    for goal in phrasings:
+        record = base_record(
+            goal=goal,
+            risk_tier="low",
+            task_class="tiny",
+            security_sensitive=False,
+            commands_run=[],
+            validation_contract=None,
+            independent_review=None,
+            completion_record=None,
+            status="done",
+        )
+        code, output = verify_gates(tmp, record)
+        results.append(code == 1 and "boundary" in output)
+    ok = all(results)
+    return ok, f"caught={results} for {phrasings}"
+
+
 def case_secret_guard_flags_real_keys(tmp: Path) -> tuple[bool, str]:
     # The placeholder guard must skip only obvious stubs, never suppress a real
     # value that merely starts with 'your_'; and quoted secrets must match too.
@@ -596,6 +625,7 @@ CASES = [
     ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
     ("self-downgrade of a boundary task fails the floor", case_self_downgrade_auth_fails),
     ("floor covers common boundary phrasings (authz/mfa/tls/payout/rbac)", case_floor_catches_more_boundary_phrasings),
+    ("floor catches new boundaries (concurrency/race/data-loss/pii)", case_floor_catches_new_boundaries),
     ("floor ignores benign common words (admin/token/session copy)", case_floor_ignores_benign_common_words),
     ("small low-risk task ships without a completion record (runtime==static)", case_small_low_ships_without_completion_record),
     ("secret guard flags real keys and skips only stubs", case_secret_guard_flags_real_keys),

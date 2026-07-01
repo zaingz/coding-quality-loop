@@ -1,0 +1,447 @@
+#!/usr/bin/env python3
+"""Reality-layer eval harness for the Coding Quality Loop.
+
+Builds temp git repos where the record and the diff disagree, then asserts the
+diff-grounded gates catch the lie. Mirrors evals/run_evals.py: drives the real
+CLI via subprocess in a tempdir. Dependency-free; CI-friendly.
+
+Run: python evals/run_reality_evals.py   (exits non-zero if any case fails)
+
+Cases (record↔reality verification):
+  1.  phantom completion (package/done with an empty diff) is caught
+  2.  an unmapped changed file is caught (scope integrity)
+  3.  an auth path under a low tier is caught (diff-derived risk floor)
+  4.  a missing bugfix test is caught (bugfix-test co-presence)
+  5.  a stale review hash is caught (review freshness)
+  6.  lying evidence (recorded pass that fails on rerun) is caught
+  7.  a faked RED→GREEN (command passes at base) is caught
+  8.  a staged secret is caught by diff-audit --staged
+  9.  attest-review embeds a recomputed diff sha256
+ 10.  scan-text --stdin catches a secret
+ 11.  a clean, well-mapped record passes --against-diff
+ 12.  run-evidence refuses a command not on the allowlist
+ 13.  verify-gates --against-diff appends to local telemetry
+ 14.  stats renders the metrics table
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SCRIPT = ROOT / "scripts" / "quality_loop.py"
+
+sys.path.insert(0, str(ROOT / "scripts"))
+import quality_loop_reality as qlreal  # noqa: E402
+
+PASS = "PASS"
+FAIL = "FAIL"
+
+
+def run_cli(*args: str, cwd: str | None = None, stdin: str | None = None) -> tuple[int, str, str]:
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), *args],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        input=stdin,
+        check=False,
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def make_repo(tmp: Path) -> Path:
+    repo = tmp / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "eval@example.com")
+    _git(repo, "config", "user.name", "eval")
+    (repo / "README.md").write_text("# test\n")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "base")
+    return repo
+
+
+def write_record(repo: Path, record: dict) -> Path:
+    path = repo / "agent-record.json"
+    path.write_text(json.dumps(record))
+    return path
+
+
+def write_allowlist(repo: Path, patterns: list[str]) -> None:
+    al = repo / ".quality-loop" / "allowed-commands"
+    al.parent.mkdir(parents=True, exist_ok=True)
+    al.write_text("\n".join(patterns) + "\n")
+
+
+def _contract() -> dict:
+    return {
+        "goal": "Add rounding to the total calculation",
+        "acceptance_criteria": ["total rounds once"],
+        "evidence": ["pytest -> pass", "mypy -> clean"],
+    }
+
+
+def _completion(files: list[str] | None = None) -> dict:
+    cr = {
+        "goal": "Add rounding to the total calculation",
+        "acceptance_criteria": ["total rounds once"],
+        "evidence": ["pytest -> 14 passed", "fresh-context review: approve"],
+    }
+    if files is not None:
+        cr["files_changed"] = files
+    return cr
+
+
+def passing_record(repo: Path, **overrides) -> dict:
+    """A medium record that passes the record-only gates. diff_sha256 is set
+    to the current diff hash so review freshness is clean unless overridden.
+
+    The goal/plan/acceptance_criteria deliberately avoid boundary keywords
+    (billing, charge, auth, ...) so the TEXT risk floor does not fire and the
+    only findings come from the diff-grounded reality checks.
+    """
+    try:
+        hash_val = qlreal.diff_sha256("HEAD", cwd=repo)
+    except SystemExit:
+        hash_val = ""
+    record = {
+        "task_id": "t-reality",
+        "goal": "Add rounding to the total calculation",
+        "task_class": "medium",
+        "risk_tier": "medium",
+        "acceptance_criteria": ["total rounds once"],
+        "constraints": [],
+        "non_goals": [],
+        "assumptions": [],
+        "verification_plan": ["unit tests"],
+        "minimality_decision": {"rung": "reuse", "reason": "existing helper covers it"},
+        "plan": ["edit src/invoice/round.py to round the summed total"],
+        "commands_run": [{"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "12 passed"}],
+        "open_risks": [],
+        "review_findings": ["fresh-context review: approved"],
+        "repo_map": {
+            "entry_points": ["src/invoice/round.py:round_total"],
+            "likely_files": ["src/invoice/round.py"],
+            "callers_checked": ["src/invoice/api.py:submit"],
+            "tests": ["tests/test_invoice.py"],
+            "patterns_to_follow": [],
+        },
+        "implementer": "agent-a",
+        "validation_contract": _contract(),
+        "independent_review": {
+            "reviewer": "agent-b",
+            "verdict": "approve",
+            "fresh_context": True,
+            "patched": False,
+            "findings": [],
+            "diff_sha256": hash_val,
+        },
+        "security_review": None,
+        "completion_record": _completion(),
+        "security_sensitive": False,
+        "status": "done",
+    }
+    record.update(overrides)
+    return record
+
+
+# --- Cases -----------------------------------------------------------------
+
+
+def case_phantom_completion(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    # No working-tree changes -> empty diff at HEAD.
+    record = passing_record(repo)
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    ok = code == 1 and "phantom completion" in (out + err).lower()
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_unmapped_file(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    invoice = repo / "src" / "invoice"
+    invoice.mkdir(parents=True)
+    (invoice / "round.py").write_text("def round_total(): pass\n")
+    # An unmapped file not in repo_map/plan/completion.
+    other = repo / "src" / "other"
+    other.mkdir(parents=True)
+    (other / "surprise.py").write_text("x = 1\n")
+    record = passing_record(repo)
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    ok = code == 1 and "scope integrity" in (out + err).lower()
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_auth_path_low_tier(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    auth = repo / "src" / "auth"
+    auth.mkdir(parents=True)
+    (auth / "login.py").write_text("def login(): pass\n")
+    # Goal deliberately avoids boundary keywords so the TEXT floor does not fire;
+    # only the DIFF-derived floor should catch the auth/ path.
+    record = passing_record(
+        repo,
+        goal="rename a local helper for clarity",
+        risk_tier="low",
+        task_class="small",
+        status="done",
+        commands_run=[{"cmd": "read", "class": "lint", "result": "pass", "evidence": "looks good"}],
+        validation_contract=None,
+        independent_review=None,
+        completion_record=None,
+        repo_map={"entry_points": [], "likely_files": [], "callers_checked": [], "tests": []},
+        plan=[],
+        review_findings=[],
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    ok = code == 1 and "diff-derived risk floor" in (out + err).lower()
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_high_tier_path_forces_high_from_medium(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    (repo / "package-lock.json").write_text('{"lockfileVersion": 3}\n')
+    record = passing_record(
+        repo,
+        risk_tier="medium",
+        task_class="medium",
+        completion_record=_completion(files=["package-lock.json"]),
+        plan=["update package-lock.json after dependency review"],
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    ok = code == 1 and "diff-derived risk floor" in (out + err).lower()
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_missing_bugfix_test(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    invoice = repo / "src" / "invoice"
+    invoice.mkdir(parents=True)
+    (invoice / "round.py").write_text("def round_total(): return 42\n")
+    record = passing_record(repo, goal="Fix the rounding bug in the total calculation")
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    ok = code == 1 and "bugfix-test" in (out + err).lower()
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_stale_review_hash(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    billing = repo / "src" / "billing"
+    billing.mkdir(parents=True)
+    (billing / "invoice.py").write_text("def round_total(): pass\n")
+    tests = repo / "tests"
+    tests.mkdir(parents=True, exist_ok=True)
+    (tests / "test_invoice.py").write_text("def test_round(): pass\n")
+    record = passing_record(
+        repo,
+        independent_review={
+            "reviewer": "agent-b",
+            "verdict": "approve",
+            "fresh_context": True,
+            "patched": False,
+            "findings": [],
+            "diff_sha256": "0" * 64,  # deliberately wrong
+        },
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    ok = code == 1 and "review freshness" in (out + err).lower() and "stale" in (out + err).lower()
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_lying_evidence(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    (repo / "fail.py").write_text("import sys; sys.exit(1)\n")
+    write_allowlist(repo, [f"{sys.executable}*"])
+    cmd = f"{sys.executable} fail.py"
+    record = passing_record(
+        repo,
+        commands_run=[{"cmd": cmd, "class": "unit", "result": "pass", "evidence": "12 passed"}],
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("run-evidence", str(path), cwd=str(repo))
+    ok = code == 1 and "did not pass on rerun" in (out + err).lower()
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_red_green_catch(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    # A test that ALWAYS passes (exit 0) — committed at base. RED is not real.
+    (repo / "test_pass.py").write_text("import sys; sys.exit(0)\n")
+    _git(repo, "add", "test_pass.py")
+    _git(repo, "commit", "-m", "add always-pass test")
+    write_allowlist(repo, [f"{sys.executable}*"])
+    cmd = f"{sys.executable} test_pass.py"
+    record = passing_record(
+        repo,
+        commands_run=[{"cmd": cmd, "class": "unit", "result": "pass", "evidence": "ok", "red_green": True}],
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("run-evidence", str(path), "--red-green", "--base", "HEAD", cwd=str(repo))
+    ok = code == 1 and "red not proven" in (out + err).lower()
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_staged_secret(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    (repo / "config.py").write_text('api_key = "ghp_' + "A" * 36 + '"\n')
+    _git(repo, "add", "config.py")
+    code, out, err = run_cli("diff-audit", "--staged", cwd=str(repo))
+    ok = code == 1 and "secret" in out.lower()
+    return ok, f"exit={code}; output={out.strip()[:200]!r}"
+
+
+def case_attest_review_embeds_hash(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    billing = repo / "src" / "billing"
+    billing.mkdir(parents=True)
+    (billing / "invoice.py").write_text("def round_total(): pass\n")
+    review = {"reviewer": "agent-b", "verdict": "approve", "fresh_context": True, "patched": False}
+    review_path = repo / "review.json"
+    review_path.write_text(json.dumps(review))
+    code, out, err = run_cli("attest-review", str(review_path), "--base", "HEAD", cwd=str(repo))
+    try:
+        attested = json.loads(out)
+    except json.JSONDecodeError:
+        attested = {}
+    expected = qlreal.diff_sha256("HEAD", cwd=repo)
+    ok = code == 0 and attested.get("diff_sha256") == expected and "attested_at" in attested
+    return ok, f"exit={code}; hash_match={attested.get('diff_sha256') == expected}; err={err.strip()[:80]!r}"
+
+
+def case_scan_text_secret(tmp: Path) -> tuple[bool, str]:
+    secret_text = 'config = {"api_key": "ghp_' + "B" * 36 + '"}\n'
+    code, out, err = run_cli("scan-text", "--stdin", stdin=secret_text, cwd=str(tmp))
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError:
+        data = {}
+    ok = code == 1 and data.get("clean") is False and len(data.get("findings", [])) >= 1
+    return ok, f"exit={code}; clean={data.get('clean')}; findings={len(data.get('findings', []))}"
+
+
+def case_clean_record_passes_against_diff(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    billing = repo / "src" / "billing"
+    billing.mkdir(parents=True)
+    (billing / "invoice.py").write_text("def round_total(): return round(sum([]), 2)\n")
+    tests = repo / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_invoice.py").write_text("def test_round(): assert True\n")
+    record = passing_record(
+        repo,
+        completion_record=_completion(files=["src/billing/invoice.py", "tests/test_invoice.py"]),
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    ok = code == 0
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_run_evidence_allowlist(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    # No allowlist file -> command is not allowed.
+    record = passing_record(
+        repo,
+        commands_run=[{"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "ok"}],
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("run-evidence", str(path), cwd=str(repo))
+    ok = code == 1 and "not on allowlist" in (out + err).lower()
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_telemetry_appended(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    billing = repo / "src" / "billing"
+    billing.mkdir(parents=True)
+    (billing / "invoice.py").write_text("def round_total(): pass\n")
+    (repo / "tests").mkdir(parents=True, exist_ok=True)
+    (repo / "tests" / "test_invoice.py").write_text("def test_round(): pass\n")
+    record = passing_record(repo)
+    path = write_record(repo, record)
+    run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    tel = repo / ".quality-loop" / "telemetry.jsonl"
+    ok = tel.is_file()
+    events = []
+    if ok:
+        for line in tel.read_text().splitlines():
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+        ok = any(e.get("cmd") == "verify-gates" for e in events)
+    return ok, f"telemetry_exists={tel.is_file()}; verify-gates events={sum(1 for e in events if e.get('cmd') == 'verify-gates')}"
+
+
+def case_stats_renders(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    tel = repo / ".quality-loop" / "telemetry.jsonl"
+    tel.parent.mkdir(parents=True, exist_ok=True)
+    tel.write_text(json.dumps({
+        "ts": "2026-07-01T00:00:00", "cmd": "verify-gates", "task_id": "t1",
+        "risk": "medium", "findings": 0, "pass": True, "overrides": [],
+    }) + "\n")
+    code, out, err = run_cli("stats", cwd=str(repo))
+    ok = code == 0 and "Metric" in out and "not instrumented" in out and "Verification evidence rate" in out
+    return ok, f"exit={code}; has_table={'Metric' in out}; has_not_instrumented={'not instrumented' in out}"
+
+
+CASES = [
+    ("phantom completion (done + empty diff) is caught", case_phantom_completion),
+    ("unmapped changed file is caught (scope integrity)", case_unmapped_file),
+    ("auth path under a low tier is caught (diff-derived risk floor)", case_auth_path_low_tier),
+    ("high-tier changed path forces high gates even from medium", case_high_tier_path_forces_high_from_medium),
+    ("missing bugfix test is caught (bugfix-test co-presence)", case_missing_bugfix_test),
+    ("stale review hash is caught (review freshness)", case_stale_review_hash),
+    ("lying evidence (recorded pass fails on rerun) is caught", case_lying_evidence),
+    ("faked RED (command passes at base) is caught by --red-green", case_red_green_catch),
+    ("staged secret is caught by diff-audit --staged", case_staged_secret),
+    ("attest-review embeds a recomputed diff sha256", case_attest_review_embeds_hash),
+    ("scan-text --stdin catches a secret", case_scan_text_secret),
+    ("a clean, well-mapped record passes --against-diff", case_clean_record_passes_against_diff),
+    ("run-evidence refuses a command not on the allowlist", case_run_evidence_allowlist),
+    ("verify-gates --against-diff appends to local telemetry", case_telemetry_appended),
+    ("stats renders the metrics table", case_stats_renders),
+]
+
+
+def main() -> int:
+    failures = 0
+    for name, fn in CASES:
+        with tempfile.TemporaryDirectory() as td:
+            try:
+                ok, detail = fn(Path(td))
+            except Exception as exc:  # noqa: BLE001 - eval harness surfaces any error
+                ok, detail = False, f"exception: {exc!r}"
+        status = PASS if ok else FAIL
+        if not ok:
+            failures += 1
+        print(f"[{status}] {name}\n        {detail}")
+    total = len(CASES)
+    print(f"\n{total - failures}/{total} reality eval cases passed")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

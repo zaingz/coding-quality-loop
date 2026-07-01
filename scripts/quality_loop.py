@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import quality_loop_memory as qlmem
+import quality_loop_reality as qlreal
 
 
 RISK_TIERS = {"low", "medium", "high"}
@@ -168,6 +169,18 @@ BOUNDARY_KEYWORDS = {
     ),
     "destructive": ("delete from", "truncate", "drop database", "rm -rf", "wipe"),
     "infra": ("production deploy", "prod deploy", "terraform", "kubernetes", "infrastructure"),
+    "concurrency": (
+        "concurrency", "race condition", "data race", "deadlock", "thread safety",
+        "lock contention",
+    ),
+    "data_loss": (
+        "data loss", "data corruption", "partial write", "double write",
+        "atomicity", "write ahead log",
+    ),
+    "pii": (
+        "pii", "personally identifiable", "personal data", "gdpr", "ccpa",
+        "data retention",
+    ),
 }
 # Word-boundary matched so "auth" does not fire on "author", "token" not on
 # "tokenizer", "sso" not on "blossom", "charge" not on "recharge".
@@ -528,10 +541,26 @@ def run_git(args: list[str]) -> str:
 
 
 def diff_audit(args: argparse.Namespace) -> int:
-    base = args.base or "HEAD"
-    diff = run_git(["diff", "--numstat", base])
-    name_only = run_git(["diff", "--name-only", base])
-    patch = run_git(["diff", base])
+    staged = bool(getattr(args, "staged", False))
+    if staged:
+        diff = run_git(["diff", "--cached", "--numstat"])
+        name_only = run_git(["diff", "--cached", "--name-only"])
+        patch = run_git(["diff", "--cached"])
+        untracked: list[str] = []
+        untracked_warnings: list[str] = []
+    else:
+        base = args.base or "HEAD"
+        diff = run_git(["diff", "--numstat", base])
+        name_only = run_git(["diff", "--name-only", base])
+        patch = run_git(["diff", base])
+        # Untracked files are invisible to `git diff`, so a brand-new module (the
+        # common agent-work case) bypasses the secret/size scan entirely. Fold them in.
+        untracked = [
+            f.strip()
+            for f in run_git(["ls-files", "--others", "--exclude-standard"]).splitlines()
+            if f.strip()
+        ]
+        untracked_warnings = []
 
     files = [line.strip() for line in name_only.splitlines() if line.strip()]
     added = 0
@@ -549,28 +578,21 @@ def diff_audit(args: argparse.Namespace) -> int:
         added += int(a)
         deleted += int(d)
 
-    # Untracked files are invisible to `git diff`, so a brand-new module (the
-    # common agent-work case) bypasses the secret/size scan entirely. Fold them in.
-    untracked = [
-        f.strip()
-        for f in run_git(["ls-files", "--others", "--exclude-standard"]).splitlines()
-        if f.strip()
-    ]
-    untracked_warnings: list[str] = []
-    for f in untracked:
-        try:
-            content = Path(f).read_text(errors="replace")
-        except (OSError, ValueError):
-            continue
-        added += len(content.splitlines())
-        if f not in files:
-            files.append(f)
-        if any(p.search(content) for p in SECRET_PATTERNS):
-            untracked_warnings.append(f"possible secret in untracked file: {f}")
-    if untracked:
-        untracked_warnings.append(
-            f"{len(untracked)} untracked file(s) included in audit: " + ", ".join(untracked)
-        )
+    if not staged:
+        for f in untracked:
+            try:
+                content = Path(f).read_text(errors="replace")
+            except (OSError, ValueError):
+                continue
+            added += len(content.splitlines())
+            if f not in files:
+                files.append(f)
+            if any(p.search(content) for p in SECRET_PATTERNS):
+                untracked_warnings.append(f"possible secret in untracked file: {f}")
+        if untracked:
+            untracked_warnings.append(
+                f"{len(untracked)} untracked file(s) included in audit: " + ", ".join(untracked)
+            )
 
     warnings: list[str] = list(untracked_warnings)
     if len(files) > args.max_files:
@@ -604,7 +626,7 @@ def diff_audit(args: argparse.Namespace) -> int:
         )
 
     result = {
-        "base": base,
+        "base": "staged" if staged else (args.base or "HEAD"),
         "files_changed": files,
         "file_count": len(files),
         "lines_added": added,
@@ -613,6 +635,9 @@ def diff_audit(args: argparse.Namespace) -> int:
         "warnings": warnings,
     }
 
+    qlreal.record_telemetry(
+        "diff-audit", None, None, len(warnings), not warnings, cwd=Path.cwd(),
+    )
     print(json.dumps(result, indent=2))
     return 1 if warnings else 0
 
@@ -757,6 +782,31 @@ def verify_gates(args: argparse.Namespace) -> int:
     for note in soft_warnings:
         print(f"note: {note}")
 
+    # Reality layer: ground the record in the real git diff when --against-diff
+    # is requested. This catches phantom completion, unmapped scope, a diff-
+    # derived risk floor, missing bugfix tests, stale review hashes, and promotes
+    # diff-audit secret/test-weakening warnings to blocking at medium+.
+    if getattr(args, "against_diff", False):
+        try:
+            diff_findings = qlreal.verify_gates_against_diff(
+                record,
+                risk,
+                base=getattr(args, "base", "HEAD"),
+                cwd=Path.cwd(),
+                record_path=record_path,
+            )
+            findings.extend(diff_findings)
+        except SystemExit as exc:
+            findings.append(
+                "could not read git diff for --against-diff (exit %s); "
+                "ensure this is a git repository" % (exc.code,)
+            )
+
+    qlreal.record_telemetry(
+        "verify-gates", record.get("task_id"), risk,
+        len(findings), not findings, cwd=Path.cwd(),
+    )
+
     if findings:
         for finding in findings:
             print(f"warning: {finding}")
@@ -769,8 +819,8 @@ def verify_gates(args: argparse.Namespace) -> int:
 REQUIRED_STEPS = [
     "INTAKE",
     "EXPLORE",
-    "PLAN",
     "MINIMALITY_GATE",
+    "PLAN",
     "IMPLEMENT_SLICE",
     "VERIFY",
     "REVIEW",
@@ -1026,12 +1076,15 @@ def main() -> int:
 
     p_diff = sub.add_parser("diff-audit", help="Summarize and flag git diff risks")
     p_diff.add_argument("--base", default="HEAD")
+    p_diff.add_argument("--staged", action="store_true", help="Audit the staged (cached) diff instead of a base ref — pre-commit mode")
     p_diff.add_argument("--max-files", type=int, default=12)
     p_diff.add_argument("--max-lines", type=int, default=600)
     p_diff.set_defaults(func=diff_audit)
 
     p_gates = sub.add_parser("verify-gates", help="Check verification evidence against risk tier")
     p_gates.add_argument("record")
+    p_gates.add_argument("--against-diff", action="store_true", help="Also verify the record against the real git diff (phantom completion, scope integrity, review freshness, etc.)")
+    p_gates.add_argument("--base", default="HEAD", help="Git base ref for --against-diff (default HEAD)")
     p_gates.set_defaults(func=verify_gates)
 
     p_config = sub.add_parser("check-config", help="Validate an orchestration config")
@@ -1071,6 +1124,26 @@ def main() -> int:
     p_mstatus.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_mstatus.add_argument("--config", help="Read memory backend selection from this quality-loop config file")
     p_mstatus.set_defaults(func=qlmem.cmd_status)
+
+    p_attest = sub.add_parser("attest-review", help="Embed a recomputed diff sha256 into a review object")
+    p_attest.add_argument("review", help="Path to a review JSON object to attest")
+    p_attest.add_argument("--base", default="HEAD", help="Git base ref for the diff hash (default HEAD)")
+    p_attest.add_argument("--output", help="Write the attested review here instead of stdout")
+    p_attest.set_defaults(func=qlreal.cmd_attest_review)
+
+    p_evidence = sub.add_parser("run-evidence", help="Re-execute recorded pass commands against the real environment")
+    p_evidence.add_argument("record")
+    p_evidence.add_argument("--base", default="HEAD", help="Git base ref for red-green worktree (default HEAD)")
+    p_evidence.add_argument("--red-green", action="store_true", help="Replay red_green commands at base (expect fail) and HEAD (expect pass)")
+    p_evidence.add_argument("--timeout", type=int, default=30, help="Per-command timeout in seconds (default 30)")
+    p_evidence.set_defaults(func=qlreal.cmd_run_evidence)
+
+    p_scan = sub.add_parser("scan-text", help="Secret-scan text from stdin (for host hook shims)")
+    p_scan.add_argument("--stdin", action="store_true", help="Read text to scan from stdin")
+    p_scan.set_defaults(func=qlreal.cmd_scan_text)
+
+    p_stats = sub.add_parser("stats", help="Render the metrics table from local telemetry")
+    p_stats.set_defaults(func=qlreal.cmd_stats)
 
     args = parser.parse_args()
     return args.func(args)

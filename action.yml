@@ -1,0 +1,36 @@
+name: "Coding Quality Loop"
+description: "Dependency-free record, diff, and optional evidence gates for coding agents."
+inputs:
+  record:
+    description: "Path to the agent record JSON."
+    required: false
+    default: "agent-record.json"
+  base:
+    description: "Git base ref for diff checks."
+    required: false
+    default: "HEAD"
+  run-evidence:
+    description: "Set to true to rerun allowlisted recorded pass commands."
+    required: false
+    default: "false"
+runs:
+  using: "composite"
+  steps:
+    - name: Compile Quality Loop scripts
+      shell: bash
+      run: python3 -m py_compile scripts/*.py
+    - name: Verify record against diff
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.record }}" ]; then
+          python3 scripts/quality_loop.py verify-gates "${{ inputs.record }}" --against-diff --base "${{ inputs.base }}"
+        else
+          echo "No record found at ${{ inputs.record }}; skipping record gate"
+        fi
+    - name: Audit diff
+      shell: bash
+      run: python3 scripts/quality_loop.py diff-audit --base "${{ inputs.base }}"
+    - name: Run evidence
+      if: ${{ inputs.run-evidence == 'true' }}
+      shell: bash
+      run: python3 scripts/quality_loop.py run-evidence "${{ inputs.record }}" --base "${{ inputs.base }}"

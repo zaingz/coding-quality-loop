@@ -1,6 +1,8 @@
 # Completion Record
 
-Required before claiming completion on a non-trivial (small/medium/mission) task.
+Required before claiming completion on a non-trivial (medium/mission) task, or
+any high-risk / security-sensitive task. A small low-risk task ships with
+handoff evidence (contract + evidence + risks) and does not require this record.
 No completion record → not done.
 
 ## Goal

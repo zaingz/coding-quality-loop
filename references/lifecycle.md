@@ -32,8 +32,8 @@ INDEPENDENT REVIEW (confirm nothing crept in).
 ```text
 INTAKE
   -> EXPLORE
-  -> PLAN
   -> MINIMALITY_GATE
+  -> PLAN
   -> IMPLEMENT_SLICE
   -> VERIFY
   -> REVIEW

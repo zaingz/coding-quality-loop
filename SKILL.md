@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "1.4.0"
+  version: "2.1.0"
 ---
 
 # Coding Quality Loop
@@ -201,6 +201,82 @@ and degrade to the dependency-free files backend when absent. See `references/me
 - **Don't game the tests.** A bug fix shows a failing-then-passing (RED→GREEN) reproduction; tests are never weakened, skipped, or deleted to reach green, and the fix is not co-mutated with the test that should catch it.
 - **Stop at risk boundaries.** Escalate before destructive, security-sensitive, or irreversible actions.
 
+## Enforcement Matrix
+
+Every Hard Rule maps to a deterministic owner (a script you can run) or an explicit
+**advisory** label. Candor is auditable: this is the trust artifact that says where the
+machine stops and the human/host begins. `verify-gates` reads the record; `verify-gates
+--against-diff` and `diff-audit` read git; `run-evidence` re-executes commands. Host hooks
+(Ring 1) remain a documented integration point, not a shipped dependency.
+
+| Hard Rule | Deterministic owner | Advisory where not deterministic |
+|---|---|---|
+| Understand before editing | `verify-gates` (repo_map gate) + `--against-diff` (scope integrity) | context-map *quality* is advisory |
+| Write down "done" first | `verify-gates` (validation_contract required for non-trivial) | contract *substance* is advisory |
+| Prefer existing code | `verify-gates` (minimality_decision required) | rung *choice* is advisory |
+| Implementer cannot be the final validator | `verify-gates` (reviewer != implementer string-compare) | fresh_context is self-attested (advisory) |
+| No success claim without evidence | `verify-gates` (evidence handle required) + `run-evidence` (re-execution) + `--against-diff` (phantom completion) | evidence *substance* beyond re-execution is advisory |
+| Delete when deletion is simplest | `verify-gates` (minimality_decision.rung) | whether deletion was *considered* is advisory |
+| Don't game the tests | `--against-diff` (bugfix-test co-presence) + `run-evidence --red-green` (RED at base / GREEN at HEAD) + `diff-audit` (test-weakening warning) | test *coverage* of the contract is advisory |
+| Stop at risk boundaries | `detect_risk_floor` (text scan) + `--against-diff` (diff-derived path floor) | whether to *escalate to a human* is advisory; wire host hooks for hard blocks |
+
+Records may now carry optional `diff_sha256` (attest-review), `files_changed`
+(completion record), and `red_green` (commands_run) fields — all optional, no adopter
+break. Telemetry is local JSONL (`.quality-loop/telemetry.jsonl`); opt out with
+`QUALITY_LOOP_NO_TELEMETRY=1`.
+
+## Host Session Ring
+
+Release 1.6 adds first-class host wiring without making any host mandatory:
+
+- `hosts/claude-code/settings.json` wires `SessionStart`, `PreToolUse`, and `Stop`
+  command hooks. Shims are stdlib Python and delegate to the core CLI.
+- `.claude/agents/quality-loop-reviewer.md` and
+  `.claude/agents/quality-loop-security-reviewer.md` are read-only reviewer
+  subagents sourced from `references/reviewer-checklists.md`.
+- `hosts/codex/hooks.json` uses Codex's current project hook schema. Codex still
+  requires hook trust review in `/hooks`.
+- `hosts/git/install-git-hooks.py` and `hosts/git/.pre-commit-config.yaml` provide
+  the universal git backstop: staged `diff-audit` blocks secrets/test weakening.
+- `action.yml` and `hosts/github/quality-loop-example.yml` provide CI wiring.
+- `scripts/install.py` installs host wiring idempotently and prints what is
+  enforced vs advisory.
+
+Host hooks are advisory by default. A repo can opt into required edit-before-plan
+blocking with `.quality-loop/config.json`:
+
+```json
+{"enforcement": "required"}
+```
+
+## Driven Mode
+
+`scripts/quality_loop_run.py` runs the loop as a local orchestrator instead of
+trusting a chat transcript. It uses `scripts/quality_loop_hosts.py` adapters:
+
+- `fake` for offline tests and fixture replay.
+- `manual` for human relay.
+- `claude` and `codex` for subprocess-backed host runs when available.
+
+VERIFY is orchestrator-native: configured commands run locally with timeout,
+redacted output tails, and output hashes stored in `commands_run[].evidence`.
+REVIEW receives only contract + diff + evidence, not the implementer transcript.
+PACKAGE writes a completion record and re-runs `verify-gates`. High-risk work
+exits escalated before PACKAGE.
+
+```bash
+python3 scripts/quality_loop_run.py --goal "Fix invoice rounding" --host fake --dry-run
+python3 scripts/quality_loop_run.py --record agent-record.json --host manual
+```
+
+## Proof Harness
+
+`bench/` contains the benchmark protocol, 12 vendored tasks, objective metrics,
+and a fixture-mode runner. The committed fixture result validates harness plumbing
+only; live model sweeps must record host, model, seed, cost, artifacts, and null
+results. Trigger evals live at `evals/run_trigger_evals.py` and can use a
+caller-supplied judge command.
+
 ## Shipping Gate
 
 An agent **may not claim completion** for a medium or mission task — or any high-risk or security-sensitive work — unless a completion record exists with verification evidence. Tiny and small low-risk tasks may ship with a contract + evidence + risks in the handoff; the runtime gate enforces exactly this threshold (it does not demand a completion record for small low-risk work). Enforce the gate with a `Stop`/PostToolUse hook in production (see **Harness Implementation Modes**).
@@ -248,8 +324,12 @@ Helper script commands (advisory; they do not replace human review, tests, scann
 
 - `init-record` — create a task state record from a goal.
 - `check-record` — validate a state record against this lifecycle.
-- `diff-audit` — summarize a git diff and flag large diffs, dependency edits, migrations, and possible secrets.
-- `verify-gates` — check the recorded evidence against the risk tier: the validation contract and completion record must be a real existing file or an inline object whose required fields are present and non-empty (it rejects bare booleans, empty strings, and nonexistent paths — it checks *shape*, not whether the content is substantive), plus the repeated-failure → `harness_update` rule. It reads the **record**, not the diff; pair it with `diff-audit` and CI for the actual block.
+- `diff-audit` — summarize a git diff and flag large diffs, dependency edits, migrations, and possible secrets. `--staged` audits the cached (pre-commit) diff.
+- `verify-gates` — check the recorded evidence against the risk tier: the validation contract and completion record must be a real existing file or an inline object whose required fields are present and non-empty (it rejects bare booleans, empty strings, and nonexistent paths — it checks *shape*, not whether the content is substantive), plus the repeated-failure → `harness_update` rule. It reads the **record**, not the diff; pair it with `diff-audit` and CI for the actual block. `--against-diff [--base REF]` adds the **reality layer**: phantom completion (package/done ∧ empty diff), scope integrity (changed files ⊄ repo_map/plan/completion_record), a diff-derived risk floor (auth/payments/migrations/.env/terraform/lockfiles force high-tier), bugfix-test co-presence, review freshness (recomputed `diff_sha256`), and promotes secret/test-weakening warnings to blocking at medium+.
+- `attest-review` — embed a recomputed `git diff | sha256` into a review object (the reviewer's last act), so review freshness is checkable.
+- `run-evidence` — re-execute each recorded `commands_run[result=pass]` against the real environment (allowlist `.quality-loop/allowed-commands`, per-command timeout, sidecar `.quality-loop/rerun-<task>.json`, never mutates the record). `--red-green` replays a `red_green: true` command in a `git worktree` at base (expect fail) and HEAD (expect pass); worktree unavailable → explicit "not proven", never a silent pass.
+- `scan-text --stdin` — secret-scan text from stdin (for host hook shims); exits non-zero on a finding.
+- `stats` — render the metrics table from local telemetry (`.quality-loop/telemetry.jsonl`), printing "not instrumented" for rows it can't compute. Telemetry is local-only, no network; opt out with `QUALITY_LOOP_NO_TELEMETRY=1`.
 - `check-config` — validate an agentic orchestration config.
 - `eval-cases` — run offline eval cases that pin task-class, risk-tier, required-gate, security-reviewer, completion-record, complexity-brake, and retrospective logic.
 
@@ -257,7 +337,13 @@ Helper script commands (advisory; they do not replace human review, tests, scann
 python3 scripts/quality_loop.py init-record --goal "Fix invoice total rounding" --risk-tier medium --output agent-record.json
 python3 scripts/quality_loop.py check-record agent-record.json
 python3 scripts/quality_loop.py diff-audit --base origin/main
+python3 scripts/quality_loop.py diff-audit --staged
 python3 scripts/quality_loop.py verify-gates agent-record.json
+python3 scripts/quality_loop.py verify-gates agent-record.json --against-diff --base origin/main
+python3 scripts/quality_loop.py attest-review review.json --base origin/main
+python3 scripts/quality_loop.py run-evidence agent-record.json --red-green --base origin/main
+python3 scripts/quality_loop.py scan-text --stdin < suspicious-file.txt
+python3 scripts/quality_loop.py stats
 python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
 python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
 ```

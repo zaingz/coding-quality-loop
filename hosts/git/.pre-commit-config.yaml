@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: quality-loop-diff-audit
+        name: Quality Loop staged diff audit
+        entry: python3 scripts/quality_loop.py diff-audit --staged
+        language: system
+        pass_filenames: false

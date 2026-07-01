@@ -1,5 +1,96 @@
 # Changelog
 
+## 2.1.0
+
+Proof layer.
+
+- Add `bench/` with 12 vendored benchmark tasks, objective metrics, a blind
+  judge protocol, and a deterministic fixture-mode runner.
+- Commit `bench/results/fixture-smoke-2026-07-01.json` as a harness smoke result.
+  It validates plumbing only and is explicitly not a live agent benchmark.
+- Add `evals/run_trigger_evals.py` for activation/description checks with either
+  a heuristic offline judge or a caller-supplied `--judge-command`.
+- Wire a benchmark fixture smoke into CI without committing generated CI output.
+
+## 2.0.0
+
+Driven mode core.
+
+- Add `scripts/quality_loop_run.py`: a risk-scaled state machine with pure step
+  ordering gates, orchestrator-native VERIFY, fresh-by-construction REVIEW, and
+  PACKAGE reasserting the v1 `verify-gates` suite.
+- Add `scripts/quality_loop_hosts.py`: `HostAdapter` protocol plus `fake`,
+  `manual`, `claude`, and `codex` adapters. Fake host makes the orchestrator eval
+  suite fully offline.
+- Add prompt templates in `assets/prompts/`.
+- Add `.quality-loop/runs/<id>/journal.jsonl` redacted local journals (gitignored).
+- Add memory dogfooding: `memory-recall --no-bump` is injected into planner
+  prompts; successful PACKAGE attempts a local `memory-commit`.
+- Add `evals/run_orchestrator_evals.py` covering step order, transcript isolation,
+  VERIFY blocking REVIEW, tiny topology, and v1 gate compatibility.
+- Extend config schema/example with optional backward-compatible `hosts` and
+  `execution` blocks.
+
+## 1.6.0
+
+Session ring + backstop + install DX.
+
+- Add Claude Code project hook wiring in `hosts/claude-code/settings.json` plus
+  stdlib shims for `PreToolUse`, `Stop`, and `SessionStart`.
+- Add read-only Claude reviewer subagents:
+  `.claude/agents/quality-loop-reviewer.md` and
+  `.claude/agents/quality-loop-security-reviewer.md`.
+- Add Codex project hook wiring in `hosts/codex/hooks.json` using the current
+  Codex hook schema (`hooks.json`, command handlers, trust review via `/hooks`).
+- Add git backstop: `hosts/git/install-git-hooks.py` and
+  `hosts/git/.pre-commit-config.yaml` run staged `diff-audit`.
+- Add `action.yml` composite action and `hosts/github/quality-loop-example.yml`.
+- Add `scripts/install.py` idempotent host installer with JSON hook merging,
+  backups, and an advisory/enforced wiring report.
+- Add `evals/run_hook_evals.py` fixture tests for every host shim and installer
+  idempotence; wire it into CI.
+
+## 1.5.0
+
+The "reality layer" — closes the three free lies in v1.4.0 by grounding the record in git.
+A new sibling module `scripts/quality_loop_reality.py` (mirroring `quality_loop_memory.py`,
+reusing `run_git`/`redact`/`SECRET_PATTERNS`/`has_evidence`/`load_json` from `quality_loop`)
+adds record↔reality verification. Stdlib-only, portable, no network, no new dependencies.
+
+- **`verify-gates --against-diff [--base REF]`** reads the real git diff and catches:
+  phantom completion (package/done with an empty diff), scope integrity (changed files not
+  mapped in repo_map/plan/completion_record, glob-tolerant), a **diff-derived risk floor**
+  (changed paths matching auth/, payments/, migrations/, .env, terraform/, lockfiles force
+  high-tier gates — grounding `detect_risk_floor` in git, not prose), bugfix-test co-presence
+  (a bug/fix goal with no test in the diff and no waiver), review freshness
+  (`independent_review.diff_sha256` recomputed; mismatch/missing at medium+ fails), and
+  promotes diff-audit secret/test-weakening warnings to blocking at medium+.
+- **`attest-review`** embeds a recomputed `git diff | sha256` into the review object — the
+  reviewer's last act — so review freshness is checkable, not self-attested.
+- **`run-evidence`** re-executes each recorded `commands_run[result=pass]` (allowlist
+  `.quality-loop/allowed-commands`, per-command timeout, sidecar `.quality-loop/rerun-<task>.json`,
+  never mutates the record). **`--red-green`** replays a `red_green: true` command in a
+  `git worktree` at base (expect fail) and HEAD (expect pass) — catches a faked RED→GREEN;
+  worktree unavailable → explicit "not proven", never a silent pass.
+- **`diff-audit --staged`** + **`scan-text --stdin`**: pre-commit (cached) diff mode +
+  secret-scan-as-a-service for host hook shims.
+- **Telemetry + `stats`**: verify-gates/diff-audit/run-evidence append
+  `{ts, cmd, task_id, risk, findings, pass, overrides}` to `.quality-loop/telemetry.jsonl`
+  (local-only, no network; opt out with `QUALITY_LOOP_NO_TELEMETRY=1`). `stats` renders
+  SKILL.md's metrics table, printing "not instrumented" for rows it can't compute.
+- **Contradiction fixes:** canonicalized complexity-brake-before-PLAN across
+  SKILL.md/`references/lifecycle.md`/config step order (MINIMALITY_GATE now precedes PLAN);
+  fixed `assets/completion-record.md` trigger (small low-risk ships without it); bumped config
+  `version` to 1.5.0; added concurrency/race/data-loss/PII to runtime `BOUNDARY_KEYWORDS`.
+- **Enforcement Matrix** section in SKILL.md: every Hard Rule × its deterministic owner or an
+  explicit "advisory" label — candor becomes an auditable trust artifact.
+- **README claims reframe:** Sudoku presented as an honest pilot (n=1, rubric caveats, headline
+  numbers removed until bench v1); Honcho/Graphify downgraded to "documented integration pattern".
+- **Schema:** record gains **optional** fields only (`diff_sha256`, `files_changed`, `red_green`)
+  — no adopter break; migration is additive.
+- **Evals:** new `evals/run_reality_evals.py` (15 temp-git-repo fixtures where record and diff
+  disagree); wired into CI. Existing 9/26/20 suites stay green.
+
 ## 1.4.0
 
 - Add an optional, advisory **persistent per-project memory** layer: a stdlib-only files

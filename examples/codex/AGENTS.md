@@ -3,7 +3,7 @@
 Follow the Coding Quality Loop: produce the smallest correct change with enough evidence to
 trust, review, revert, or merge it.
 
-Lifecycle: `INTAKE -> EXPLORE -> PLAN -> MINIMALITY_GATE -> IMPLEMENT_SLICE -> VERIFY -> REVIEW -> PACKAGE`.
+Lifecycle: `INTAKE -> EXPLORE -> MINIMALITY_GATE -> PLAN -> IMPLEMENT_SLICE -> VERIFY -> REVIEW -> PACKAGE`.
 
 1. **INTAKE** — goal, acceptance criteria, constraints, assumptions, risk tier
    (`low|medium|high`), verification plan.
@@ -29,6 +29,18 @@ Codex skill directory (`SKILL.md` + scripts/references) invoked with `$coding-qu
 (https://developers.openai.com/codex/skills). AGENTS.md precedence: global
 `~/.codex/AGENTS.md`, then project, then nested overrides
 (https://developers.openai.com/codex/guides/agents-md).
+
+## Optional Codex hooks
+
+Copy `hosts/codex/hooks.json` to `.codex/hooks.json` or run:
+
+```bash
+python3 scripts/install.py --host codex
+```
+
+Codex project hooks are advisory until the project `.codex/` layer is trusted and
+the hook definitions are approved in `/hooks`. They call the same core CLI:
+`scan-text`, `verify-gates --against-diff`, and the session context shim.
 
 ## One-line usage
 

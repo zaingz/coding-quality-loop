@@ -1,6 +1,6 @@
 {
   "$schema": "./quality-loop.config.schema.json",
-  "version": "1.2.0",
+  "version": "2.1.0",
   "description": "Agentic routing for the Coding Quality Loop. Map each profile to a real model on your platform. Models are placeholders; replace with your provider's identifiers. orchestrator and security_reviewer are mission/boundary roles, not per-step profiles.",
   "profiles": {
     "orchestrator": {"role": "Mission: scope, classify, context, spec/validation contract, decompose, assign workers, collect findings, stop if unsafe", "model": "<strong-reasoning-model>", "tools": ["read", "search"]},
@@ -33,20 +33,20 @@
       "gates": ["likely_files_named"]
     },
     {
-      "step": "PLAN",
-      "profile": "planner",
-      "model_class": "strong_reasoning",
-      "tools": ["read", "search"],
-      "required_artifacts": ["plan"],
-      "gates": ["plan_names_files", "plan_names_verification"]
-    },
-    {
       "step": "MINIMALITY_GATE",
       "profile": "minimality_reviewer",
       "model_class": "strong_reasoning",
       "tools": ["read"],
       "required_artifacts": ["minimality_decision"],
       "gates": ["rung_chosen", "lower_rungs_rejected", "safety_exceptions_checked"]
+    },
+    {
+      "step": "PLAN",
+      "profile": "planner",
+      "model_class": "strong_reasoning",
+      "tools": ["read", "search"],
+      "required_artifacts": ["plan"],
+      "gates": ["plan_names_files", "plan_names_verification"]
     },
     {
       "step": "IMPLEMENT_SLICE",
@@ -106,5 +106,18 @@
     "recall_budget_chars": 1500,
     "honcho": {"workspace_id": null, "peer_id": null, "session_template": null, "target_peer": null},
     "graphify": {"out_dir": "graphify-out", "token_budget": 2000}
+  },
+  "hosts": {
+    "fake": {"adapter": "fake", "available": true},
+    "manual": {"adapter": "manual", "available": true},
+    "claude": {"adapter": "claude", "model": null},
+    "codex": {"adapter": "codex", "model": null}
+  },
+  "execution": {
+    "default_host": "fake",
+    "review_host": "fake",
+    "timeout_seconds": 30,
+    "journal_dir": ".quality-loop/runs",
+    "dry_run": false
   }
 }

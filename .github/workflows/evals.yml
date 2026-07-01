@@ -23,6 +23,14 @@ jobs:
         run: python3 evals/run_evals.py
       - name: Run memory eval harness
         run: python3 evals/run_memory_evals.py
+      - name: Run reality eval harness
+        run: python3 evals/run_reality_evals.py
+      - name: Run host hook eval harness
+        run: python3 evals/run_hook_evals.py
+      - name: Run driven-mode orchestrator eval harness
+        run: python3 evals/run_orchestrator_evals.py
+      - name: Run benchmark fixture smoke
+        run: python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json
       - name: Gate example records (showcase must pass its own gate)
         run: |
           for rec in examples/*/agent-record.json; do

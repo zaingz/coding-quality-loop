@@ -5,10 +5,10 @@
 ### Make your AI coding agent ship changes you can trust — not giant diffs you have to babysit.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-111111?style=flat-square)](LICENSE)
-[![version](https://img.shields.io/badge/version-1.4.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.1.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-9%2F9%20%2B%2026%2F26%20%2B%2020%2F20-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-9%2B27%2B20%2B15%2B8%2B5%2B10-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 [![hosts](https://img.shields.io/badge/works%20with-Claude%20Code%20·%20Codex%20·%20Cursor%20·%20Pi-111111?style=flat-square)](#install--use-matrix)
 
@@ -147,7 +147,7 @@ honest about where the executable part stops. `scripts/quality_loop.py` is a por
 stdlib-only checker; it **complements** CI, tests, scanners, and human review — it does not
 replace them.
 
-**Enforced today** (`verify-gates` / `check-record` / `diff-audit`, pinned by [evals](evals/)):
+**Enforced today** (`verify-gates` / `verify-gates --against-diff` / `check-record` / `diff-audit` / `run-evidence`, pinned by [evals](evals/)):
 
 - Non-trivial work (medium/mission, or any medium/high-risk or security-sensitive task) requires a
   named implementer, a real **validation contract**, an approving **independent review** by someone
@@ -156,35 +156,48 @@ replace them.
   strings, and nonexistent paths are rejected. (It checks *shape* — that the evidence exists and is
   well-formed — not whether the content is substantive. A small low-risk task ships with handoff
   evidence, not a formal completion record.)
+- **Reality layer (v1.5).** `verify-gates --against-diff` reads the real git diff and catches
+  **phantom completion** (package/done with an empty diff), **scope integrity** (changed files not
+  mapped in the repo_map/plan/completion record), a **diff-derived risk floor** (auth/payments/
+  migrations/.env/terraform/lockfile paths force high-tier gates), **bugfix-test co-presence**, and
+  **stale review hashes** (`independent_review.diff_sha256` is recomputed). `run-evidence`
+  **re-executes** recorded pass commands (allowlisted, timeout-bounded); `--red-green` replays a
+  red_green command in a worktree at base (expect fail) and HEAD (expect pass) — worktree
+  unavailable means "not proven", never a silent pass. `attest-review` embeds the recomputed diff
+  hash so freshness is checked, not self-attested.
 - **Detected-risk floor.** An *honestly described* boundary task cannot silently self-downgrade:
   the record's own goal/criteria/plan are scanned (word-boundary matched) for auth/authz, secrets,
-  crypto, payments, migrations, destructive, and infra boundaries; any hit forces high-risk +
-  security-review gates regardless of the declared tier.
+  crypto, payments, migrations, destructive, concurrency, data-loss, PII, and infra boundaries; any
+  hit forces high-risk + security-review gates regardless of the declared tier.
 - **UNDERSTAND is gated.** Non-trivial work must carry a substantive context map (entry points /
   likely files plus callers or tests) — the "map the change before editing" rule is checked.
 - Every `pass` command carries a verifiable evidence handle and a known `class`; a recorded
   minimality decision; and `diff-audit` flags for secrets (including **untracked files** and
-  **test-weakening**), dependency edits, migrations, and oversized diffs.
+  **test-weakening**), dependency edits, migrations, and oversized diffs. `diff-audit --staged`
+  covers the pre-commit (cached) diff; `scan-text --stdin` is a secret-scan-as-a-service for host
+  hook shims.
 - **Repeated failure → durable change.** A recurring mistake must become a rule/test/hook/
   checklist/template, so a clean final record cannot bury a mistake corrected only in chat.
 
 **Not enforced — by design, to stay portable** (be precise; this is the candor that makes the
 rest trustable):
 
-- It does **not** run your test suite, type checker, or security scanner — it checks that the
-  *evidence* of those runs is present and well-formed. Recorded evidence (including RED→GREEN) is
-  *attested, not re-executed*.
+- `run-evidence` re-executes allowlisted commands but is **not a sandbox** — the trust model is
+  repo-defined commands, same as CI. Commands not on the `.quality-loop/allowed-commands` allowlist
+  are skipped (reported as `not_allowed`), not run.
 - Reviewer/implementer separation is compared as trimmed strings and fresh context is
-  self-attested — a discipline, not a cryptographic guarantee.
-- The detected-risk floor is a curated text-scan heuristic — it catches honest mis-tiering, not an
-  agent deliberately phrasing around it. **Deterministic policy hooks** remain the backstop for
-  anything you cannot afford an agent to get wrong.
-- **`verify-gates` reads the record, not the diff.** It confirms the agent's recorded evidence is
-  present and well-formed; it does not inspect the actual change. `diff-audit` (which reads real git
-  state — secrets, untracked files, diff size, dependency/migration edits) and your CI are the
-  blocking layer. Wire `diff-audit`'s exit code as a hard fail for anything that must not slip.
-- It is not a model runtime: no recovery, telemetry, or git-worker handoff. Wiring the routed
-  steps to real models/sessions is the host's job.
+  self-attested — a discipline, not a cryptographic guarantee. `attest-review` + `--against-diff`
+  make review *freshness* checkable (the diff hash must match), but cannot prove the reviewer
+  *read* the diff.
+- The detected-risk floor (text and diff-derived) is a curated heuristic — it catches honest
+  mis-tiering, not an agent deliberately phrasing around it. **Deterministic policy hooks** remain
+  the backstop for anything you cannot afford an agent to get wrong.
+- **`verify-gates` (without `--against-diff`) reads the record, not the diff.** It confirms the
+  agent's recorded evidence is present and well-formed; `--against-diff` adds the diff-grounded
+  checks above. `diff-audit` (which reads real git state) and your CI remain the blocking layer.
+  Wire `diff-audit`'s exit code as a hard fail for anything that must not slip.
+- The helper is not a hosted agent service: driven mode can orchestrate local host CLIs, but
+  authentication, model cost, and production rollout remain the caller's responsibility.
 
 ---
 
@@ -209,9 +222,9 @@ python3 scripts/quality_loop.py memory-commit agent-record.json
 ```
 
 The default backend is **stdlib-only and checked-in** (`.quality-loop/memory/` — git-diffable and
-team-shared). Two optional, loop-integrated backends plug in via config and degrade gracefully to
-files: **[Honcho](https://honcho.dev)** (reasoning-based recall) and
-**[Graphify](https://github.com/safishamsi/graphify)** (code-graph relevance). See
+team-shared). **Honcho** (reasoning-based recall) and **[Graphify](https://github.com/safishamsi/graphify)**
+(code-graph relevance) are **documented integration patterns**, not shipped implementations: they
+plug in via the config `memory` block and degrade gracefully to the files backend when absent. See
 [`references/memory.md`](references/memory.md).
 
 ---
@@ -226,21 +239,77 @@ python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.
 python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json   # 3. static
 python3 evals/run_evals.py                                                      # 4. behavioral gates
 python3 evals/run_memory_evals.py                                              # 5. memory gates
+python3 evals/run_reality_evals.py                                             # 6. reality gates (record↔diff)
+python3 evals/run_hook_evals.py                                                # 7. host hook fixtures
+python3 evals/run_orchestrator_evals.py                                        # 8. driven mode fake-host evals
+python3 evals/run_trigger_evals.py                                             # 9. activation smoke
+python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json
 ```
 
-Current result: **9/9 static** + **26/26 behavioral** + **20/20 memory cases pass**, re-run on every
-push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). The suites prove
-different things, and are labeled honestly:
+Current result: **9/9 static** + **27/27 behavioral** + **20/20 memory** + **15/15 reality** +
+**8/8 hook** + **5/5 orchestrator** + **10/10 trigger** cases pass, re-run on every push by a
+dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). The suites prove different
+things, and are labeled honestly:
 
 - The **static** suite is an *intake-classification regression test* — it pins the routing table
   (risk tier, task class, required gates). It does not prove a gate fires on real prose.
-- The **behavioral** suite is where *the gates actually fire* — it drives the real CLI against
+- The **behavioral** suite is where *the record gates actually fire* — it drives the real CLI against
   constructed records and asserts hard-to-fake behavior (a self-downgraded boundary task is
   blocked, placeholder/wrong-content artifacts are rejected, the implementer can't be the reviewer,
   untracked secrets are flagged). One case is a docs-presence lint, not a gate.
 - The **memory** suite drives the `memory-recall` / `commit` / `prune` CLI against constructed
   stores and asserts the anti-bloat and safety invariants hold — the index stays ≤40 lines even
   with multi-line lessons, recall respects its budget, and secrets are redacted before they land.
+- The **reality** suite builds temp git repos where the record and the diff disagree (phantom
+  completion, an unmapped file, an auth path under a low tier, a missing bugfix test, a stale
+  review hash, lying evidence, a red-green catch, a staged secret) and asserts the diff-grounded
+  gates catch the lie.
+- The **hook** suite feeds fixture JSON into the Claude/Codex-compatible shims and checks
+  destructive Bash blocks, secret-write blocks, required edit-before-plan blocks, Stop-gate
+  continuation, SessionStart context, and installer idempotence.
+- The **orchestrator** suite runs driven mode through the fake host and pins step order,
+  transcript isolation for REVIEW, VERIFY-before-REVIEW blocking, tiny topology, and
+  compatibility with the v1 record gates.
+
+### Host wiring
+
+Install host integrations into a project:
+
+```bash
+python3 scripts/install.py --host all
+```
+
+This copies the stdlib Quality Loop runtime scripts, host hook shims, `.claude/settings.json`,
+`.codex/hooks.json`, read-only reviewer agents, pre-commit config, and an example GitHub workflow
+with backups. Claude Code and Codex hooks remain advisory unless the host trusts/enables them; git
+hooks and CI are the portable backstop.
+
+### Driven mode
+
+`scripts/quality_loop_run.py` is the batch/mission orchestrator. It owns the state
+machine, verification, review prompt isolation, package gate, and local redacted journal
+under `.quality-loop/runs/<id>/`.
+
+```bash
+python3 scripts/quality_loop_run.py --goal "Fix invoice rounding" --host fake --dry-run
+python3 scripts/quality_loop_run.py --record agent-record.json --host manual
+```
+
+### Benchmarks
+
+`bench/` contains the v2.1 proof harness: 12 vendored tasks, trap tasks, objective
+metrics, and a judge protocol. The committed result
+[`bench/results/fixture-smoke-2026-07-01.json`](bench/results/fixture-smoke-2026-07-01.json)
+is a deterministic fixture smoke result. It proves the benchmark plumbing runs; it is
+not a live Claude/Codex model sweep and should not be quoted as product lift.
+
+```bash
+python3 bench/runner.py --mode fixture --seeds 3
+python3 bench/metrics.py bench/results/fixture-smoke-2026-07-01.json
+python3 evals/run_trigger_evals.py
+```
+
+Live sweeps must record host, model, seed, cost, artifacts, and null results.
 
 For medium/high-risk work, create and audit a state record:
 
@@ -250,15 +319,19 @@ python3 scripts/quality_loop.py diff-audit --base origin/main
 python3 scripts/quality_loop.py verify-gates agent-record.json
 ```
 
-### End-to-end agent eval
+### End-to-end agent eval (honest pilot, n=1)
 
 [`examples/sudoku-agent-eval-2026-06-28/`](examples/sudoku-agent-eval-2026-06-28/README.md) is a
 committed before/after experiment: four coding agents built the same browser Sudoku app from
-identical requirements — two **with** the skill, two without. The two skill variants averaged
-**90.8** vs **83.3** for the baselines (independent judges, fixed rubric), with stronger planning,
-more robust solvers, and better verification evidence. Every variant's app source, the skill
-variants' lifecycle artifacts, and the [consolidated report](examples/sudoku-agent-eval-2026-06-28/evaluation-report.md)
-are committed, and each test suite reruns with `npm test --prefix <variant>/app`.
+identical requirements — two **with** the skill, two without. It is presented honestly as a
+**single pilot (n=1)**, not a benchmark: the sample is too small to generalize, the rubric is
+fixed-but-subjective, and the judges are independent but few. The skill variants showed
+stronger planning, more robust solvers, and better verification evidence; the full numbers,
+caveats, and the [consolidated report](examples/sudoku-agent-eval-2026-06-28/evaluation-report.md)
+are committed so you can judge for yourself. Every variant's app source, the skill variants'
+lifecycle artifacts, and each test suite (reruns with `npm test --prefix <variant>/app`) are
+in the repo. Headline numbers are intentionally omitted here; use the v2.1 `bench/` harness for
+repeatable benchmark protocol work instead of quoting this pilot as product lift.
 
 ---
 

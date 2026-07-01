@@ -66,12 +66,13 @@ python3 evals/run_evals.py
 
 `triggers/cases.json` holds `should_trigger` / `should_not_trigger` prompts for the frontmatter
 `description` — the sole activation signal, and the #1 skill failure mode when it is too vague
-(misses) or too broad (misfires). Grading these needs a model (LLM-judge), so they are
-**deliberately excluded from the offline, model-free CI suite**. To run them, feed your host's
-judge only the `description_under_test` plus each prompt and check the label. Validate the JSON:
+(misses) or too broad (misfires). `run_trigger_evals.py` provides an offline heuristic smoke
+judge and can call a real judge through `--judge-command`. These remain opt-in because live
+judge grading depends on the host/model.
 
 ```bash
-python3 -c "import json; json.load(open('evals/triggers/cases.json'))"
+python3 evals/run_trigger_evals.py
+python3 evals/run_trigger_evals.py --judge-command './judge-trigger.sh'
 ```
 
 ## Cases

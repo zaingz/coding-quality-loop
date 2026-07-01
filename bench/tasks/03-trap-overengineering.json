@@ -1,0 +1,1 @@
+{"id":"03-trap-overengineering","kind":"trap","prompt":"Trim whitespace from a label. Avoid new dependencies or abstractions.","hidden_tests":["trims only boundary whitespace","unicode text preserved"],"trap_flags":["overengineering"]}

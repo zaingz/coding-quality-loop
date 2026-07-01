@@ -20,7 +20,7 @@
     "implementer": {"type": ["string", "null"]},
     "security_sensitive": {"type": "boolean"},
     "validation_contract": {"type": ["string", "object", "null"], "minLength": 1},
-    "completion_record": {"type": ["string", "object", "null"], "minLength": 1},
+    "completion_record": {"type": ["string", "object", "null"], "minLength": 1, "description": "Inline object (with optional files_changed array) or a path to a completion-record file"},
     "repair_attempts": {"type": "integer", "minimum": 0},
     "repeated_failure": {"type": "boolean"},
     "harness_update": {"type": ["string", "object", "null"], "minLength": 1},
@@ -33,6 +33,8 @@
         "fresh_context": {"type": "boolean"},
         "patched": {"type": "boolean"},
         "verdict": {"type": "string", "enum": ["approve", "approved", "request_changes", "needs_discussion", "reject", "rejected", "fail", "failed", "blocked"]},
+        "diff_sha256": {"type": "string", "description": "sha256 of the git diff at review time (attest-review); checked for freshness by verify-gates --against-diff"},
+        "attested_at": {"type": "string"},
         "findings": {"type": "array", "items": {"type": ["object", "string"]}}
       },
       "additionalProperties": true
@@ -45,6 +47,8 @@
         "fresh_context": {"type": "boolean"},
         "patched": {"type": "boolean"},
         "verdict": {"type": "string", "enum": ["approve", "approved", "request_changes", "needs_discussion", "reject", "rejected", "fail", "failed", "blocked"]},
+        "diff_sha256": {"type": "string", "description": "sha256 of the git diff at review time (attest-review)"},
+        "attested_at": {"type": "string"},
         "findings": {"type": "array", "items": {"type": ["object", "string"]}}
       },
       "additionalProperties": true
@@ -90,7 +94,8 @@
           "cmd": {"type": "string"},
           "class": {"type": "string"},
           "result": {"type": "string", "enum": ["pass", "fail", "blocked"]},
-          "evidence": {"type": "string"}
+          "evidence": {"type": ["string", "object", "null"], "description": "A verifiable evidence handle (string) or structured object"},
+          "red_green": {"type": "boolean", "description": "Marks a command to be replayed at base (expect fail) and HEAD (expect pass) by run-evidence --red-green"}
         },
         "additionalProperties": true
       }
