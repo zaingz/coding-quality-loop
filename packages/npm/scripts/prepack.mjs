@@ -1,0 +1,99 @@
+#!/usr/bin/env node
+// Vendor the skill files into dist/skill/ so the published tarball is
+// self-contained. Runs automatically before `npm pack` / `npm publish`.
+//
+// Copies only what the CLI needs at runtime: scripts/, hosts/, assets/,
+// examples/{claude-code,codex,cursor,droid,pi,standalone}/, .claude/,
+// SKILL.md, README.md, LICENSE, evals/ (opt-in for `--eval` future work).
+import { cp, mkdir, readdir, rm } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = resolve(HERE, "..");
+const REPO_ROOT = resolve(PACKAGE_ROOT, "..", "..");
+const DIST = join(PACKAGE_ROOT, "dist", "skill");
+
+// Paths are relative to REPO_ROOT. Everything else is left behind.
+const INCLUDE = [
+  "scripts",
+  "hosts",
+  "assets",
+  "references",
+  ".claude",
+  "SKILL.md",
+  "LICENSE",
+  "examples/claude-code",
+  "examples/codex",
+  "examples/cursor",
+  "examples/droid",
+  "examples/pi",
+  "examples/standalone",
+  "examples/walkthrough",
+  "evals",
+];
+
+async function copyIfExists(rel) {
+  const src = join(REPO_ROOT, rel);
+  const dest = join(DIST, rel);
+  try {
+    await cp(src, dest, { recursive: true, force: true });
+    return true;
+  } catch (err) {
+    if (err.code === "ENOENT") return false;
+    throw err;
+  }
+}
+
+// Remove Python bytecode caches. `.npmignore` is ignored when `files` is set
+// in package.json, so we strip these directly instead of relying on filters.
+async function stripPyCache(root) {
+  let stripped = 0;
+  async function walk(dir) {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "__pycache__") {
+          await rm(full, { recursive: true, force: true });
+          stripped++;
+        } else {
+          await walk(full);
+        }
+      } else if (entry.name.endsWith(".pyc")) {
+        await rm(full, { force: true });
+        stripped++;
+      }
+    }
+  }
+  await walk(root);
+  return stripped;
+}
+
+async function main() {
+  await rm(DIST, { recursive: true, force: true });
+  await mkdir(DIST, { recursive: true });
+  const copied = [];
+  const missing = [];
+  for (const rel of INCLUDE) {
+    if (await copyIfExists(rel)) copied.push(rel);
+    else missing.push(rel);
+  }
+  const stripped = await stripPyCache(DIST);
+  console.log(`prepack: copied ${copied.length} paths -> dist/skill/ (stripped ${stripped} pycache entries)`);
+  copied.forEach((p) => console.log(`  ok  ${p}`));
+  if (missing.length > 0) {
+    console.warn(`prepack: ${missing.length} paths not found (ok for optional):`);
+    missing.forEach((p) => console.warn(`  --  ${p}`));
+  }
+}
+
+main().catch((err) => {
+  console.error("prepack failed:", err);
+  process.exit(1);
+});

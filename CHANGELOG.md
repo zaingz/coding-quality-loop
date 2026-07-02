@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+One-command `npx` installer.
+
+- **`npx coding-quality-loop init`** — new zero-prerequisite installer under `packages/npm/`. Auto-detects host (Claude Code, Codex, Cursor, Droid, Pi) by scanning the target directory, invokes bundled `scripts/install.py` under the hood, and prints tailored next-steps. Interactive by default; `--yes` for CI, `--dry-run` for preview, `--host` to skip detection. Also ships `npx cql init` alias, `add <host>` for incremental wiring, and `check` for post-install verification.
+- **Real skill install for Claude Code + Pi** — `install.py --host claude-code` copies `SKILL.md`, `references/`, `assets/`, and `scripts/` into `.claude/skills/coding-quality-loop/`. `install.py --host pi` does the equivalent under `.pi/skills/coding-quality-loop/`. Previously only settings/hooks landed and the skill was not discoverable by the host.
+- **Zero-dependency Node package** — `node:*` built-ins only, ~1 s cold start, ~114 kB tarball. Node 18+.
+- **`scripts/install.py` extensions** — new `--host cursor` and `--host pi` (previously required manual `cp -r`), new `--json` flag for machine-parseable output that the Node CLI consumes, `install_runtime()` now also copies `assets/quality-loop.config.example.json` so `setup-models` works immediately after install, and `install_git()` now resolves Python via `sys.executable` → `python3` → `python` (fixes Windows hosts that only ship `python.exe`).
+- **CI** — `.github/workflows/npm-smoke.yml` runs `cql init --dry-run --yes` on Ubuntu + macOS + Windows across Node 18/20/22 for every host; `.github/workflows/publish-npm.yml` publishes to npm on release tag with tag/version check (also enforced for manual dispatch non-dry-runs), `NPM_TOKEN` preflight, and a real `npm pack` + tarball-install smoke step. `packages/npm/test/` has `node --test` coverage for the argv parser, host detection, and CLI end-to-end (22 tests).
+
 ## 2.3.0
 
 Config-based model routing (`setup-models`).

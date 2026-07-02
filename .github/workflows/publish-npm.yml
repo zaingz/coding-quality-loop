@@ -1,0 +1,110 @@
+name: publish npm
+
+# Publishes packages/npm/ to npm when a GitHub release is created.
+# Requires:
+#   - Repo secret NPM_TOKEN (an "Automation" token from npmjs.com)
+#   - The release tag must match the package.json version (e.g. v2.3.0 -> 2.3.0)
+#   - For manual `workflow_dispatch` non-dry-run publishes, the workflow must be
+#     dispatched from a `v*` tag ref whose value matches package.json.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run in dry-run mode (no publish)"
+        required: false
+        default: "true"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: packages/npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      # Deterministic gate: any non-dry-run publish must be dispatched from a
+      # `v<version>` tag whose value matches package.json. Applies to both
+      # release-triggered runs and manual workflow_dispatch when dry_run=false.
+      - name: Verify tag matches package.json version
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != 'true')
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_REF_NAME}"
+          case "$ref" in
+            v*) ;;
+            *)
+              echo "::error::Non-dry-run publish must be dispatched from a v* tag ref (got: $ref)."
+              exit 1
+              ;;
+          esac
+          tag="${ref#v}"
+          pkg_version="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg_version" ]; then
+            echo "::error::Tag ($tag) does not match package.json version ($pkg_version)"
+            exit 1
+          fi
+          echo "Publishing version $pkg_version from tag $ref"
+
+      # Fail loudly and early if NPM_TOKEN is missing, before we do any packing
+      # work. Otherwise `npm publish` fails cryptically at the very end.
+      - name: NPM_TOKEN preflight
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != 'true')
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${NPM_TOKEN:-}" ]; then
+            echo "::error::Repository secret NPM_TOKEN is not set. Add an npm Automation token before publishing."
+            exit 1
+          fi
+          echo "NPM_TOKEN is present (length: ${#NPM_TOKEN})."
+
+      - name: Prepack
+        run: node scripts/prepack.mjs
+
+      # Build the exact tarball we would publish, install it into a scratch
+      # project, and exercise the installed CLI. This proves prepack + `files`
+      # produce a working package, not just that local source files run.
+      - name: Smoke test the built tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          tarball="$(npm pack --silent | tail -n 1)"
+          echo "Built tarball: $tarball"
+          tarball_abs="$(pwd)/$tarball"
+
+          scratch="$(mktemp -d)"
+          cd "$scratch"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund "$tarball_abs"
+
+          echo "--- installed CLI: --version ---"
+          npx --no-install coding-quality-loop --version
+          echo "--- installed CLI: --help ---"
+          npx --no-install coding-quality-loop --help >/dev/null
+          echo "--- installed CLI: init --dry-run --yes --host claude-code ---"
+          target="$(mktemp -d)"
+          npx --no-install coding-quality-loop init --dry-run --yes --host claude-code --target "$target"
+
+      - name: Publish (dry-run)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true'
+        run: npm publish --dry-run --access public
+
+      - name: Publish
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != 'true')
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance

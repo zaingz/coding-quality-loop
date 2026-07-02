@@ -7,6 +7,7 @@
 **Make your AI coding agent ship changes you can trust, not giant diffs you have to babysit.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-111111?style=flat-square)](LICENSE)
+[![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![version](https://img.shields.io/badge/version-2.3.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
@@ -76,9 +77,17 @@ The state record in the walkthrough passes the same [`verify-gates`](scripts/qua
 
 ## Quickstart: 60 seconds
 
-No install is required. Pick the lightest adoption path that fits the task.
+One command auto-detects your host, copies the skill, and wires the hooks.
 
-<details open>
+```bash
+npx coding-quality-loop init
+```
+
+Requires Node 18+ and Python 3. Interactive by default; add `--yes` for CI. Preview with `--dry-run`. Skip detection with `--host claude-code|codex|cursor|droid|pi`. See [`packages/npm/`](packages/npm/) for the full CLI.
+
+Prefer manual? Any of the paths below still work.
+
+<details>
 <summary><strong>A. Drop-in prompt</strong></summary>
 
 ```bash
@@ -319,6 +328,7 @@ Pick your host. Full copy-paste files live in [`examples/`](examples/); every pa
 
 | Host | Install | Invoke |
 |---|---|---|
+| **Any host** (auto-detect) | `npx coding-quality-loop init` | follow the printed "Next steps" for your host |
 | **Claude Code** (skill) | `cp -r . .claude/skills/coding-quality-loop` (project) or `~/.claude/skills/coding-quality-loop` (user) | `claude "Use the coding-quality-loop skill to fix the failing test and open a PR."` |
 | **Claude Code** (instruction-only) | `cp examples/claude-code/CLAUDE.md ./CLAUDE.md` (or `/init`, then paste the loop) | `claude "Follow the Coding Quality Loop to fix the failing test."` |
 | **Codex** | `cp examples/codex/AGENTS.md ./AGENTS.md` | `codex "Follow the Coding Quality Loop in AGENTS.md to fix the bug."` |
@@ -327,7 +337,7 @@ Pick your host. Full copy-paste files live in [`examples/`](examples/); every pa
 | **Droid (Factory)** | `cp examples/droid/.factory/droids/*.md .factory/droids/` (role droids) + skill in repo root | `droid exec "Follow the Coding Quality Loop in SKILL.md to fix the bug and summarize verification evidence."` |
 | **Standalone / custom** | route each step from `assets/quality-loop.config.example.json` | follow [`examples/standalone/`](examples/standalone/run-quality-loop.md) |
 
-> **Honesty note:** this repo is **not** yet on a plugin marketplace. The copy-to-folder paths above work today; `gh skill install` works once a maintainer publishes a release. See [Release & pinning](#release--pinning).
+> **Honesty note:** the `npx` installer above ships from the [`coding-quality-loop`](https://www.npmjs.com/package/coding-quality-loop) package (source: [`packages/npm/`](packages/npm/)). It is a thin UX wrapper around [`scripts/install.py`](scripts/install.py), so both paths land the exact same files. This repo is **not** yet on a plugin marketplace; `gh skill install` works once a maintainer publishes a release. See [Release & pinning](#release--pinning).
 
 <details>
 <summary id="claude-code"><strong>Claude Code install</strong></summary>

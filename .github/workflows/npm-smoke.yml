@@ -1,0 +1,58 @@
+name: npm smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/npm/**"
+      - "scripts/install.py"
+      - ".github/workflows/npm-smoke.yml"
+  pull_request:
+    paths:
+      - "packages/npm/**"
+      - "scripts/install.py"
+      - ".github/workflows/npm-smoke.yml"
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [18, 20, 22]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: packages/npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Prepack (vendors skill into dist/skill)
+        run: node scripts/prepack.mjs
+      - name: cql --version
+        run: node bin/cql.mjs --version
+      - name: cql --help
+        run: node bin/cql.mjs --help
+      - name: cql init --dry-run --yes for each host
+        shell: bash
+        run: |
+          set -euo pipefail
+          for host in claude-code codex cursor droid pi; do
+            echo "--- host: $host ---"
+            target="$(mktemp -d)"
+            node bin/cql.mjs init --dry-run --yes --host "$host" --target "$target"
+          done
+      - name: cql init real (claude-code) + cql check
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$(mktemp -d)"
+          node bin/cql.mjs init --yes --host claude-code --target "$target"
+          node bin/cql.mjs check --target "$target"
+      - name: npm pack (verify tarball builds cleanly)
+        run: npm pack --dry-run
