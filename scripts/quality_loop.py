@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math as _math
 import os
 import re
 import subprocess
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import quality_loop_memory as qlmem
+import quality_loop_honcho as qlhoncho
 import quality_loop_reality as qlreal
 
 
@@ -82,6 +84,13 @@ SECRET_PATTERNS = [
     re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
     re.compile(r"sk-[A-Za-z0-9]{20,}"),
     re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"),
+    # OpenAI hyphenated key families (sk-live-*, sk-proj-*, sk-test-*, sk-svcacct-*).
+    # The pre-existing `sk-[A-Za-z0-9]{20,}` misses these because the char class
+    # excludes hyphens; without this line an `sk-live-<hex>` slips through the
+    # redactor and can be persisted verbatim into the lessons memory (proven
+    # in review). Ordering matters: keep this above the shorter sk- fallback
+    # only if you tighten that pattern later; the union of both is safe.
+    re.compile(r"sk-(?:live|proj|test|svcacct)-[A-Za-z0-9_-]{16,}"),
     # Unquoted assignment - the most common .env/shell/YAML leak shape - with a
     # placeholder guard that skips only obvious stubs (REPLACE_ME / <...> / ${...} /
     # example / dummy). It anchors on exact stub words, NOT a 'your_' prefix, so a
@@ -519,10 +528,79 @@ def check_record(args: argparse.Namespace) -> int:
     return 1 if warnings and args.strict else 0
 
 
+# Long, high-entropy tokens (>= this many chars) that don't match any regex are
+# still likely secrets. 28 is chosen to sit above realistic identifiers/hashes
+# users write in prose but below typical secret lengths (32+ hex, 40+ base64).
+_ENTROPY_TOKEN_MIN_LEN = 28
+_ENTROPY_MIN_BITS = 3.5  # empirical: english words ~3.0, base64/hex secrets ~4.5+
+# Split on whitespace, quotes, and common structural punctuation so we score the
+# token, not the surrounding syntax. Hyphens/underscores stay inside a token
+# because real secrets embed them (e.g. `sk-live-...`, `AKIA...`).
+_TOKEN_SPLIT_RE = re.compile(r"[\s\"'`,;<>()\[\]{}]+")
+# Recognisably non-secret shapes we should not redact even at high entropy:
+# hex-only git SHAs, uuids, semver-ish dotted paths, and file paths.
+_HEX_ONLY_RE = re.compile(r"^[0-9a-fA-F]+$")
+_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _shannon_bits(s: str) -> float:
+    if not s:
+        return 0.0
+    counts: dict[str, int] = {}
+    for ch in s:
+        counts[ch] = counts.get(ch, 0) + 1
+    length = len(s)
+    return -sum((c / length) * _math.log2(c / length) for c in counts.values())
+
+
+def _looks_like_identifier(token: str) -> bool:
+    """Return True for tokens that are structurally not secrets even if long.
+
+    Keeps false positives out of the entropy scan: git SHAs (hex only), UUIDs,
+    and dotted paths (module.paths, files/with/slashes). Real secret shapes
+    (sk-live-hex, base64 tokens, JWTs) mix character classes and don't match.
+    """
+    if _HEX_ONLY_RE.match(token) or _UUID_RE.match(token):
+        return True
+    if "/" in token or ("." in token and "-" not in token and "_" not in token):
+        return True
+    return False
+
+
+def _entropy_redact(text: str) -> str:
+    """Redact long, high-entropy tokens the regex list missed.
+
+    Complementary to SECRET_PATTERNS, not a replacement. Regexes catch known
+    prefixed shapes (ghp_, AKIA, sk-live-...); this pass catches obfuscated or
+    novel keys that still exhibit the length + entropy signature of a secret.
+    """
+    def _swap(tok: str) -> str:
+        if len(tok) < _ENTROPY_TOKEN_MIN_LEN:
+            return tok
+        if _looks_like_identifier(tok):
+            return tok
+        return "[REDACTED]" if _shannon_bits(tok) >= _ENTROPY_MIN_BITS else tok
+
+    # We must preserve the exact separators to keep prose intact, so walk with a
+    # finditer-driven rebuild instead of a naive join.
+    out: list[str] = []
+    idx = 0
+    for m in _TOKEN_SPLIT_RE.finditer(text):
+        out.append(_swap(text[idx:m.start()]))
+        out.append(m.group(0))
+        idx = m.end()
+    out.append(_swap(text[idx:]))
+    return "".join(out)
+
+
 def redact(text: str) -> str:
     redacted = text
     for pattern in SECRET_PATTERNS:
         redacted = pattern.sub("[REDACTED]", redacted)
+    # Second pass: entropy scan for obfuscated / unknown-shape secrets. Kept
+    # after the regex pass so labeled shapes get the recognisable redaction
+    # marker before the generic entropy sweep runs.
+    redacted = _entropy_redact(redacted)
     return redacted
 
 
@@ -1104,7 +1182,8 @@ def main() -> int:
     p_mrecall.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_mrecall.add_argument("--json", action="store_true")
     p_mrecall.add_argument("--no-bump", action="store_true", help="Read-only: do not increment hit counts or rewrite the store")
-    p_mrecall.set_defaults(func=qlmem.cmd_recall)
+    p_mrecall.add_argument("--config", help="Read memory backend selection (files|honcho) from this config file")
+    p_mrecall.set_defaults(func=qlhoncho.cmd_recall_honcho)
 
     p_mcommit = sub.add_parser("memory-commit", help="Distill an agent record into durable lessons")
     p_mcommit.add_argument("record")
@@ -1112,7 +1191,8 @@ def main() -> int:
     p_mcommit.add_argument("--kind", choices=sorted(qlmem.LESSON_KINDS), default="gotcha", help="Kind for an explicit --lesson (distillation derives the kind otherwise)")
     p_mcommit.add_argument("--scope", help="Override scope glob, e.g. 'src/payments/**'")
     p_mcommit.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
-    p_mcommit.set_defaults(func=qlmem.cmd_commit)
+    p_mcommit.add_argument("--config", help="Also mirror committed lessons to Honcho if configured")
+    p_mcommit.set_defaults(func=qlhoncho.cmd_commit_honcho)
 
     p_mprune = sub.add_parser("memory-prune", help="Dedup + cap the lessons ledger")
     p_mprune.add_argument("--max", type=int, default=200)
