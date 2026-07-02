@@ -10,7 +10,7 @@
 [![version](https://img.shields.io/badge/version-2.3.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-9%2B31%2B27%2B15%2B9%2B5%2B10%2B7-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-124%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-111111?style=flat-square)](#install--use-matrix)
@@ -20,7 +20,7 @@
 [![Droid](https://img.shields.io/badge/Droid-compatible-111111?style=flat-square)](#install--use-matrix)
 [![Anthropic Agent Skills](https://img.shields.io/badge/Anthropic%20Agent%20Skills-compatible-111111?style=flat-square)](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills)
 
-[Quickstart](#quickstart-60-seconds) · [The loop](#the-loop-visualized) · [Install](#install--use-matrix) · [Proof](#proof-you-can-run) · [FAQ](#faq) · [Compare](#how-it-compares)
+[Quickstart](#quickstart-60-seconds) · [The loop](#the-loop-visualized) · [Install](#install--use-matrix) · [Proof](#proof-you-can-run) · [FAQ](#faq) · [Compare](#how-it-compares) · [Docs](docs/)
 
 <br>
 
@@ -168,11 +168,25 @@ flowchart LR
 
 The helper script, config, and state record use stable short machine names: `INTAKE`, `EXPLORE`, `PLAN`, `MINIMALITY_GATE`, `IMPLEMENT_SLICE`, `VERIFY`, `REVIEW`, `PACKAGE`, and `RETROSPECT`. The validation contract spans `INTAKE` plus `PLAN`. Across tasks, durable lessons can persist in optional [per-project memory](#project-memory).
 
+<div align="center">
+
+<img src="docs/images/architecture.png" alt="Architecture — Agent Skill layer, Executable Gates layer, Multi-Agent Roles layer" width="900">
+
+</div>
+
+See [`docs/architecture.md`](docs/architecture.md) for the three-layer breakdown, and [`docs/quickstart.md`](docs/quickstart.md) for the three adoption paths.
+
 ---
 
 ## Ceremony scales with risk
 
 A tiny task must **not** be forced through mission ceremony. A medium task must **not** ship without a validation contract and an independent review. ([Task classes](SKILL.md))
+
+<div align="center">
+
+<img src="docs/images/ceremony-scales.png" alt="Ceremony scales with risk — tiny, small, medium, mission" width="820">
+
+</div>
 
 | Class | Looks like | Process |
 |---|---|---|
@@ -201,6 +215,12 @@ The runtime entry points are `verify-gates`, `verify-gates --against-diff`, `che
 ---
 
 ## Project memory
+
+<div align="center">
+
+<img src="docs/images/memory-flow.png" alt="Project memory — recall on intake, commit on retrospective, budget-capped and redacted" width="820">
+
+</div>
 
 Most agents relearn the same lesson every session. The loop can keep a tiny per-project ledger of **distilled lessons**: failure modes, conventions like "no new dependencies here", and gotchas like "this module broke twice". New in v1.4.0.
 
@@ -235,6 +255,7 @@ python3 evals/run_hook_evals.py                                                #
 python3 evals/run_orchestrator_evals.py                                        # 8. driven mode fake-host evals
 python3 evals/run_trigger_evals.py                                             # 9. activation smoke
 python3 evals/run_honcho_evals.py                                              # 10. honcho memory adapter
+python3 evals/run_routing_evals.py                                             # 11. model routing (v2.3)
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json
 ```
 
@@ -459,6 +480,12 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
 
 ## Why agentic-first
 
+<div align="center">
+
+<img src="docs/images/roles.png" alt="Multi-agent role separation — implementer, reviewer, deterministic policy hooks" width="820">
+
+</div>
+
 One model grading its own work is the dominant failure mode. The skill splits the loop into role-based profiles: `orchestrator`, `context_mapper`, `implementer`, `validator`, `simplicity_reviewer`, `security_reviewer`, `policy_guard`. Map each role to the best available model or tool profile. Defaults stay simple: **one implementer + one independent validator + deterministic policy hooks.** Add specialists only when risk justifies the coordination cost; over-parallelization is an anti-pattern. ([Orchestration](references/agentic-orchestration.md))
 
 `scripts/quality_loop_run.py` is the batch/mission orchestrator. It owns the state machine, verification, review prompt isolation, package gate, and local redacted journal under `.quality-loop/runs/<id>/`. It uses `scripts/quality_loop_hosts.py` adapters: `fake` for offline tests and fixture replay, `manual` for human relay, and `claude` / `codex` for subprocess-backed host runs when available. VERIFY is orchestrator-native; REVIEW receives only contract + diff + evidence, not the implementer transcript. PACKAGE writes a completion record and re-runs `verify-gates`. High-risk work exits escalated before PACKAGE.
@@ -470,6 +497,8 @@ One model grading its own work is the dominant failure mode. The skill splits th
 Other strong skills make different bets, and they are worth your time: [**superpowers**](https://github.com/obra/superpowers) leans into subagent-driven TDD and a two-stage review; [**addyosmani/agent-skills**](https://github.com/addyosmani/agent-skills) ships a broad 24-skill SDLC suite; [**ponytail**](https://github.com/DietrichGebert/ponytail) is a focused minimality ladder.
 
 The Coding Quality Loop's bet is narrower: **executable gates plus candor.** It is one dependency-free package where the non-negotiables are checked by a script you can read and run, and where the README tells you exactly what the script does *not* check. It is positioned against two failure modes, not against other skills: instruction-only prompts that **drift**, and full autonomy that produces **unreviewable diffs**.
+
+For a longer, per-feature comparison (with explicit non-goals and a migration path), see [`docs/comparison.md`](docs/comparison.md).
 
 ---
 
@@ -556,6 +585,19 @@ agent improvement loop (the harness is the unit of improvement), Cognition's mul
 agent harness (progress file + incremental sessions, Nov 2025).
 
 </details>
+
+---
+
+## Community & contributing
+
+- **Docs index** — [`docs/`](docs/) has the quickstart, architecture, comparison, memory guide, and launch kit.
+- **Contribute** — [`CONTRIBUTING.md`](CONTRIBUTING.md) explains the PR bar (a task contract, an independent reviewer, and green evals).
+- **Roadmap** — [`ROADMAP.md`](ROADMAP.md) lists what is next, ordered by decreasing certainty.
+- **Security** — [`SECURITY.md`](SECURITY.md) covers the private disclosure path.
+- **Issues & discussions** — file bugs, real-task failure reports, or ideas at [github.com/zaingz/coding-quality-loop/issues](https://github.com/zaingz/coding-quality-loop/issues).
+- **Share it** — short-form copy for HN / Reddit / X / LinkedIn lives in [`docs/launch-kit.md`](docs/launch-kit.md).
+
+The best contribution, short of a PR, is using this on a real task and telling us where the docs lied, the gates missed something, or the ceremony felt wrong. Open an issue.
 
 ---
 
