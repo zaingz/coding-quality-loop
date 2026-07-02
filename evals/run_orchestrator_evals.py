@@ -99,8 +99,10 @@ def case_failed_verify_blocks_review(tmp: Path) -> tuple[bool, str]:
     code, out, err = run_cli(str(ROOT / "scripts" / "quality_loop_run.py"), "--cwd", str(repo), "--record", "agent-record.json", "--host", "fake", "--fixture", str(fx), cwd=ROOT)
     journal = next((repo / ".quality-loop" / "runs").glob("*/journal.jsonl"))
     text = journal.read_text()
-    ok = code == qlr.EXIT_GATES and '"step": "REVIEW"' not in text
-    return ok, f"exit={code}; review_in_journal={'\"step\": \"REVIEW\"' in text}; err={err.strip()[:120]!r}"
+    review_marker = '"step": "REVIEW"'
+    review_in_journal = review_marker in text
+    ok = code == qlr.EXIT_GATES and not review_in_journal
+    return ok, f"exit={code}; review_in_journal={review_in_journal}; err={err.strip()[:120]!r}"
 
 
 def case_tiny_bypasses_review(tmp: Path) -> tuple[bool, str]:
