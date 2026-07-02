@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 2.3.1
 
-One-command `npx` installer.
+One-command `npx` installer (first npm-installable release).
 
 - **`npx coding-quality-loop init`** — new zero-prerequisite installer under `packages/npm/`. Auto-detects host (Claude Code, Codex, Cursor, Droid, Pi) by scanning the target directory, invokes bundled `scripts/install.py` under the hood, and prints tailored next-steps. Interactive by default; `--yes` for CI, `--dry-run` for preview, `--host` to skip detection. Also ships `npx cql init` alias, `add <host>` for incremental wiring, and `check` for post-install verification.
 - **Real skill install for Claude Code + Pi** — `install.py --host claude-code` copies `SKILL.md`, `references/`, `assets/`, and `scripts/` into `.claude/skills/coding-quality-loop/`. `install.py --host pi` does the equivalent under `.pi/skills/coding-quality-loop/`. Previously only settings/hooks landed and the skill was not discoverable by the host.
