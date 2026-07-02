@@ -7,7 +7,7 @@
 **Make your AI coding agent ship changes you can trust, not giant diffs you have to babysit.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-111111?style=flat-square)](LICENSE)
-[![version](https://img.shields.io/badge/version-2.2.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.3.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
 [![offline gates](https://img.shields.io/badge/offline%20gates-9%2B31%2B27%2B15%2B9%2B5%2B10%2B7-111111?style=flat-square)](evals/)
@@ -238,7 +238,7 @@ python3 evals/run_honcho_evals.py                                              #
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json
 ```
 
-Current result: **9/9 static** + **31/31 behavioral** + **27/27 memory** + **15/15 reality** + **9/9 hook** + **5/5 orchestrator** + **10/10 trigger** + **7/7 honcho** cases pass, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
+Current result: **9/9 static** + **31/31 behavioral** + **27/27 memory** + **15/15 reality** + **9/9 hook** + **5/5 orchestrator** + **10/10 trigger** + **7/7 honcho** + **11/11 routing** cases pass, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -392,6 +392,8 @@ Release 1.6 adds first-class host wiring without making any host mandatory:
 - `action.yml` and `hosts/github/quality-loop-example.yml` provide CI wiring.
 - `scripts/install.py` installs host wiring idempotently and prints what is enforced vs advisory.
 
+**Config-based model routing** — the `model_routing` section in `quality-loop.config.json` maps each model class to a real model per host. `python3 scripts/quality_loop.py setup-models --host <host>` applies it: it rewrites `model:` frontmatter for Claude Code (`.claude/agents/*.md`) and Droid (`.factory/droids/*.md`), or prints the Codex `config.toml` / Pi `/model` settings to apply. `brief` shows the active routing and flags drift. Agent files ship with `model: inherit` so they are host-neutral at rest. See [references/agentic-orchestration.md](references/agentic-orchestration.md#config-driven-model-setup).
+
 A repo can opt into required edit-before-plan blocking with `.quality-loop/config.json`:
 
 ```json
@@ -520,7 +522,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   provenance is not hand-faked.
 - **Skills Hub publish checklist.** Before publishing to the
   [agentskills.io](https://agentskills.io) Skills Hub:
-  1. Tag a release (`git tag v2.2.0 && git push --tags`).
+  1. Tag a release (`git tag v2.3.0 && git push --tags`).
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`

@@ -22,6 +22,7 @@ from typing import Any
 import quality_loop_memory as qlmem
 import quality_loop_honcho as qlhoncho
 import quality_loop_reality as qlreal
+import quality_loop_routing as qlroute
 
 
 RISK_TIERS = {"low", "medium", "high"}
@@ -1075,6 +1076,10 @@ def check_config(args: argparse.Namespace) -> int:
     if memory is not None:
         errors.extend(qlmem.validate_memory_config(memory))
 
+    routing = config.get("model_routing")
+    if routing is not None:
+        errors.extend(qlroute.validate_model_routing(routing))
+
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
@@ -1211,6 +1216,10 @@ def cmd_brief(args: argparse.Namespace) -> int:
     else:
         sections.append("## Progress\nno progress.md found")
 
+    config_path = getattr(args, "config", None)
+    routing_info = qlroute.brief_routing_info(cwd, Path(config_path) if config_path else None)
+    sections.append("## Model routing\n" + "\n".join(routing_info["lines"]))
+
     next_hint = "Run the loop on the next task, or resume an incomplete one."
     if record_summary and "error" not in record_summary and record_summary.get("status") not in ("done", "?"):
         next_hint = f"Resume incomplete task: {record_summary.get('goal', '?')} (status: {record_summary.get('status', '?')})"
@@ -1225,6 +1234,7 @@ def cmd_brief(args: argparse.Namespace) -> int:
             "lessons_recalled": len(selected),
             "lessons_digest": lessons_text,
             "progress": progress,
+            "model_routing": routing_info,
             "next_step": next_hint,
         }, indent=2, default=str))
     else:
@@ -1380,8 +1390,17 @@ def main() -> int:
     p_brief.add_argument("--budget", type=int, default=800, help="Char budget for lesson recall (default 800)")
     p_brief.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_brief.add_argument("--cwd", default=".", help="Working directory (default .)")
+    p_brief.add_argument("--config", help="Path to quality-loop.config.json for model routing (auto-detected in cwd if omitted)")
     p_brief.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_brief.set_defaults(func=cmd_brief)
+
+    p_setup = sub.add_parser("setup-models", help="Apply model_routing config to host agent files (claude-code/droid) or print settings (codex/pi)")
+    p_setup.add_argument("--config", help="Path to quality-loop.config.json (auto-detected in target if omitted)")
+    p_setup.add_argument("--host", choices=sorted(qlroute.SUPPORTED_HOSTS), help="Override model_routing.host")
+    p_setup.add_argument("--target", default=".", help="Project root (default .)")
+    p_setup.add_argument("--dry-run", action="store_true", help="Show what would change without writing files")
+    p_setup.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    p_setup.set_defaults(func=qlroute.cmd_setup_models)
 
     args = parser.parse_args()
     return args.func(args)

@@ -30,6 +30,17 @@ Codex skill directory (`SKILL.md` + scripts/references) invoked with `$coding-qu
 `~/.codex/AGENTS.md`, then project, then nested overrides
 (https://developers.openai.com/codex/guides/agents-md).
 
+To wire per-role models and reasoning levels from your config, fill the
+`model_routing` section in `quality-loop.config.json` and run:
+
+```bash
+python3 scripts/quality_loop.py setup-models --host codex
+```
+
+This prints the `model`, `model_reasoning_effort`, and per-role `config_file`
+layer TOML to add to `~/.codex/config.toml` (or a trusted `.codex/config.toml`).
+No files are written; copy the output into your Codex config.
+
 ## Optional Codex hooks
 
 Copy `hosts/codex/hooks.json` to `.codex/hooks.json` or run:

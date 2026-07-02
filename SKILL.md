@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "2.2.0"
+  version: "2.3.0"
 ---
 
 # Coding Quality Loop
@@ -106,7 +106,7 @@ Each lifecycle step can run as a different agent, model, or tool profile, mapped
 | `security_reviewer` | auth, permissions, secrets, payments, PII, migrations, upload/download, network, shell, dependency changes | **only at risk boundaries** |
 | `policy_guard` | deterministic safety blocks | a hook/command guard, **never a model** |
 
-Detailed routing, model-selection heuristics, mission topology, and per-platform mapping are in `references/agentic-orchestration.md`. Machine-readable routing is `assets/quality-loop.config.example.json` (validate with `python3 scripts/quality_loop.py check-config ...`).
+Detailed routing, model-selection heuristics, mission topology, and per-platform mapping are in `references/agentic-orchestration.md`. Machine-readable routing is `assets/quality-loop.config.example.json` (validate with `python3 scripts/quality_loop.py check-config ...`). To wire real models per host, copy that file to `quality-loop.config.json`, fill the `model_routing` section, and run `python3 scripts/quality_loop.py setup-models` — it rewrites agent frontmatter for Claude Code/Droid or prints the Codex/Pi settings to apply. `brief` shows the active routing and flags drift.
 
 ## Core Instructions
 
@@ -359,6 +359,7 @@ Helper script commands (advisory; they do not replace human review, tests, scann
 - `scan-text --stdin` — secret-scan text from stdin (for host hook shims); exits non-zero on a finding.
 - `stats` — render the metrics table from local telemetry (`.quality-loop/telemetry.jsonl`), printing "not instrumented" for rows it can't compute. Telemetry is local-only, no network; opt out with `QUALITY_LOOP_NO_TELEMETRY=1`.
 - `check-config` — validate an agentic orchestration config.
+- `setup-models` — apply the `model_routing` config section to host agent files (Claude Code `.claude/agents/*.md`, Droid `.factory/droids/*.md`) by rewriting the `model:` frontmatter, or print the settings to apply (Codex `config.toml`, Pi `/model` commands). Run `brief` to see the active routing and detect drift.
 - `eval-cases` — run offline eval cases that pin task-class, risk-tier, required-gate, security-reviewer, completion-record, complexity-brake, and retrospective logic.
 
 ```bash
@@ -373,6 +374,8 @@ python3 scripts/quality_loop.py run-evidence agent-record.json --red-green --bas
 python3 scripts/quality_loop.py scan-text --stdin < suspicious-file.txt
 python3 scripts/quality_loop.py stats
 python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
+python3 scripts/quality_loop.py setup-models --config quality-loop.config.json --host claude-code
+python3 scripts/quality_loop.py setup-models --config quality-loop.config.json --host codex
 python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
 ```
 

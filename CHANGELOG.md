@@ -1,5 +1,46 @@
 # Changelog
 
+## 2.3.0
+
+Config-based model routing (`setup-models`).
+
+- **`model_routing` config section**: `assets/quality-loop.config.example.json` ships a
+  pre-filled `model_routing` block with per-host mappings (Claude Code, Droid, Codex, Pi).
+  Each model class (`cheap_fast`, `strong_reasoning`, `code_specialized`) maps to a real
+  model id and optional thinking level. Copy the example to `quality-loop.config.json` at
+  your repo root, set `host`, adjust your block, and run `setup-models`. Schema updated in
+  `assets/quality-loop.config.schema.json`; `check-config` validates the section when present
+  (backward compatible — configs without it still pass).
+- **`setup-models` CLI command**: `python3 scripts/quality_loop.py setup-models --host <host>`
+  applies the routing through each host's native mechanism. Claude Code and Droid get their
+  agent/droid `.md` frontmatter rewritten (`model:` + `effort:`/`reasoningEffort:`); Codex
+  prints the `config.toml` additions (`model`, `model_reasoning_effort`, per-role
+  `config_file` layers); Pi prints `/model` commands and thinking levels per role. Supports
+  `--dry-run`, `--json`, `--target`, and `--config`. Unsupported thinking levels for a host
+  are warned and omitted; the command exits non-zero so CI catches divergence.
+- **`brief` shows routing**: the session-start briefing now includes a `## Model routing`
+  section (host, per-class models/thinking, drift detection for file-based hosts). New
+  `--config` arg; auto-detects `quality-loop.config.json` in the working directory. The
+  `model_routing` key is added to `--json` output.
+- **Droid installer**: `install.py --host droid` copies the example role droids into
+  `.factory/droids/` (consistent with the existing Claude/Codex/git/github installers).
+  The wiring report now points to `setup-models` as the next step.
+- **Agent files switched to `model: inherit`**: the committed `.claude/agents/*.md` and
+  `examples/droid/.factory/droids/*.md` files now ship with `model: inherit` (host-neutral
+  at rest) instead of Claude-specific aliases. `setup-models` writes the configured
+  identifiers. This also fixes the Droid examples, which used `haiku`/`sonnet` aliases that
+  Droid's validator rejects as unknown model ids.
+- **New module `scripts/quality_loop_routing.py`**: stdlib-only routing resolver, frontmatter
+  rewriter (line-based, no YAML dependency), Codex/Pi renderers, validation, and the
+  `setup-models` command. Follows the `quality_loop_memory.py` separate-module pattern.
+- **Evals**: new `evals/run_routing_evals.py` — 11 offline cases pinning claude-code/droid
+  rewrites, idempotency, thinking write/remove, codex/pi print output, unsupported-thinking
+  exit code, check-config validation, brief routing+drift, and dry-run. Full suite:
+  9+31+27+15+9+5+10+7+11 = 124 cases.
+- **Docs**: `references/agentic-orchestration.md` gains a "Config-Driven Model Setup"
+  subsection with the per-host mechanism table and workflow. `examples/droid/README.md`,
+  `examples/pi/README.md`, `examples/codex/AGENTS.md`, `SKILL.md`, and `README.md` updated.
+
 ## 2.2.0
 
 Harness-agnostic multi-agent routing + longitudinal coding partner + memory hardening.

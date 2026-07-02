@@ -206,3 +206,45 @@ it as documentation. Validate it with:
 ```bash
 python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
 ```
+
+## Config-Driven Model Setup
+
+The config ships a `model_routing` section that maps each model class
+(`cheap_fast`, `strong_reasoning`, `code_specialized`) to a real model identifier and
+optional thinking level, per host. Fill it once and `setup-models` applies it through each
+host's native mechanism:
+
+| Host | Mechanism | What `setup-models` does |
+|---|---|---|
+| Claude Code | `.claude/agents/*.md` `model:` + `effort:` frontmatter | Rewrites agent files in place |
+| Droid | `.factory/droids/*.md` `model:` + `reasoningEffort:` frontmatter | Rewrites droid files in place |
+| Codex | `config.toml` `model` / `model_reasoning_effort` + per-role `config_file` layers | Prints the TOML to add (no file writes) |
+| Pi | `/model` commands + thinking levels | Prints the commands to run per role (no file writes) |
+
+Workflow:
+
+```bash
+# 1. Copy the example to your repo root and fill model_routing (set host, adjust your block)
+cp assets/quality-loop.config.example.json quality-loop.config.json
+
+# 2. Apply (rewrites frontmatter for claude-code/droid; prints for codex/pi)
+python3 scripts/quality_loop.py setup-models --host claude-code
+python3 scripts/quality_loop.py setup-models --host droid
+python3 scripts/quality_loop.py setup-models --host codex
+python3 scripts/quality_loop.py setup-models --host pi
+
+# 3. Check the active routing and drift at session start
+python3 scripts/quality_loop.py brief
+```
+
+Agent files ship with `model: inherit` so they are host-neutral at rest; `setup-models`
+writes the configured identifiers. For Codex, copy the printed TOML into `~/.codex/config.toml`
+(or a trusted `.codex/config.toml`) and create the per-role `config_file` layer files. For Pi,
+run the printed `/model` commands before each role; reviewers run in a fresh session so they
+do not inherit the implementer's context.
+
+Thinking levels are represented generically (`minimal`-`max`) and mapped per host. An
+unsupported level for a host is warned and omitted; `setup-models` exits non-zero so CI
+catches the divergence. `brief` detects drift between the config and the actual agent-file
+`model:` values for file-based hosts.
+

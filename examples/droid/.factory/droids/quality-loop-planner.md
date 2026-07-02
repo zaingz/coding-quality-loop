@@ -3,7 +3,7 @@ name: quality-loop-planner
 description: >-
   Quality Loop planner. Use during MINIMALITY_GATE and PLAN to design the
   smallest correct change with strong reasoning. Read-only.
-model: sonnet
+model: inherit
 ---
 You are the planner for the Coding Quality Loop. You are read-only: do not
 edit files.

@@ -92,6 +92,14 @@ def install_codex(target: Path, dry_run: bool) -> list[str]:
     return report
 
 
+def install_droid(target: Path, dry_run: bool) -> list[str]:
+    report = ["Droid: role droids copied to .factory/droids/ (model: inherit; run setup-models to wire models)"]
+    src_dir = ROOT / "examples" / "droid" / ".factory" / "droids"
+    for src in src_dir.glob("*.md"):
+        copy_file(src, target / ".factory" / "droids" / src.name, dry_run)
+    return report
+
+
 def install_git(target: Path, dry_run: bool) -> list[str]:
     report = ["Git: pre-commit blocks staged diff-audit findings; --no-verify bypass remains explicit"]
     if dry_run:
@@ -115,7 +123,7 @@ def install_github(target: Path, dry_run: bool) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Install Coding Quality Loop host wiring")
     parser.add_argument("--target", default=".", help="Project root to install into")
-    parser.add_argument("--host", choices=["all", "claude-code", "codex", "git", "github"], default="all")
+    parser.add_argument("--host", choices=["all", "claude-code", "codex", "droid", "git", "github"], default="all")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -123,12 +131,13 @@ def main() -> int:
     installers = {
         "claude-code": install_claude,
         "codex": install_codex,
+        "droid": install_droid,
         "git": install_git,
         "github": install_github,
     }
     selected = installers if args.host == "all" else {args.host: installers[args.host]}
     report: list[str] = []
-    if {"claude-code", "codex", "git"} & set(selected):
+    if {"claude-code", "codex", "droid", "git"} & set(selected):
         report.extend(install_runtime(target, args.dry_run))
     for installer in selected.values():
         report.extend(installer(target, args.dry_run))
@@ -136,6 +145,7 @@ def main() -> int:
     for line in report:
         print(f"- {line}")
     print("- Core gates remain scripts/quality_loop.py; host hooks are advisory unless your host config requires them.")
+    print("- Next: copy assets/quality-loop.config.example.json to quality-loop.config.json, set model_routing, run: python3 scripts/quality_loop.py setup-models")
     return 0
 
 

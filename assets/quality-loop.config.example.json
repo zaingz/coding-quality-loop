@@ -107,6 +107,38 @@
     "honcho": {"workspace_id": null, "peer_id": null, "session_template": null, "target_peer": null, "base_url": "http://localhost:8000"},
     "graphify": {"out_dir": "graphify-out", "token_budget": 2000}
   },
+  "model_routing": {
+    "description": "Per-model-class routing applied by setup-models. Copy this file to quality-loop.config.json at your repo root, set host to your platform, adjust your host's block, then run: python3 scripts/quality_loop.py setup-models. Hosts that use frontmatter (claude-code, droid) get their agent .md files rewritten; codex and pi print the settings to apply. model_class values (cheap_fast, strong_reasoning, code_specialized) match the steps[].model_class field above.",
+    "host": null,
+    "host_models": {
+      "claude-code": {
+        "cheap_fast": {"model": "haiku"},
+        "strong_reasoning": {"model": "sonnet"},
+        "code_specialized": {"model": "inherit"}
+      },
+      "droid": {
+        "cheap_fast": {"model": "inherit", "note": "Replace with a Factory model id (docs.factory.ai/models) or custom:<id> for BYOK."},
+        "strong_reasoning": {"model": "inherit"},
+        "code_specialized": {"model": "inherit"}
+      },
+      "codex": {
+        "cheap_fast": {"model": "gpt-5.5", "thinking": "low"},
+        "strong_reasoning": {"model": "gpt-5.5", "thinking": "medium"},
+        "code_specialized": {"model": "gpt-5.5", "thinking": "medium"}
+      },
+      "pi": {
+        "cheap_fast": {"model": null, "thinking": "low", "note": "Fill with your provider's model id."},
+        "strong_reasoning": {"model": null, "thinking": "high"},
+        "code_specialized": {"model": null}
+      }
+    },
+    "agents": {
+      "quality-loop-context-mapper": "cheap_fast",
+      "quality-loop-planner": "strong_reasoning",
+      "quality-loop-reviewer": "strong_reasoning",
+      "quality-loop-security-reviewer": "strong_reasoning"
+    }
+  },
   "hosts": {
     "fake": {"adapter": "fake", "available": true},
     "manual": {"adapter": "manual", "available": true},

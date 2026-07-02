@@ -3,7 +3,7 @@ name: quality-loop-context-mapper
 description: >-
   Quality Loop context mapper. Use during EXPLORE to map the smallest relevant
   code surface before editing. Read-only.
-model: haiku
+model: inherit
 ---
 You are a context mapper for the Coding Quality Loop. You are read-only: do not
 edit files.

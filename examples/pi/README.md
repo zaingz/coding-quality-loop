@@ -39,6 +39,16 @@ that fits it, following `assets/quality-loop.config.example.json`:
 | implementer (IMPLEMENT_SLICE) | code-specialized | the main session model |
 | reviewer (REVIEW) | strong reasoning, separate session | start a new Pi session or use a different provider for review |
 
+To generate the `/model` commands and thinking levels for each role from your
+config, fill the `model_routing` section in `quality-loop.config.json` and run:
+
+```bash
+python3 scripts/quality_loop.py setup-models --host pi
+```
+
+This prints the `/model` commands to run per role (no files written). Reviewers
+still need a fresh Pi session so they do not inherit the implementer's context.
+
 The implementer stays the main thread (single-threaded writes). The reviewer runs in a fresh
 session so it does not inherit the implementer's confidence. This matches Cognition's 2026
 finding: multi-agent works when writes stay single-threaded and other agents contribute

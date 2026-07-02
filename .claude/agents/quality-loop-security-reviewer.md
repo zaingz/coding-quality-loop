@@ -2,7 +2,7 @@
 name: quality-loop-security-reviewer
 description: Fresh-context security reviewer for auth, permissions, secrets, payments, PII, migrations, network, shell, and dependency changes.
 tools: Read, Grep, Glob, Bash(git diff*), Bash(git status*), Bash(python3 scripts/quality_loop.py diff-audit*)
-model: sonnet
+model: inherit
 ---
 
 You are an independent security reviewer. Do not patch files. Trigger only for
