@@ -8,7 +8,9 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-111111?style=flat-square)](LICENSE)
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
-[![version](https://img.shields.io/badge/version-2.3.0-111111?style=flat-square)](CHANGELOG.md)
+[![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
+[![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
+[![version](https://img.shields.io/badge/version-2.3.1-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
 [![offline gates](https://img.shields.io/badge/offline%20gates-124%20cases-111111?style=flat-square)](evals/)
@@ -77,15 +79,21 @@ The state record in the walkthrough passes the same [`verify-gates`](scripts/qua
 
 ## Quickstart: 60 seconds
 
-One command auto-detects your host, copies the skill, and wires the hooks.
+One command. Auto-detects your host (Claude Code, Codex, Cursor, Droid, or Pi), copies the skill, and wires the hooks.
 
 ```bash
 npx coding-quality-loop init
 ```
 
-Requires Node 18+ and Python 3. Interactive by default; add `--yes` for CI. Preview with `--dry-run`. Skip detection with `--host claude-code|codex|cursor|droid|pi`. See [`packages/npm/`](packages/npm/) for the full CLI.
+Shipped on [npm](https://www.npmjs.com/package/coding-quality-loop) with signed provenance. Requires Node 18+ and Python 3. Zero runtime dependencies. Interactive by default; add `--yes` for CI, `--dry-run` to preview, `--host <name>` to skip detection. See [`packages/npm/`](packages/npm/) for the full CLI.
 
-Prefer manual? Any of the paths below still work.
+```bash
+npx coding-quality-loop init --dry-run --yes   # preview only
+npx coding-quality-loop add git                # add the pre-commit backstop
+npx coding-quality-loop check                  # verify a prior install
+```
+
+Prefer manual? Any of the paths below still work — the installer is a thin UX wrapper around [`scripts/install.py`](scripts/install.py), so both paths land the exact same files.
 
 <details>
 <summary><strong>A. Drop-in prompt</strong></summary>
@@ -337,7 +345,7 @@ Pick your host. Full copy-paste files live in [`examples/`](examples/); every pa
 | **Droid (Factory)** | `cp examples/droid/.factory/droids/*.md .factory/droids/` (role droids) + skill in repo root | `droid exec "Follow the Coding Quality Loop in SKILL.md to fix the bug and summarize verification evidence."` |
 | **Standalone / custom** | route each step from `assets/quality-loop.config.example.json` | follow [`examples/standalone/`](examples/standalone/run-quality-loop.md) |
 
-> **Honesty note:** the `npx` installer above ships from the [`coding-quality-loop`](https://www.npmjs.com/package/coding-quality-loop) package (source: [`packages/npm/`](packages/npm/)). It is a thin UX wrapper around [`scripts/install.py`](scripts/install.py), so both paths land the exact same files. This repo is **not** yet on a plugin marketplace; `gh skill install` works once a maintainer publishes a release. See [Release & pinning](#release--pinning).
+> **Provenance note:** the `npx` installer ships from the [`coding-quality-loop`](https://www.npmjs.com/package/coding-quality-loop) npm package (source: [`packages/npm/`](packages/npm/)) with signed [Sigstore provenance](https://search.sigstore.dev/?logIndex=2050768324) tying the tarball to a specific GitHub Actions build. It is a thin UX wrapper around [`scripts/install.py`](scripts/install.py), so both paths land the exact same files. This repo is not yet on the [agentskills.io](https://agentskills.io) Skills Hub; `gh skill install` works once a maintainer publishes a release. See [Release & pinning](#release--pinning).
 
 <details>
 <summary id="claude-code"><strong>Claude Code install</strong></summary>
@@ -561,7 +569,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   provenance is not hand-faked.
 - **Skills Hub publish checklist.** Before publishing to the
   [agentskills.io](https://agentskills.io) Skills Hub:
-  1. Tag a release (`git tag v2.3.0 && git push --tags`).
+  1. Bump `packages/npm/package.json` and tag a release (`git tag v2.3.1 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`

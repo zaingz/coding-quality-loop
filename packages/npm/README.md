@@ -1,5 +1,9 @@
 # coding-quality-loop
 
+[![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
+[![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
+[![zero deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](package.json)
+
 One-command installer for the [Coding Quality Loop](https://github.com/zaingz/coding-quality-loop) skill — an engineering operating system that makes AI coding agents ship small, verified changes you can trust.
 
 ## Install
@@ -26,11 +30,11 @@ npx cql --help                            # short alias also works
 
 Depending on the host you pick:
 
-- **Claude Code** — copies the skill to `.claude/skills/coding-quality-loop/`, wires `.claude/settings.json` hooks (`PreToolUse`, `Stop`, `SessionStart`), and installs review/security-review subagents.
+- **Claude Code** — copies the skill (`SKILL.md`, `references/`, `assets/`, `scripts/`) to `.claude/skills/coding-quality-loop/`, wires `.claude/settings.json` hooks (`PreToolUse`, `Stop`, `SessionStart`), and installs review/security-review subagents.
 - **Codex** — copies `AGENTS.md` and wires `.codex/hooks.json`.
 - **Cursor** — copies `.cursor/rules/coding-quality-loop.mdc`.
 - **Droid** — copies role droids into `.factory/droids/`.
-- **Pi** — copies `.pi/` skill rules.
+- **Pi** — copies the skill (`SKILL.md`, `references/`, `assets/`, `scripts/`) to `.pi/skills/coding-quality-loop/` and settings to `.pi/`.
 - **Git backstop** (recommended) — installs a pre-commit hook that runs `diff-audit --staged` to block secrets, weakened tests, and untracked-file leaks before commit.
 
 All installs are idempotent, non-destructive (existing files are backed up as `.bak`), and can be previewed with `--dry-run`.
