@@ -319,7 +319,7 @@ python3 scripts/quality_loop.py diff-audit --base origin/main
 python3 scripts/quality_loop.py verify-gates agent-record.json
 ```
 
-### End-to-end agent eval (honest pilot, n=1)
+### Live Sudoku evals
 
 [`examples/sudoku-agent-eval-2026-06-28/`](examples/sudoku-agent-eval-2026-06-28/README.md) is a
 committed before/after experiment: four coding agents built the same browser Sudoku app from
@@ -332,6 +332,15 @@ are committed so you can judge for yourself. Every variant's app source, the ski
 lifecycle artifacts, and each test suite (reruns with `npm test --prefix <variant>/app`) are
 in the repo. Headline numbers are intentionally omitted here; use the v2.1 `bench/` harness for
 repeatable benchmark protocol work instead of quoting this pilot as product lift.
+
+[`examples/sudoku-agent-eval-2026-07-01/`](examples/sudoku-agent-eval-2026-07-01/README.md) is the
+newer live cross-agent run: Codex, Claude Code, and Droid/GLM-5.2 each built the same Sudoku app
+with and without CQL. All six arms completed, used zero dependencies, passed `npm test`, and scored
+`100/100` on the broad machine heuristic. Two blind LLM judges (Claude and Codex) agreed on the
+ranking; CQL averaged **89.5** vs **85.0** for baselines (**+4.5 points**), with per-agent lifts of
+Codex **+1.0**, Claude Code **+4.5**, and Droid/GLM-5.2 **+8.0**. Caveat: this was a one-seed live
+eval and no real browser automation was available, so it is strong directional evidence, not a
+durable benchmark claim.
 
 ---
 
@@ -381,7 +390,7 @@ coding-quality-loop/
 │                       #   reviewer checklists, tool contracts, engineering-OS, philosophy,
 │                       #   the memory contract + Honcho/Graphify backends)
 ├── examples/           # host-native copy-paste: claude-code, codex, cursor, pi, standalone,
-│                       #   a real before/after walkthrough, + a committed 4-agent Sudoku eval
+│                       #   a real before/after walkthrough, + committed Sudoku live evals
 ├── evals/              # offline eval cases + harness that prove the gates fire
 ├── scripts/            # quality_loop.py + quality_loop_memory.py — stdlib-only, no third-party deps
 └── .quality-loop/      # per-project lessons memory (git-diffable; grows as the agent learns)

@@ -4,6 +4,9 @@
 
 Proof layer.
 
+- Add a tracked live Sudoku eval summary for the 2026-07-01 Codex / Claude Code /
+  Droid run, where CQL averaged 89.5 vs 85.0 for baselines under two blind LLM
+  judges. The docs state the one-seed and no-browser-automation caveats.
 - Add `bench/` with 12 vendored benchmark tasks, objective metrics, a blind
   judge protocol, and a deterministic fixture-mode runner.
 - Commit `bench/results/fixture-smoke-2026-07-01.json` as a harness smoke result.

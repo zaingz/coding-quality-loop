@@ -1,0 +1,104 @@
+{
+  "generated_at": "2026-07-01T23:40:00",
+  "kind": "live_sudoku_eval",
+  "note": "One-seed live eval. All arms passed broad machine checks; score separation is from two blind LLM judges over anonymized source and machine-check packets.",
+  "browser_smoke": {
+    "verified": false,
+    "reason": "No repo-local Playwright/browser runner was available during the live eval."
+  },
+  "method": {
+    "agents": ["codex", "claude_code", "droid_glm_5_2"],
+    "conditions": ["baseline", "cql"],
+    "baseline_isolation": "Baseline prompts explicitly banned CQL, Droid/subagents, nested agent CLIs, and external coding agents. An initial contaminated Codex baseline attempt was stopped and restarted.",
+    "machine_checks": ["npm test", "dependency count", "static capability heuristic"],
+    "llm_judges": ["claude", "codex"],
+    "judge_visibility": "Judges saw anonymized submission IDs, machine-check summaries, file lists, and source excerpts."
+  },
+  "summary": {
+    "cql_average": 89.5,
+    "baseline_average": 85.0,
+    "lift_points": 4.5,
+    "all_machine_scores": 100,
+    "all_npm_tests_passed": true,
+    "all_dependency_counts": 0
+  },
+  "per_agent_delta": {
+    "codex": {"baseline": 83.5, "cql": 84.5, "delta": 1.0},
+    "claude_code": {"baseline": 92.5, "cql": 97.0, "delta": 4.5},
+    "droid_glm_5_2": {"baseline": 79.0, "cql": 87.0, "delta": 8.0}
+  },
+  "runs": [
+    {
+      "arm": "claude_cql",
+      "rank": 1,
+      "tests_passed": 22,
+      "machine_score": 100,
+      "claude_judge": 96,
+      "codex_judge": 98,
+      "avg_judge": 97.0,
+      "dependencies": 0,
+      "cql_artifacts": true,
+      "duration_sec": 480.2
+    },
+    {
+      "arm": "claude_baseline",
+      "rank": 2,
+      "tests_passed": 45,
+      "machine_score": 100,
+      "claude_judge": 91,
+      "codex_judge": 94,
+      "avg_judge": 92.5,
+      "dependencies": 0,
+      "cql_artifacts": false,
+      "duration_sec": 345.7
+    },
+    {
+      "arm": "droid_cql",
+      "rank": 3,
+      "tests_passed": 12,
+      "machine_score": 100,
+      "claude_judge": 84,
+      "codex_judge": 90,
+      "avg_judge": 87.0,
+      "dependencies": 0,
+      "cql_artifacts": true,
+      "duration_sec": 775.9
+    },
+    {
+      "arm": "codex_cql",
+      "rank": 4,
+      "tests_passed": 5,
+      "machine_score": 100,
+      "claude_judge": 80,
+      "codex_judge": 89,
+      "avg_judge": 84.5,
+      "dependencies": 0,
+      "cql_artifacts": true,
+      "duration_sec": 216.3
+    },
+    {
+      "arm": "codex_baseline",
+      "rank": 5,
+      "tests_passed": 4,
+      "machine_score": 100,
+      "claude_judge": 79,
+      "codex_judge": 88,
+      "avg_judge": 83.5,
+      "dependencies": 0,
+      "cql_artifacts": false,
+      "duration_sec": 154.3
+    },
+    {
+      "arm": "droid_baseline",
+      "rank": 6,
+      "tests_passed": 18,
+      "machine_score": 100,
+      "claude_judge": 72,
+      "codex_judge": 86,
+      "avg_judge": 79.0,
+      "dependencies": 0,
+      "cql_artifacts": false,
+      "duration_sec": 802.3
+    }
+  ]
+}

@@ -8,6 +8,9 @@ variant on a fixed 100-point rubric.
 The full writeup — setup, rubric, per-judge scores, findings, and recommended harness
 improvements — is in [`evaluation-report.md`](evaluation-report.md).
 
+For the newer six-arm live run across Codex, Claude Code, and Droid/GLM-5.2, see
+[`../sudoku-agent-eval-2026-07-01/`](../sudoku-agent-eval-2026-07-01/).
+
 ## Result
 
 | Rank | Variant | Skill? | Tests | Avg judge score |
