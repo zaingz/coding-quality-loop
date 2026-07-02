@@ -73,7 +73,18 @@ them coherently rather than invent them.
 - **Eval and improvement loops.** The harness — instructions, tools, routing, checks — is treated
   as the unit of improvement, with regression evals pinning fixes in place.
 - **Platform-specific install surfaces.** The same skill now needs to drop cleanly into Claude
-  Code, Codex, Cursor, Pi, and generic `.agents/skills` hosts.
+  Code, Codex, Cursor, Pi, Droid, and generic `.agents/skills` hosts.
+- **Harness engineering as a named discipline.** The harness — instructions, tools, routing,
+  feedback sensors, and quality gates — is now treated as the engineering artifact, not the
+  prompt (OpenAI, Fowler, LangChain, 2026). Context engineering has replaced prompt engineering
+  as the durable framing (Cognition).
+- **Multi-agent as capability routing, not parallel swarms.** Cognition's April 2026 update
+  confirms: multi-agent works when writes stay single-threaded and other agents contribute
+  intelligence. A clean-context reviewer catches bugs the coder cannot see; cross-frontier
+  delegation routes to whichever model is best at the specific sub-task.
+- **Longitudinal continuity as files, not machinery.** Anthropic's long-running agent harness
+  (Nov 2025) shows that bridging context windows is a progress file, a feature list, and git as
+  memory — an initializer session plus incremental sessions that leave clean state.
 
 ## Inspirations
 
@@ -96,6 +107,13 @@ endorsements of this project, and not claims of adoption by any of them.
   tree into context.
 - **The OpenAI agent improvement loop** — treating the harness as the unit of iteration, pinned by
   evals.
+- **Cognition's multi-agent research** (April 2026, "Multi-Agents: What's Actually Working") —
+  the finding that multi-agent works when writes stay single-threaded and other agents contribute
+  intelligence; the clean-context reviewer pattern; and cross-frontier delegation as capability
+  routing.
+- **Anthropic's long-running agent harness** (Nov 2025, "Effective harnesses for long-running
+  agents") — the initializer + incremental-session pattern, progress file, feature-list JSON,
+  and git as memory for longitudinal continuity.
 - **Skill packaging conventions** (e.g. generic `.agents/skills/` layouts) — for portability
   across hosts.
 

@@ -45,9 +45,27 @@ def _record_status(root: Path) -> str:
     return "Quality Loop record: none found"
 
 
+def _brief_output(root: Path) -> str:
+    proc = subprocess.run(
+        [sys.executable, str(root / "scripts" / "quality_loop.py"), "brief", "--cwd", str(root)],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        cwd=str(root),
+        check=False,
+        env={**os.environ, "QUALITY_LOOP_NO_TELEMETRY": "1"},
+    )
+    return proc.stdout.strip() if proc.returncode == 0 and proc.stdout.strip() else ""
+
+
 def main() -> int:
     root = _root(_input())
-    parts = [_record_status(root)]
+    brief = _brief_output(root)
+    parts: list[str] = []
+    if brief:
+        parts.append("Quality Loop briefing:\n" + brief[:6000])
+    else:
+        parts.append(_record_status(root))
     memory = root / ".quality-loop" / "memory" / "MEMORY.md"
     if memory.is_file():
         parts.append("Project memory index:\n" + memory.read_text(encoding="utf-8")[:4000])

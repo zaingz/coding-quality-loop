@@ -1083,6 +1083,155 @@ def check_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def _latest_run_summary(runs_dir: Path) -> dict[str, Any]:
+    """Read the most recent run journal and return a compact summary."""
+    if not runs_dir.is_dir():
+        return {}
+    run_dirs = sorted(
+        (d for d in runs_dir.iterdir() if d.is_dir()),
+        key=lambda d: d.stat().st_mtime,
+        reverse=True,
+    )
+    for run_dir in run_dirs:
+        journal = run_dir / "journal.jsonl"
+        if not journal.is_file():
+            continue
+        events: list[dict[str, Any]] = []
+        for line in journal.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        if not events:
+            continue
+        steps = [str(e.get("step", "")) for e in events if e.get("step")]
+        last = events[-1]
+        return {
+            "run_id": run_dir.name,
+            "steps": steps,
+            "last_step": str(last.get("step", "")),
+            "last_event": last,
+            "event_count": len(events),
+        }
+    return {}
+
+
+def _latest_record_summary(cwd: Path) -> dict[str, Any]:
+    """Return open risks and status from the most recent agent record."""
+    for path in (cwd / ".quality-loop" / "agent-record.json", cwd / "agent-record.json"):
+        if path.is_file():
+            try:
+                data = load_json(path)
+            except (json.JSONDecodeError, OSError):
+                return {"path": str(path), "error": "invalid JSON"}
+            return {
+                "path": str(path),
+                "task_id": data.get("task_id", "?"),
+                "goal": data.get("goal", ""),
+                "status": data.get("status", "?"),
+                "risk_tier": data.get("risk_tier", "?"),
+                "open_risks": data.get("open_risks", []),
+                "review_findings": data.get("review_findings", []),
+            }
+    return {}
+
+
+def _progress_tail(cwd: Path, max_lines: int = 15) -> str:
+    for path in (cwd / ".quality-loop" / "progress.md", cwd / "progress.md"):
+        if path.is_file():
+            lines = path.read_text(encoding="utf-8").splitlines()
+            return "\n".join(lines[-max_lines:]) if lines else ""
+    return ""
+
+
+def cmd_brief(args: argparse.Namespace) -> int:
+    cwd = Path(getattr(args, "cwd", ".")).resolve()
+    runs_dir = cwd / ".quality-loop" / "runs"
+    run_summary = _latest_run_summary(runs_dir)
+    record_summary = _latest_record_summary(cwd)
+    progress = _progress_tail(cwd)
+
+    budget = max(100, getattr(args, "budget", 800))
+    mem_dir = qlmem.resolve_memory_dir(args.location, cwd=cwd)
+    project_lessons = qlmem.load_lessons(mem_dir)
+    global_dir = qlmem.resolve_global_memory_dir()
+    global_lessons = qlmem.load_lessons(global_dir)
+    goal = record_summary.get("goal", "") if isinstance(record_summary, dict) else ""
+    risk = record_summary.get("risk_tier", "low") if isinstance(record_summary, dict) else "low"
+    risk = risk if risk in RISK_TIERS else "low"
+    if not global_lessons:
+        selected_project = qlmem.recall(project_lessons, goal or "", [], risk, budget)
+        selected_global: list[dict[str, Any]] = []
+        project_budget = budget
+        global_budget = 0
+    else:
+        project_budget = max(1, int(budget * 0.6))
+        global_budget = max(1, budget - project_budget)
+        selected_project = qlmem.recall(project_lessons, goal or "", [], risk, project_budget)
+        selected_global = qlmem.recall(global_lessons, goal or "", [], risk, global_budget)
+    selected = selected_project + selected_global
+    if selected_global:
+        lessons_text = qlmem.format_digest(selected_project, project_budget) + "\n[global] " + qlmem.format_digest(selected_global, global_budget)
+    else:
+        lessons_text = qlmem.format_digest(selected_project, budget)
+
+    sections: list[str] = []
+    if record_summary and "error" not in record_summary:
+        sections.append(
+            "## Last record\n"
+            f"goal: {record_summary.get('goal', '?')}\n"
+            f"status: {record_summary.get('status', '?')}  risk: {record_summary.get('risk_tier', '?')}"
+        )
+        risks = record_summary.get("open_risks", [])
+        if risks:
+            risk_lines = "\n".join(f"  - {r}" for r in risks[:8])
+            sections.append(f"## Open risks\n{risk_lines}")
+    elif record_summary and "error" in record_summary:
+        sections.append(f"## Last record\n{record_summary['error']}")
+    else:
+        sections.append("## Last record\nnone found")
+
+    if run_summary:
+        steps_str = " -> ".join(run_summary["steps"][-8:])
+        sections.append(
+            "## Last run\n"
+            f"run: {run_summary['run_id']}  steps: {steps_str}\n"
+            f"last event: {run_summary['last_step']}"
+        )
+    else:
+        sections.append("## Last run\nnone found")
+
+    sections.append(f"## Lessons ({len(selected)} recalled)\n{lessons_text}")
+
+    if progress:
+        sections.append(f"## Progress (tail)\n{progress}")
+    else:
+        sections.append("## Progress\nno progress.md found")
+
+    next_hint = "Run the loop on the next task, or resume an incomplete one."
+    if record_summary and "error" not in record_summary and record_summary.get("status") not in ("done", "?"):
+        next_hint = f"Resume incomplete task: {record_summary.get('goal', '?')} (status: {record_summary.get('status', '?')})"
+    elif run_summary and run_summary.get("last_step") == "PACKAGE":
+        next_hint = "Last run shipped. Run retrospective or start the next task."
+    sections.append(f"## Suggested next step\n{next_hint}")
+
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "record": record_summary,
+            "run": run_summary,
+            "lessons_recalled": len(selected),
+            "lessons_digest": lessons_text,
+            "progress": progress,
+            "next_step": next_hint,
+        }, indent=2, default=str))
+    else:
+        print("\n\n".join(sections))
+    return 0
+
+
 def eval_cases(args: argparse.Namespace) -> int:
     cases_dir = Path(args.cases_dir)
     if cases_dir.is_dir():
@@ -1186,11 +1335,12 @@ def main() -> int:
     p_mrecall.set_defaults(func=qlhoncho.cmd_recall_honcho)
 
     p_mcommit = sub.add_parser("memory-commit", help="Distill an agent record into durable lessons")
-    p_mcommit.add_argument("record")
+    p_mcommit.add_argument("record", nargs="?", help="Agent record JSON (required unless --lesson is given)")
     p_mcommit.add_argument("--lesson", help="Commit this exact lesson instead of distilling the record")
     p_mcommit.add_argument("--kind", choices=sorted(qlmem.LESSON_KINDS), default="gotcha", help="Kind for an explicit --lesson (distillation derives the kind otherwise)")
     p_mcommit.add_argument("--scope", help="Override scope glob, e.g. 'src/payments/**'")
     p_mcommit.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_mcommit.add_argument("--global", dest="global_store", action="store_true", help="Write to the cross-project global store (~/.quality-loop/global/)")
     p_mcommit.add_argument("--config", help="Also mirror committed lessons to Honcho if configured")
     p_mcommit.set_defaults(func=qlhoncho.cmd_commit_honcho)
 
@@ -1198,6 +1348,7 @@ def main() -> int:
     p_mprune.add_argument("--max", type=int, default=200)
     p_mprune.add_argument("--max-age-days", type=int, default=365)
     p_mprune.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_mprune.add_argument("--global", dest="global_store", action="store_true", help="Prune the cross-project global store")
     p_mprune.set_defaults(func=qlmem.cmd_prune)
 
     p_mstatus = sub.add_parser("memory-status", help="Show memory store location and lesson counts")
@@ -1224,6 +1375,13 @@ def main() -> int:
 
     p_stats = sub.add_parser("stats", help="Render the metrics table from local telemetry")
     p_stats.set_defaults(func=qlreal.cmd_stats)
+
+    p_brief = sub.add_parser("brief", help="Print a session-start project briefing (last run, risks, lessons, progress)")
+    p_brief.add_argument("--budget", type=int, default=800, help="Char budget for lesson recall (default 800)")
+    p_brief.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_brief.add_argument("--cwd", default=".", help="Working directory (default .)")
+    p_brief.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    p_brief.set_defaults(func=cmd_brief)
 
     args = parser.parse_args()
     return args.func(args)

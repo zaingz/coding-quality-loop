@@ -412,6 +412,89 @@ def case_budget_clamped(tmp: Path) -> tuple[bool, str]:
     return ok, f"code={code}; out={out.strip()!r}"
 
 
+def case_global_commit_and_recall(tmp: Path) -> tuple[bool, str]:
+    import os
+    env = {**os.environ, "HOME": str(tmp)}
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "memory-commit", "--lesson",
+         "always read migration guides before schema edits", "--kind", "convention", "--global"],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(tmp), env=env, check=False,
+    )
+    code, out, err = proc.returncode, proc.stdout, proc.stderr
+    global_dir = tmp / ".quality-loop" / "global"
+    global_lessons = mem.load_lessons(global_dir)
+    commit_ok = code == 0 and len(global_lessons) == 1 and "migration guides" in global_lessons[0].get("lesson", "")
+
+    project_dir = tmp / ".quality-loop" / "memory"
+    mem.append_lesson(project_dir, mem.normalize_lesson(
+        {"lesson": "payment retries must be idempotent", "kind": "failure_mode",
+         "risk_tier": "high", "scope_globs": ["src/payments/**"], "keywords": ["retry", "idempotent"]}, "2026-06-27"))
+
+    proc2 = subprocess.run(
+        [sys.executable, str(SCRIPT), "memory-recall", "--goal", "migration schema retry",
+         "--files", "src/payments/charge.py", "--risk", "high", "--budget", "1500", "--no-bump"],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(tmp), env=env, check=False,
+    )
+    code2, out2, err2 = proc2.returncode, proc2.stdout, proc2.stderr
+    recall_ok = code2 == 0 and "migration guides" in out2 and "idempotent" in out2 and "[global]" in out2
+    return commit_ok and recall_ok, f"commit_code={code}; recall_code={code2}; out={out2.strip()!r}"
+
+
+def case_global_status_reports(tmp: Path) -> tuple[bool, str]:
+    import os
+    env = {**os.environ, "HOME": str(tmp)}
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "memory-status"],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(tmp), env=env, check=False,
+    )
+    code, out, err = proc.returncode, proc.stdout, proc.stderr
+    ok = False
+    try:
+        data = json.loads(out)
+        ok = code == 0 and "global_dir" in data and "global_lesson_count" in data and str(tmp) in data.get("global_dir", "")
+    except json.JSONDecodeError:
+        ok = False
+    return ok, f"exit={code}; has_global_fields={ok}"
+
+
+def case_budget_split_project_global(tmp: Path) -> tuple[bool, str]:
+    import os
+    env = {**os.environ, "HOME": str(tmp)}
+    project_dir = tmp / ".quality-loop" / "memory"
+    for i in range(5):
+        mem.append_lesson(project_dir, mem.normalize_lesson(
+            {"lesson": f"project convention {i}: always validate input before processing payments",
+             "kind": "convention", "risk_tier": "low",
+             "scope_globs": ["src/payments/**"], "keywords": ["payment", "validate", "input"]}, "2026-06-27"))
+    global_dir = tmp / ".quality-loop" / "global"
+    mem.append_lesson(global_dir, mem.normalize_lesson(
+        {"lesson": "global convention: always read migration guides before schema edits",
+         "kind": "convention", "risk_tier": "low",
+         "scope_globs": ["**"], "keywords": ["migration", "schema"]}, "2026-06-27"))
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "memory-recall", "--goal", "payment validate migration",
+         "--risk", "low", "--budget", "200", "--no-bump"],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(tmp), env=env, check=False,
+    )
+    code, out, err = proc.returncode, proc.stdout, proc.stderr
+    ok = code == 0 and "[global]" in out and "migration" in out
+    return ok, f"code={code}; out={out.strip()!r}"
+
+
+def case_global_commit_redacts_secrets(tmp: Path) -> tuple[bool, str]:
+    import os
+    env = {**os.environ, "HOME": str(tmp)}
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "memory-commit", "--lesson",
+         "use api key AKIAIOSFODNN7EXAMPLE for deploys", "--kind", "convention", "--global"],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(tmp), env=env, check=False,
+    )
+    code, out, err = proc.returncode, proc.stdout, proc.stderr
+    body = (tmp / ".quality-loop" / "global" / "lessons.jsonl").read_text()
+    ok = code == 0 and "AKIAIOSFODNN7EXAMPLE" not in body and "[REDACTED]" in body
+    return ok, f"code={code}; secret_in_store={'AKIAIOSFODNN7EXAMPLE' in body}; err={err.strip()!r}"
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
@@ -436,6 +519,10 @@ CASES = [
     ("OpenAI hyphenated key (sk-live-*) is redacted from lessons + keywords", case_openai_hyphenated_key_redacted),
     ("sk-proj-* and sk-test-* variants are redacted", case_openai_proj_and_test_keys_redacted),
     ("entropy pass catches obfuscated secrets, spares SHAs/UUIDs/paths/prose", case_entropy_redaction_catches_obfuscated_secret),
+    ("global store: --global commits and recall merges project + global", case_global_commit_and_recall),
+    ("memory-status reports the global store fields", case_global_status_reports),
+    ("recall splits budget 60/40 between project and global stores", case_budget_split_project_global),
+    ("global commit redacts secrets before persistence", case_global_commit_redacts_secrets),
 ]
 
 

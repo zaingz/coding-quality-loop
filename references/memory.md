@@ -23,15 +23,23 @@ adapter degrades to `files` / `none`; a task never blocks on memory infrastructu
   --files a,b --risk medium --budget 1500`.
 - **commit(record [, --lesson])** -> distills `harness_update`, `minimality_decision`, and
   `review_findings` from an agent record into lesson rows. Files backend:
-  `python3 scripts/quality_loop.py memory-commit agent-record.json`. The record path is always required; `--lesson` overrides what is distilled from it.
+  `python3 scripts/quality_loop.py memory-commit agent-record.json`. With `--lesson`, the
+  record path is optional (a manual lesson needs no record).
+- **commit --global** -> writes to the cross-project global store
+  (`~/.quality-loop/global/`) instead of the project store. Use for user-level
+  conventions and preferences that apply across all projects:
+  `python3 scripts/quality_loop.py memory-commit --lesson "<lesson>" --kind convention --global`.
 - **prune()** -> dedup + age-out + cap. Files backend:
-  `python3 scripts/quality_loop.py memory-prune`.
+  `python3 scripts/quality_loop.py memory-prune`. Add `--global` to prune the global store.
 
 ## Storage
 
 - Default (checked-in): `.quality-loop/memory/lessons.jsonl` + a <=40-line `MEMORY.md`
   index (the only surface a host may auto-load).
 - Override (machine-local): `memory.location="local"` -> `~/.quality-loop/<project-slug>/`.
+- Global (cross-project): `~/.quality-loop/global/lessons.jsonl` — user-level conventions
+  and preferences that apply across all projects. Recall merges project + global lessons
+  under a split-capped budget (60% project, 40% global when the global store has lessons).
 - Paths resolve relative to the **current working directory** — run the CLI from the repo root, or set `memory.location: "local"` to anchor at `~/.quality-loop/<project-slug>/`.
 - `graphify-out/` is always gitignored (regenerable cache, not memory).
 

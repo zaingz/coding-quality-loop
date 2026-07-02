@@ -159,6 +159,18 @@ def case_sessionstart_context(tmp: Path) -> tuple[bool, str]:
     return code == 0 and "keep diffs small" in ctx and "status=done" in ctx, f"exit={code}; ctx={ctx[:120]!r}; err={err.strip()!r}"
 
 
+def case_sessionstart_brief(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp, with_scripts=True)
+    qdir = repo / ".quality-loop"
+    qdir.mkdir(parents=True, exist_ok=True)
+    (qdir / "agent-record.json").write_text(json.dumps(done_record()))
+    (qdir / "progress.md").write_text("# Progress\n\n## Next step\nAdd more tests\n")
+    code, out, err = run_script(START, {"cwd": str(repo), "hook_event_name": "SessionStart", "source": "startup"}, repo)
+    data = json.loads(out)
+    ctx = data.get("hookSpecificOutput", {}).get("additionalContext", "")
+    return code == 0 and "briefing" in ctx and "Add more tests" in ctx, f"exit={code}; ctx={ctx[:200]!r}; err={err.strip()!r}"
+
+
 def case_installer_idempotent_claude_codex(tmp: Path) -> tuple[bool, str]:
     target = tmp / "target"
     target.mkdir()
@@ -185,6 +197,7 @@ CASES = [
     ("Stop gate blocks phantom done", case_stop_gate_blocks_phantom_done),
     ("Stop gate skips active stop loop", case_stop_gate_skips_active_loop),
     ("SessionStart emits memory and record context", case_sessionstart_context),
+    ("SessionStart includes brief output when scripts present", case_sessionstart_brief),
     ("installer is idempotent for Claude/Codex wiring", case_installer_idempotent_claude_codex),
 ]
 

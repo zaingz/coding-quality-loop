@@ -150,10 +150,51 @@ The same role maps onto different vendors. Examples (illustrative, not prescript
   runs. See https://docs.cursor.com/en/context/rules
 - **Pi**: ship the loop as a skill under `~/.pi/agent/skills/`, `~/.agents/skills/`,
   `.pi/skills/`, or `.agents/skills/`; register a `skills` directory in `.pi/settings.json` and
-  invoke with `/skill:coding-quality-loop`. See https://pi.dev/docs/latest/skills
+  invoke with `/skill:coding-quality-loop`; set a provider/model per role with `/model`. See
+  https://pi.dev/docs/latest/skills
+- **Droid (Factory)**: custom droids in `.factory/droids/` (project) or `~/.factory/droids/`
+  (user), each a Markdown file with `name`/`description`/`model` frontmatter plus a system
+  prompt. The main session is the implementer; read-only roles (mapper, planner, reviewer)
+  run as separate droids via the `Task` tool or `droid exec`. See
+  https://docs.factory.ai/cli/droid-exec/overview
 - **Standalone / custom orchestrator**: model each step as an explicit workflow node and
   wire the tool contracts from `references/tool-contracts.md`; load
   `assets/quality-loop.config.example.json` to drive routing.
+
+## Harness-Agnostic Wiring
+
+The loop is **harness-agnostic by design**: roles, prompts, and routing data ship as files
+that any host can consume without a custom runtime. The config is routing **data**; each host
+expresses it through its native mechanism.
+
+| Role | Claude Code | Droid | Codex | Cursor | Pi |
+|---|---|---|---|---|---|
+| context mapper | `.claude/agents/quality-loop-context-mapper.md` | `.factory/droids/quality-loop-context-mapper.md` | subagent / MCP | `.cursor/rules` chat | `/model <cheap-fast>` |
+| planner | `.claude/agents/quality-loop-planner.md` | `.factory/droids/quality-loop-planner.md` | subagent | `.cursor/rules` chat | `/model <strong-reasoning>` |
+| implementer | main thread | main session | main session | main session | main session |
+| fresh reviewer | `.claude/agents/quality-loop-reviewer.md` | `.factory/droids/quality-loop-reviewer.md` | subagent (fresh) | new chat (fresh) | new Pi session |
+| security reviewer | `.claude/agents/quality-loop-security-reviewer.md` | `.factory/droids/quality-loop-security-reviewer.md` | subagent (fresh) | new chat (fresh) | new Pi session |
+| policy guard | `.claude/settings.json` hooks | host hooks / CI | `.codex/hooks.json` | host hooks / CI | host hooks / CI |
+
+Per-role prompt cards live in `assets/prompts/` (`intake.md`, `context-map.md`,
+`minimality.md`, `planner.md`, `implementer.md`, `reviewer.md`, `security-reviewer.md`,
+`package.md`). Any harness or human can run any role by pasting one card.
+
+### What the 2026 research confirms
+
+Cognition's April 2026 update ("Multi-Agents: What's Actually Working") validates the core
+bet: multi-agent systems work best today when **writes stay single-threaded** and the
+additional agents **contribute intelligence rather than actions**. Their clean-context
+reviewer (no shared context with the coder) catches ~2 bugs per PR, 58% severe — exactly the
+`fresh_reviewer` pattern. Their "smart friend" finding: cross-frontier delegation works as a
+**capability router** ("route to whichever model is best at the specific sub-task"), which is
+the per-role model routing this config encodes. See
+https://cognition.com/blog/multi-agents-working
+
+Anthropic's "Effective harnesses for long-running agents" (Nov 2025) shows that longitudinal
+continuity is files and prompts, not machinery: a progress file, a feature-list, and git as
+memory bridge context windows. See
+https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ## Config-Driven Routing
 

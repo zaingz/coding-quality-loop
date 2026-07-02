@@ -10,13 +10,14 @@
 [![version](https://img.shields.io/badge/version-2.2.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-9%2B27%2B23%2B15%2B8%2B5%2B10%2B7-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-9%2B31%2B27%2B15%2B9%2B5%2B10%2B7-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-111111?style=flat-square)](#install--use-matrix)
 [![Codex](https://img.shields.io/badge/Codex-compatible-111111?style=flat-square)](#install--use-matrix)
 [![Cursor](https://img.shields.io/badge/Cursor-compatible-111111?style=flat-square)](#install--use-matrix)
 [![Pi](https://img.shields.io/badge/Pi-compatible-111111?style=flat-square)](#install--use-matrix)
+[![Droid](https://img.shields.io/badge/Droid-compatible-111111?style=flat-square)](#install--use-matrix)
 [![Anthropic Agent Skills](https://img.shields.io/badge/Anthropic%20Agent%20Skills-compatible-111111?style=flat-square)](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills)
 
 [Quickstart](#quickstart-60-seconds) · [The loop](#the-loop-visualized) · [Install](#install--use-matrix) · [Proof](#proof-you-can-run) · [FAQ](#faq) · [Compare](#how-it-compares)
@@ -237,7 +238,7 @@ python3 evals/run_honcho_evals.py                                              #
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json
 ```
 
-Current result: **9/9 static** + **27/27 behavioral** + **23/23 memory** + **15/15 reality** + **8/8 hook** + **5/5 orchestrator** + **10/10 trigger** + **7/7 honcho** cases pass, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
+Current result: **9/9 static** + **31/31 behavioral** + **27/27 memory** + **15/15 reality** + **9/9 hook** + **5/5 orchestrator** + **10/10 trigger** + **7/7 honcho** cases pass, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -255,6 +256,19 @@ Current result: **9/9 static** + **27/27 behavioral** + **23/23 memory** + **15/
 ### Benchmarks and live evals
 
 `bench/` contains the v2.1 proof harness: 12 vendored tasks, trap tasks, objective metrics, and a judge protocol. The committed result [`bench/results/fixture-smoke-2026-07-01.json`](bench/results/fixture-smoke-2026-07-01.json) is a deterministic fixture smoke result. It proves the benchmark plumbing runs; it is not a live Claude/Codex model sweep and should not be quoted as product lift.
+
+### Driven mode
+
+`scripts/quality_loop_run.py` is an optional **reference orchestrator** for batch/mission
+runs. It owns the state machine, verification, review prompt isolation, package gate, and
+local redacted journal under `.quality-loop/runs/<id>/`. It uses a single host adapter for
+all steps — per-role model routing is the host's job (via the config profiles and the
+harness-agnostic role pack in `assets/prompts/` and `.claude/agents/`).
+
+```bash
+python3 scripts/quality_loop_run.py --goal "Fix invoice rounding" --host fake --dry-run
+python3 scripts/quality_loop_run.py --record agent-record.json --host manual
+```
 
 ```bash
 python3 bench/runner.py --mode fixture --seeds 3
@@ -289,6 +303,7 @@ Pick your host. Full copy-paste files live in [`examples/`](examples/); every pa
 | **Codex** | `cp examples/codex/AGENTS.md ./AGENTS.md` | `codex "Follow the Coding Quality Loop in AGENTS.md to fix the bug."` |
 | **Cursor** | `cp -r examples/cursor/.cursor ./.cursor` | in chat: `@coding-quality-loop fix the retry bug with verification evidence` |
 | **Pi** | `cp -r . ~/.agents/skills/coding-quality-loop` (or in-repo `.agents/skills/`) | `/skill:coding-quality-loop implement the change with a validation contract and independent review` |
+| **Droid (Factory)** | `cp examples/droid/.factory/droids/*.md .factory/droids/` (role droids) + skill in repo root | `droid exec "Follow the Coding Quality Loop in SKILL.md to fix the bug and summarize verification evidence."` |
 | **Standalone / custom** | route each step from `assets/quality-loop.config.example.json` | follow [`examples/standalone/`](examples/standalone/run-quality-loop.md) |
 
 > **Honesty note:** this repo is **not** yet on a plugin marketplace. The copy-to-folder paths above work today; `gh skill install` works once a maintainer publishes a release. See [Release & pinning](#release--pinning).
@@ -400,12 +415,17 @@ A single Agent Skill package following the open [Agent Skills specification](htt
 ```text
 coding-quality-loop/
 ├── SKILL.md            # the skill: when-to-use, lifecycle, task classes, roles, gates
-├── assets/             # templates + schemas loaded on demand
-├── references/         # lifecycle, orchestration, reviewer checklists, memory, philosophy
-├── examples/           # Claude Code, Codex, Cursor, Pi, standalone, walkthrough, Sudoku evals
+├── assets/             # templates + schemas loaded on demand (contract, validation contract,
+│                       #   plan, logs, completion record, PR summary, progress, record schema,
+│                       #   config, per-role prompt cards)
+├── references/         # deep-dive docs pulled only when needed (lifecycle, orchestration,
+│                       #   reviewer checklists, tool contracts, engineering-OS, philosophy,
+│                       #   the memory contract + Honcho/Graphify backends)
+├── examples/           # host-native copy-paste: claude-code, codex, cursor, pi, droid,
+│                       #   standalone, a real before/after walkthrough, + committed Sudoku live evals
 ├── evals/              # offline eval cases + harness that prove the gates fire
-├── scripts/            # quality_loop.py + quality_loop_memory.py — stdlib-only
-└── .quality-loop/      # per-project lessons memory, git-diffable
+├── scripts/            # quality_loop.py + quality_loop_memory.py — stdlib-only, no third-party deps
+└── .quality-loop/      # per-project lessons memory + runs/progress (git-diffable; grows as the agent learns)
 ```
 
 Minimum tool surface: read, search, edit, shell, run tests, `git diff` / branch / commit / PR. Useful extensions include repo-map generator, AST search, browser automation, GitHub CLI, issue tracker, CI logs, Sentry/Datadog logs, read-only DB access, design docs, and MCP connectors. MCP only when context lives outside the repo, changes frequently, or should be repeatable via a tool. Suggested tool contracts are in `references/tool-contracts.md`.
@@ -490,28 +510,48 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
 <details open>
 <summary><strong>Treat skills like dependencies</strong></summary>
 
-- **Inspect before you install.** Read `SKILL.md` and `scripts/quality_loop.py`: no hidden network access, no build step; the helper is stdlib-only.
-- **Pin for team use.** Install from a tagged release or a pinned tree SHA, not a moving branch. The packaged version is in `SKILL.md` frontmatter, `metadata.version`, and [`CHANGELOG.md`](CHANGELOG.md).
-- **`gh skill` once published.** When a maintainer runs `gh skill publish`, which validates against the Agent Skills spec and writes repo/ref/tree-SHA provenance into the frontmatter, consumers can `gh skill install <repo> --pin <tag|sha>`. Until then, copy-to-folder is the supported install; provenance is not hand-faked.
-- **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules, including secrets, destructive migrations, auth/billing, and diff-size limits, as deterministic host hooks.
+- **Inspect before you install.** Read `SKILL.md` and `scripts/quality_loop.py` — no hidden
+  network access, no build step; the helper is stdlib-only.
+- **Pin for team use.** Install from a tagged release or a pinned tree SHA, not a moving branch.
+  The packaged version is in `SKILL.md` frontmatter (`metadata.version`) and [`CHANGELOG.md`](CHANGELOG.md).
+- **`gh skill` once published.** When a maintainer runs `gh skill publish` (validates against the
+  Agent Skills spec and writes repo/ref/tree-SHA provenance into the frontmatter), consumers can
+  `gh skill install <repo> --pin <tag|sha>`. Until then, copy-to-folder is the supported install —
+  provenance is not hand-faked.
+- **Skills Hub publish checklist.** Before publishing to the
+  [agentskills.io](https://agentskills.io) Skills Hub:
+  1. Tag a release (`git tag v2.2.0 && git push --tags`).
+  2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
+     and `metadata.version` matching `CHANGELOG.md`.
+  3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
+     and the full eval suite (all 8 suites green).
+  4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
+  5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
+- **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules
+  (secrets, destructive migrations, auth/billing, diff-size limits) as deterministic host hooks.
 
-</details>
+
 
 <details>
 <summary><strong>How this maps to official platform docs</strong></summary>
 
 Portable, but aligned with how today's platforms load instructions and enforce policy:
 
-- **Claude Code memory**: project/user/local `CLAUDE.md`, `.claude/rules/`, `/init`. <https://docs.anthropic.com/en/docs/claude-code/memory>
-- **Claude Code hooks**: `PreToolUse` / `PostToolUse` / `Stop` hooks are the deterministic `policy_guard`. <https://docs.anthropic.com/en/docs/claude-code/hooks>
-- **Codex `AGENTS.md`**: global, project, and nested overrides. <https://developers.openai.com/codex/guides/agents-md>
-- **Codex skills**: `SKILL.md` directories with progressive disclosure. <https://developers.openai.com/codex/skills>
-- **Cursor rules**: `.cursor/rules` in `.mdc` format. <https://docs.cursor.com/en/context/rules>
-- **Pi skills**: loaded from `~/.agents/skills/`, `.agents/skills/`, etc. <https://pi.dev/docs/latest/skills>
-- **Anthropic Agent Skills**: `SKILL.md` folders, progressive disclosure. <https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills>
-- **Agent Skills specification**: the open, cross-agent package shape this repo targets. <https://agentskills.io/specification>
+- **Claude Code memory** — project/user/local `CLAUDE.md`, `.claude/rules/`, `/init`. <https://docs.anthropic.com/en/docs/claude-code/memory>
+- **Claude Code hooks** — `PreToolUse` / `PostToolUse` / `Stop` hooks are the deterministic `policy_guard`. <https://docs.anthropic.com/en/docs/claude-code/hooks>
+- **Codex `AGENTS.md`** — global, project, and nested overrides. <https://developers.openai.com/codex/guides/agents-md>
+- **Codex skills** — `SKILL.md` directories with progressive disclosure. <https://developers.openai.com/codex/skills>
+- **Cursor rules** — `.cursor/rules` in `.mdc` format. <https://docs.cursor.com/en/context/rules>
+- **Pi skills** — loaded from `~/.agents/skills/`, `.agents/skills/`, etc. <https://pi.dev/docs/latest/skills>
+- **Droid (Factory) custom droids** — `.factory/droids/` Markdown files with `model` frontmatter; `droid exec` for headless runs. <https://docs.factory.ai/cli/droid-exec/overview>
+- **Anthropic Agent Skills** — `SKILL.md` folders, progressive disclosure. <https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills>
+- **Agent Skills specification** — the open, cross-agent package shape this repo targets. <https://agentskills.io/specification>
 
-The design also draws on Factory Missions, long work split into focused units with fresh agents and validation contracts; the Aider repo map, concise maps beat context stuffing; and the OpenAI agent improvement loop, the harness is the unit of improvement.
+The design also draws on Factory Missions (long work split into focused units with fresh agents and
+validation contracts), the Aider repo map (concise maps beat context stuffing), the OpenAI
+agent improvement loop (the harness is the unit of improvement), Cognition's multi-agent research
+(single-threaded writes + clean-context intelligence, April 2026), and Anthropic's long-running
+agent harness (progress file + incremental sessions, Nov 2025).
 
 </details>
 

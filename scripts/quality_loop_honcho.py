@@ -317,7 +317,9 @@ def cmd_commit_honcho(args: Any) -> int:
     if not backend.available:
         _fallback_notice(backend.error or "unknown")
         return 0
-    record_path = Path(args.record)
+    record_path = Path(args.record) if getattr(args, "record", None) else None
+    if not record_path:
+        return 0
     try:
         record = json.loads(record_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):

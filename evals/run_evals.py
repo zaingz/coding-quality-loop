@@ -620,6 +620,68 @@ def case_empty_repo_map_fails(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; output={output.strip()!r}"
 
 
+def case_brief_empty_repo(tmp: Path) -> tuple[bool, str]:
+    code, out, err = run_cli("brief", "--cwd", str(tmp))
+    ok = code == 0 and "none found" in out and "Suggested next step" in out
+    return ok, f"exit={code}; out={out.strip()!r}"
+
+
+def case_brief_with_record_and_progress(tmp: Path) -> tuple[bool, str]:
+    qdir = tmp / ".quality-loop"
+    qdir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "task_id": "test-1", "goal": "Fix the billing bug", "status": "review",
+        "risk_tier": "medium", "open_risks": ["race condition in charge()"],
+        "review_findings": [], "task_class": "medium",
+    }
+    (qdir / "agent-record.json").write_text(json.dumps(record), encoding="utf-8")
+    (qdir / "progress.md").write_text(
+        "# Progress\n\n## Current goal\nFix the billing bug\n\n## Next step\nAdd regression test\n",
+        encoding="utf-8",
+    )
+    code, out, err = run_cli("brief", "--cwd", str(tmp))
+    ok = (
+        code == 0
+        and "Fix the billing bug" in out
+        and "race condition" in out
+        and "Add regression test" in out
+        and "Resume incomplete task" in out
+    )
+    return ok, f"exit={code}; out={out.strip()!r}"
+
+
+def case_brief_json_valid(tmp: Path) -> tuple[bool, str]:
+    code, out, err = run_cli("brief", "--cwd", str(tmp), "--json")
+    ok = False
+    try:
+        data = json.loads(out)
+        ok = code == 0 and "next_step" in data and "lessons_recalled" in data
+    except json.JSONDecodeError:
+        ok = False
+    return ok, f"exit={code}; json_valid={ok}"
+
+
+def case_brief_with_run_journal(tmp: Path) -> tuple[bool, str]:
+    runs_dir = tmp / ".quality-loop" / "runs" / "2026-07-01-001"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    (runs_dir / "journal.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in [
+            {"step": "INTAKE", "ts": "2026-07-01T10:00:00"},
+            {"step": "IMPLEMENT_SLICE", "ts": "2026-07-01T10:05:00"},
+            {"step": "PACKAGE", "ts": "2026-07-01T10:15:00"},
+        ]),
+        encoding="utf-8",
+    )
+    code, out, err = run_cli("brief", "--cwd", str(tmp))
+    ok = (
+        code == 0
+        and "INTAKE" in out
+        and "PACKAGE" in out
+        and "Last run shipped" in out
+    )
+    return ok, f"exit={code}; out={out.strip()!r}"
+
+
 CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
     ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
@@ -648,6 +710,10 @@ CASES = [
     ("valid inline artifact objects pass", case_valid_inline_artifacts_pass),
     ("string artifact pointing at an existing file passes", case_existing_artifact_path_passes),
     ("repeated failure requires a durable harness update", case_repeated_failure_requires_harness_update),
+    ("brief does not crash on an empty repo", case_brief_empty_repo),
+    ("brief renders record, risks, and progress tail", case_brief_with_record_and_progress),
+    ("brief --json returns valid structured output", case_brief_json_valid),
+    ("brief surfaces run journal steps and suggests next step", case_brief_with_run_journal),
 ]
 
 

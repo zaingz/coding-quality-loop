@@ -190,6 +190,31 @@ reasoning recall, `graphify` for code-graph relevance) plug in via the config `m
 and degrade to the dependency-free files backend when absent. See `references/memory.md`,
 `references/memory-honcho.md`, and `references/memory-graphify.md`.
 
+A **global cross-project store** (`~/.quality-loop/global/`) holds user-level conventions and
+preferences that apply across all projects. Recall merges project + global lessons under a
+split-capped budget. Commit to it with `--global`:
+
+```bash
+python3 scripts/quality_loop.py memory-commit --lesson "always read the migration guide before editing schema files" --kind convention --global
+```
+
+### SESSION CONTINUITY (longitudinal assistant)
+
+Long-running projects span multiple sessions. The loop bridges context windows with a
+session-start **briefing** and a **progress file** — the same pattern Anthropic's long-running
+agent harness uses (progress file + git as memory):
+
+- **At session start**, run `brief` to get up to speed:
+  `python3 scripts/quality_loop.py brief`
+  Prints the last run summary, open risks from the last record, top recalled lessons, and the
+  progress-file tail. Wired into the Claude Code `SessionStart` hook; add a one-line
+  "run brief at session start" to `AGENTS.md` for Codex/Droid/Pi.
+- **At PACKAGE / RETROSPECT**, update `.quality-loop/progress.md` (copy the template from
+  `assets/progress.md` on first use): current goal, recent sessions (one bullet each), open
+  risks, next step. Leave the repo in a clean state (commit progress, no half-implemented
+  features).
+- **Resume**: `brief` surfaces the next step; pick up from there instead of guessing.
+
 ## Hard Rules
 
 - **Understand before editing.** No edit before the change is mapped (CONTEXT MAP + mental-model graph).
@@ -251,8 +276,10 @@ blocking with `.quality-loop/config.json`:
 
 ## Driven Mode
 
-`scripts/quality_loop_run.py` runs the loop as a local orchestrator instead of
-trusting a chat transcript. It uses `scripts/quality_loop_hosts.py` adapters:
+`scripts/quality_loop_run.py` is an optional **reference orchestrator** that runs the
+loop locally instead of trusting a chat transcript. It uses a single host adapter
+for all steps (no per-role model routing — that is the host's job via the config
+profiles). It uses `scripts/quality_loop_hosts.py` adapters:
 
 - `fake` for offline tests and fixture replay.
 - `manual` for human relay.
@@ -323,6 +350,7 @@ Fill the task contract during INTAKE, then run `scripts/quality_loop.py init-rec
 Helper script commands (advisory; they do not replace human review, tests, scanners, or CI):
 
 - `init-record` — create a task state record from a goal.
+- `brief` — print a session-start project briefing: last run summary, open risks, top recalled lessons, progress-file tail, and a suggested next step. Wire into a `SessionStart` hook or run manually at the start of each session.
 - `check-record` — validate a state record against this lifecycle.
 - `diff-audit` — summarize a git diff and flag large diffs, dependency edits, migrations, and possible secrets. `--staged` audits the cached (pre-commit) diff.
 - `verify-gates` — check the recorded evidence against the risk tier: the validation contract and completion record must be a real existing file or an inline object whose required fields are present and non-empty (it rejects bare booleans, empty strings, and nonexistent paths — it checks *shape*, not whether the content is substantive), plus the repeated-failure → `harness_update` rule. It reads the **record**, not the diff; pair it with `diff-audit` and CI for the actual block. `--against-diff [--base REF]` adds the **reality layer**: phantom completion (package/done ∧ empty diff), scope integrity (changed files ⊄ repo_map/plan/completion_record), a diff-derived risk floor (auth/payments/migrations/.env/terraform/lockfiles force high-tier), bugfix-test co-presence, review freshness (recomputed `diff_sha256`), and promotes secret/test-weakening warnings to blocking at medium+.
@@ -430,6 +458,6 @@ Implement one small slice at a time in existing conventions. Run the smallest su
   backend-agnostic recall/commit/prune contract, storage, lifecycle wiring, and anti-bloat rules.
 - `references/memory-honcho.md` and `references/memory-graphify.md`: optional loop-integrated
   memory backends (Honcho reasoning recall; Graphify code-graph relevance).
-- `assets/`: task contract, context map, validation contract, plan, execution/decision logs, completion record, PR summary, `AGENTS.template.md`, state-record schema, and routing config.
-- `examples/`: one-line usage for Claude Code, Codex, Cursor, Pi, and standalone agents, plus a real walkthrough.
+- `assets/`: task contract, context map, validation contract, plan, execution/decision logs, completion record, PR summary, progress template, `AGENTS.template.md`, state-record schema, routing config, and per-role prompt cards (`assets/prompts/`).
+- `examples/`: one-line usage for Claude Code, Codex, Cursor, Pi, Droid, and standalone agents, plus a real walkthrough.
 - `evals/`: offline eval harness pinning task-class, risk-tier, minimality, security-reviewer, completion-record, and retrospective logic.

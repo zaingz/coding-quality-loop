@@ -1,7 +1,7 @@
 {
   "$schema": "./quality-loop.config.schema.json",
-  "version": "2.1.0",
-  "description": "Agentic routing for the Coding Quality Loop. Map each profile to a real model on your platform. Models are placeholders; replace with your provider's identifiers. orchestrator and security_reviewer are mission/boundary roles, not per-step profiles.",
+  "version": "2.2.0",
+  "description": "Agentic routing data for the Coding Quality Loop. Map each profile to a real model on your platform. Models are placeholders; replace with your provider's identifiers. This is routing DATA consumed by hosts (Claude subagents, Droid droids, Codex subagents, Pi providers) — it is not a runtime. The driven-mode orchestrator (quality_loop_run.py) uses a single host for all steps; per-role model routing is the host's job. orchestrator and security_reviewer are mission/boundary roles, not per-step profiles.",
   "profiles": {
     "orchestrator": {"role": "Mission: scope, classify, context, spec/validation contract, decompose, assign workers, collect findings, stop if unsafe", "model": "<strong-reasoning-model>", "tools": ["read", "search"]},
     "contract_agent": {"role": "INTAKE: goal -> task contract", "model": "<cheap-fast-model>", "tools": ["read"]},

@@ -2,8 +2,43 @@
 
 ## 2.2.0
 
-Memory hardening + Honcho backend.
+Harness-agnostic multi-agent routing + longitudinal coding partner + memory hardening.
 
+- **Per-role prompt cards**: add `intake.md`, `context-map.md`, `minimality.md`,
+  `implementer.md` to `assets/prompts/` (joining planner/reviewer/security-reviewer/
+  package). Any harness or human can now run any role by pasting one card.
+- **Claude Code subagent set**: add read-only `quality-loop-context-mapper.md` (model:
+  haiku) and `quality-loop-planner.md` (model: sonnet) to `.claude/agents/`, alongside
+  the 2 existing reviewers (now model: sonnet).
+- **Droid host example**: `examples/droid/` with `.factory/droids/` role droids
+  (mapper, planner, reviewer, security-reviewer) and a README explaining the
+  single-threaded-writes + clean-context-intelligence pattern.
+- **Pi role wiring**: extended `examples/pi/README.md` with provider/model-per-role
+  notes and Pi as the documented escalation harness for mission-class work.
+- **Harness-agnostic wiring section** in `references/agentic-orchestration.md`: a
+  role -> native mechanism table (Claude subagents, Droid droids, Codex, Cursor, Pi),
+  with Cognition 2026 and Anthropic 2025 citations confirming the core bet.
+- **`brief` command**: `python3 scripts/quality_loop.py brief` prints a session-start
+  project briefing — last run summary, open risks, top recalled lessons (project +
+  global, split-capped), progress-file tail, and a suggested next step. Wired into
+  the Claude Code `SessionStart` hook; one-line "run brief at session start" added
+  to `assets/AGENTS.template.md`.
+- **Global cross-project memory**: `~/.quality-loop/global/` store for user-level
+  conventions/preferences. `memory-commit --global`; recall merges project + global
+  under a split-capped budget. `memory-status` reports both stores. `memory-commit`
+  now accepts `--lesson` without a record path (for manual global lessons).
+- **Session continuity**: `assets/progress.md` template; SKILL.md gains a "Session
+  continuity" rule (read brief+progress at session start, update at PACKAGE/RETROSPECT,
+  resume from the surfaced next step). Follows Anthropic's long-running-agent harness
+  pattern (progress file + incremental sessions + git as memory).
+- **Driven mode reframed**: README/SKILL.md now state that `quality_loop_run.py` is an
+  optional *reference* orchestrator using a single host for all steps — per-role model
+  routing is the host's job via the config profiles and the harness-agnostic role pack.
+  The config description clarifies it is routing *data*, not a runtime.
+- **Skills Hub publish checklist** added to the Release & pinning section.
+- **References updated** with Cognition (Apr 2026, multi-agents-working) and Anthropic
+  (Nov 2025, effective-harnesses-for-long-running-agents) citations in philosophy and
+  orchestration trend sections.
 - **Fix (security):** `redact()` missed OpenAI hyphenated key families
   (`sk-live-*`, `sk-proj-*`, `sk-test-*`, `sk-svcacct-*`) because the fallback
   `sk-[A-Za-z0-9]{20,}` pattern excludes hyphens. Independent review proved a
@@ -12,7 +47,7 @@ Memory hardening + Honcho backend.
   covers all four variants; keyword tokens are re-scrubbed at Honcho egress.
 - **Add (defense in depth):** entropy-based secondary redactor catches
   obfuscated / novel-shape secrets that no regex covers. Uses Shannon entropy
-  ≥ 3.5 bits on tokens ≥ 28 chars; skips hex-only git SHAs, UUIDs, dotted
+  >= 3.5 bits on tokens >= 28 chars; skips hex-only git SHAs, UUIDs, dotted
   paths, and file paths so prose and identifiers stay intact.
 - **Add:** `scripts/quality_loop_honcho.py` — runnable [Honcho](https://honcho.dev)
   memory adapter. Same recall/commit contract as the files backend; dual-writes
@@ -27,12 +62,15 @@ Memory hardening + Honcho backend.
   compose up` and you get reasoning-based memory with zero secrets on disk.
   Cloud URLs (`https://api.honcho.dev`, any non-local host) still require
   `HONCHO_API_KEY` — the adapter refuses to connect keyless as a safety rail.
-- **Add:** three new memory eval cases pinning the redaction fixes; six
-  cases in `evals/run_honcho_evals.py` covering fallback, dual-write, boundary
-  redaction, files-only defaults, zero-config local mode, and the cloud
-  keyless-refusal safety rail. Total suite: 94/94 passing.
 - **Docs:** `references/memory-honcho.md` rewritten to describe the runnable
   adapter and document the zero-config local mode.
+- **Evals**: behavioral 27 -> **31** (4 brief cases: empty repo, record+progress,
+  JSON output, run journal); memory 20 -> **27** (global commit+recall, global
+  status, budget split, global redaction, OpenAI hyphenated key redaction,
+  sk-proj/sk-test variants, entropy redaction); hook 8 -> **9** (SessionStart
+  brief); honcho 0 -> **7** (fallback, dual-write, boundary redaction,
+  files-only defaults, zero-config local, cloud keyless-refusal). Full suite:
+  9+31+27+15+9+5+10+7 = 113 cases.
 
 ## 2.1.0
 

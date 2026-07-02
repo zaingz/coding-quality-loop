@@ -48,7 +48,17 @@ trust, review, revert, or merge it.
   `python3 scripts/quality_loop.py memory-recall --goal "<goal>" --files <changed,files> --risk <low|medium|high>`
 - Commit a durable lesson at retrospective:
   `python3 scripts/quality_loop.py memory-commit agent-record.json`
-- Lessons live in `.quality-loop/memory/`. Writes are advisory; never store secrets as lessons.
+- Commit a cross-project convention to the global store:
+  `python3 scripts/quality_loop.py memory-commit --lesson "<lesson>" --kind convention --global`
+- Lessons live in `.quality-loop/memory/` (project) and `~/.quality-loop/global/` (cross-project).
+  Writes are advisory; never store secrets as lessons.
+
+## Session continuity
+
+- At session start, run `python3 scripts/quality_loop.py brief` to get up to speed
+  (last run, open risks, top lessons, progress tail).
+- At PACKAGE / RETROSPECT, update `.quality-loop/progress.md`: current goal, recent sessions,
+  open risks, next step. Leave the repo in a clean, committable state.
 
 ## Project-Specific Notes
 

@@ -41,6 +41,11 @@ def resolve_memory_dir(
     return cwd / ".quality-loop" / "memory"
 
 
+def resolve_global_memory_dir(home: Path | None = None) -> Path:
+    home = home or Path.home()
+    return home / ".quality-loop" / "global"
+
+
 def lesson_id(text: str) -> str:
     return hashlib.sha1(text.strip().encode("utf-8")).hexdigest()[:12]
 
@@ -237,14 +242,32 @@ def _split_files(value: str | None) -> list[str]:
 def cmd_recall(args: Any) -> int:
     budget = max(1, _safe_int(getattr(args, "budget", 1500), 1500))
     mem_dir = resolve_memory_dir(args.location)
-    lessons = load_lessons(mem_dir)
-    selected = recall(lessons, args.goal or "", _split_files(args.files), args.risk, budget)
+    project_lessons = load_lessons(mem_dir)
+    global_dir = resolve_global_memory_dir()
+    global_lessons = load_lessons(global_dir)
+    if not global_lessons:
+        project_budget = budget
+        selected_project = recall(project_lessons, args.goal or "", _split_files(args.files), args.risk, budget)
+        selected_global: list[dict[str, Any]] = []
+    else:
+        project_budget = max(1, int(budget * 0.6))
+        global_budget = max(1, budget - project_budget)
+        selected_project = recall(project_lessons, args.goal or "", _split_files(args.files), args.risk, project_budget)
+        selected_global = recall(global_lessons, args.goal or "", _split_files(args.files), args.risk, global_budget)
+    selected = selected_project + selected_global
     if selected and not getattr(args, "no_bump", False):
-        bump_hits(mem_dir, [str(l.get("id", "")) for l in selected])
+        bump_hits(mem_dir, [str(l.get("id", "")) for l in selected_project])
+        if selected_global:
+            bump_hits(global_dir, [str(l.get("id", "")) for l in selected_global])
     if args.json:
         print(json.dumps(selected, indent=2))
     else:
-        print(format_digest(selected, budget))
+        parts: list[str] = []
+        if selected_project:
+            parts.append(format_digest(selected_project, project_budget))
+        if selected_global:
+            parts.append("[global] " + format_digest(selected_global, global_budget))
+        print("\n".join(parts) if parts else "No prior lessons matched.")
     return 0
 
 
@@ -331,16 +354,22 @@ def distill_record(
 
 
 def cmd_commit(args: Any) -> int:
-    record_path = Path(args.record)
-    try:
-        record = json.loads(record_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"error: could not read record {args.record!r}: {exc}", file=sys.stderr)
+    record_path = Path(args.record) if getattr(args, "record", None) else None
+    if record_path:
+        try:
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"error: could not read record {args.record!r}: {exc}", file=sys.stderr)
+            return 1
+        if not isinstance(record, dict):
+            print(f"error: record {args.record!r} is not a JSON object", file=sys.stderr)
+            return 1
+    elif getattr(args, "lesson", None):
+        record = {"task_id": "manual", "risk_tier": "low"}
+    else:
+        print("error: a record path or --lesson is required", file=sys.stderr)
         return 1
-    if not isinstance(record, dict):
-        print(f"error: record {args.record!r} is not a JSON object", file=sys.stderr)
-        return 1
-    mem_dir = resolve_memory_dir(args.location)
+    mem_dir = resolve_global_memory_dir() if getattr(args, "global_store", False) else resolve_memory_dir(args.location)
     created = date.today().isoformat()
     override_scope = [args.scope] if getattr(args, "scope", None) else None
     rows = distill_record(
@@ -404,7 +433,7 @@ def prune(
 
 
 def cmd_prune(args: Any) -> int:
-    mem_dir = resolve_memory_dir(args.location)
+    mem_dir = resolve_global_memory_dir() if getattr(args, "global_store", False) else resolve_memory_dir(args.location)
     lessons = load_lessons(mem_dir)
     kept = prune(lessons, max_n=args.max, max_age_days=args.max_age_days)
     save_lessons(mem_dir, kept)
@@ -460,6 +489,8 @@ def cmd_status(args: Any) -> int:
             config_error = f"could not read {config_path}: {exc}"
     mem_dir = resolve_memory_dir(location)
     lessons = load_lessons(mem_dir)
+    global_dir = resolve_global_memory_dir()
+    global_lessons = load_lessons(global_dir)
     status: dict[str, Any] = {
         "memory_dir": str(mem_dir),
         "exists": (mem_dir / "lessons.jsonl").is_file(),
@@ -468,6 +499,8 @@ def cmd_status(args: Any) -> int:
         "graph_relevance": graph_relevance,
         "lesson_count": len(lessons),
         "kinds": count_kinds(lessons),
+        "global_dir": str(global_dir),
+        "global_lesson_count": len(global_lessons),
         "note": "files is the coded backend; honcho/graphify are agent-driven and degrade to files when unavailable",
     }
     if config_error:
