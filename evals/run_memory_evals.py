@@ -341,6 +341,65 @@ def case_recall_no_bump(tmp: Path) -> tuple[bool, str]:
     return ok, f"code={code}; hits={hits}; index_unchanged={idx_before == idx_after}"
 
 
+def case_openai_hyphenated_key_redacted(tmp: Path) -> tuple[bool, str]:
+    """Regression pin for the review finding: sk-live-<hex> / sk-proj-<hex>
+    OpenAI-style keys must not leak into the lessons store OR into the keyword
+    tokenizer. This case previously failed on main and shipped a raw key."""
+    rec = {
+        "task_id": "s2", "goal": "add API key redaction pin", "risk_tier": "medium",
+        "harness_update": "The API key sk-live-abcd1234567890abcdef1234567890 must never appear",
+        "repo_map": {"likely_files": ["src/config.py"]},
+    }
+    p = tmp / "rec.json"
+    p.write_text(json.dumps(rec))
+    code, out, err = run_cli("memory-commit", str(p), cwd=str(tmp))
+    body = (tmp / ".quality-loop" / "memory" / "lessons.jsonl").read_text()
+    idx = (tmp / ".quality-loop" / "memory" / "MEMORY.md").read_text()
+    # Both the raw prefix and the naked hex payload must be gone (keywords used
+    # to tokenize the hex fragment even after the lesson text was scrubbed).
+    ok = (
+        code == 0
+        and "sk-live-abcd" not in body and "sk-live-abcd" not in idx
+        and "abcd1234567890abcdef1234567890" not in body
+        and "abcd1234567890abcdef1234567890" not in idx
+        and "[REDACTED]" in body
+    )
+    return ok, f"code={code}; keyword_leak={'abcd1234567890abcdef1234567890' in body}"
+
+
+def case_openai_proj_and_test_keys_redacted(tmp: Path) -> tuple[bool, str]:
+    """sk-proj-* and sk-test-* variants must be redacted the same way."""
+    from quality_loop import redact  # noqa: E402
+    proj = "sk-proj-QjP3K9vLmN2xR8fH4tYaB5cD7eG1jK0iL9M6oP2qS4uV"
+    test = "sk-test-1234567890abcdefABCDEF_-9876"
+    r1 = redact(f"leaked {proj} into a log")
+    r2 = redact(f"see {test} in the fixture")
+    ok = proj not in r1 and test not in r2 and "[REDACTED]" in r1 and "[REDACTED]" in r2
+    return ok, f"r1={r1!r}; r2={r2!r}"
+
+
+def case_entropy_redaction_catches_obfuscated_secret(tmp: Path) -> tuple[bool, str]:
+    """The secondary entropy pass catches long, high-entropy tokens that no
+    regex covers, while leaving prose / git SHAs / UUIDs / file paths alone."""
+    from quality_loop import redact  # noqa: E402
+    obfuscated = "aGVsbG9fdGhpc19pc19hX2Jhc2U2NF9zZWNyZXRfa2V5X3Rva2Vu"  # base64-ish
+    sha = "3a4f8e9b12c56d78e0f1a2b3c4d5e6f708192a3b"
+    uuid = "01234567-89ab-cdef-0123-456789abcdef"
+    path = "python3 scripts/quality_loop.py verify-gates agent-record.json"
+    prose = "the rounder rounds ties to even using stdlib decimal"
+    r_obf = redact(f"key: {obfuscated}")
+    r_sha = redact(f"commit {sha} is fine")
+    r_uuid = redact(f"session {uuid} is fine")
+    r_path = redact(path)
+    r_prose = redact(prose)
+    ok = (
+        obfuscated not in r_obf and "[REDACTED]" in r_obf
+        and sha in r_sha and uuid in r_uuid
+        and r_path == path and r_prose == prose
+    )
+    return ok, f"obf_redacted={obfuscated not in r_obf}; sha_kept={sha in r_sha}; uuid_kept={uuid in r_uuid}; path_kept={r_path == path}; prose_kept={r_prose == prose}"
+
+
 def case_budget_clamped(tmp: Path) -> tuple[bool, str]:
     mem_dir = tmp / ".quality-loop" / "memory"
     mem.append_lesson(mem_dir, mem.normalize_lesson(
@@ -374,6 +433,9 @@ CASES = [
     ("recall fires on path-only and keyword-only matches (OR contract)", case_recall_path_only_and_keyword_only),
     ("memory-recall --no-bump leaves hits and index unchanged", case_recall_no_bump),
     ("memory-recall clamps a non-positive --budget", case_budget_clamped),
+    ("OpenAI hyphenated key (sk-live-*) is redacted from lessons + keywords", case_openai_hyphenated_key_redacted),
+    ("sk-proj-* and sk-test-* variants are redacted", case_openai_proj_and_test_keys_redacted),
+    ("entropy pass catches obfuscated secrets, spares SHAs/UUIDs/paths/prose", case_entropy_redaction_catches_obfuscated_secret),
 ]
 
 

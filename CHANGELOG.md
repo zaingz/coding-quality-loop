@@ -1,5 +1,39 @@
 # Changelog
 
+## 2.2.0
+
+Memory hardening + Honcho backend.
+
+- **Fix (security):** `redact()` missed OpenAI hyphenated key families
+  (`sk-live-*`, `sk-proj-*`, `sk-test-*`, `sk-svcacct-*`) because the fallback
+  `sk-[A-Za-z0-9]{20,}` pattern excludes hyphens. Independent review proved a
+  raw `sk-live-<hex>` could be persisted verbatim into `.quality-loop/memory/lessons.jsonl`
+  and its hex payload leaked into the searchable `keywords` array. New regex
+  covers all four variants; keyword tokens are re-scrubbed at Honcho egress.
+- **Add (defense in depth):** entropy-based secondary redactor catches
+  obfuscated / novel-shape secrets that no regex covers. Uses Shannon entropy
+  ≥ 3.5 bits on tokens ≥ 28 chars; skips hex-only git SHAs, UUIDs, dotted
+  paths, and file paths so prose and identifiers stay intact.
+- **Add:** `scripts/quality_loop_honcho.py` — runnable [Honcho](https://honcho.dev)
+  memory adapter. Same recall/commit contract as the files backend; dual-writes
+  to files then mirrors to Honcho; transparent fallback to files when the SDK
+  is missing, the API key is unset, or the network call fails. Config lives
+  under `memory.honcho` with `HONCHO_API_KEY` from env. Runtime dep
+  `honcho-ai` is imported lazily so files-backend users never install it.
+- **Add (zero-config local):** the Honcho adapter now defaults `base_url` to
+  `http://localhost:8000` and connects **without an API key** to any local
+  endpoint (`localhost`, `127.0.0.1`, `0.0.0.0`, `host.docker.internal`,
+  `.local`, `::1`). Run upstream Honcho with `AUTH_USE_AUTH=false docker
+  compose up` and you get reasoning-based memory with zero secrets on disk.
+  Cloud URLs (`https://api.honcho.dev`, any non-local host) still require
+  `HONCHO_API_KEY` — the adapter refuses to connect keyless as a safety rail.
+- **Add:** three new memory eval cases pinning the redaction fixes; six
+  cases in `evals/run_honcho_evals.py` covering fallback, dual-write, boundary
+  redaction, files-only defaults, zero-config local mode, and the cloud
+  keyless-refusal safety rail. Total suite: 94/94 passing.
+- **Docs:** `references/memory-honcho.md` rewritten to describe the runnable
+  adapter and document the zero-config local mode.
+
 ## 2.1.0
 
 Proof layer.

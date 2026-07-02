@@ -104,7 +104,7 @@
     "graph_relevance": "none",
     "location": "checked_in",
     "recall_budget_chars": 1500,
-    "honcho": {"workspace_id": null, "peer_id": null, "session_template": null, "target_peer": null},
+    "honcho": {"workspace_id": null, "peer_id": null, "session_template": null, "target_peer": null, "base_url": "http://localhost:8000"},
     "graphify": {"out_dir": "graphify-out", "token_budget": 2000}
   },
   "hosts": {

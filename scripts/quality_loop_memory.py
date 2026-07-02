@@ -434,6 +434,14 @@ def validate_memory_config(memory: Any) -> list[str]:
     budget = memory.get("recall_budget_chars", 1500)
     if isinstance(budget, bool) or not isinstance(budget, int) or budget <= 0:
         errors.append("memory.recall_budget_chars must be a positive integer")
+    if memory.get("lessons_store") == "honcho":
+        honcho = memory.get("honcho") or {}
+        if not isinstance(honcho, dict):
+            errors.append("memory.honcho must be an object when lessons_store='honcho'")
+        else:
+            for required in ("workspace_id", "peer_id"):
+                if not str(honcho.get(required, "")).strip():
+                    errors.append(f"memory.honcho.{required} is required when lessons_store='honcho'")
     return errors
 
 
