@@ -7,10 +7,10 @@
 **Make your AI coding agent ship changes you can trust, not giant diffs you have to babysit.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-111111?style=flat-square)](LICENSE)
-[![version](https://img.shields.io/badge/version-2.1.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.2.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-9%2B27%2B20%2B15%2B8%2B5%2B10-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-9%2B27%2B23%2B15%2B8%2B5%2B10%2B7-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-111111?style=flat-square)](#install--use-matrix)
@@ -213,7 +213,9 @@ python3 scripts/quality_loop.py memory-recall --goal "fix checkout retry" \
 python3 scripts/quality_loop.py memory-commit agent-record.json
 ```
 
-The default backend is **stdlib-only and checked-in**: `.quality-loop/memory/`, git-diffable and team-shared. **Honcho** reasoning-based recall and **[Graphify](https://github.com/safishamsi/graphify)** code-graph relevance are **documented integration patterns**, not shipped implementations. They plug in via the config `memory` block and degrade gracefully to the files backend when absent. See [`references/memory.md`](references/memory.md), `references/memory-honcho.md`, and `references/memory-graphify.md`.
+The default backend is **stdlib-only and checked-in**: `.quality-loop/memory/`, git-diffable and team-shared.
+
+**[Honcho](https://honcho.dev)** reasoning-based recall is a **runnable adapter** as of v2.2 (`scripts/quality_loop_honcho.py`). It has the same recall/commit contract as the files backend, dual-writes so files remain the source of truth, and degrades transparently to files when the SDK is missing or the network fails. **Zero-config local mode** works out of the box: run `AUTH_USE_AUTH=false docker compose up` against the upstream Honcho, point the config at `http://localhost:8000`, and omit `HONCHO_API_KEY` — the adapter connects keyless to any local endpoint (`localhost`, `127.0.0.1`, `host.docker.internal`, `.local`, `::1`). Cloud URLs still require the key as a safety rail. **[Graphify](https://github.com/safishamsi/graphify)** code-graph relevance remains a documented integration pattern. See [`references/memory.md`](references/memory.md), [`references/memory-honcho.md`](references/memory-honcho.md), and [`references/memory-graphify.md`](references/memory-graphify.md).
 
 ---
 
@@ -231,10 +233,11 @@ python3 evals/run_reality_evals.py                                             #
 python3 evals/run_hook_evals.py                                                # 7. host hook fixtures
 python3 evals/run_orchestrator_evals.py                                        # 8. driven mode fake-host evals
 python3 evals/run_trigger_evals.py                                             # 9. activation smoke
+python3 evals/run_honcho_evals.py                                              # 10. honcho memory adapter
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json
 ```
 
-Current result: **9/9 static** + **27/27 behavioral** + **20/20 memory** + **15/15 reality** + **8/8 hook** + **5/5 orchestrator** + **10/10 trigger** cases pass, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
+Current result: **9/9 static** + **27/27 behavioral** + **23/23 memory** + **15/15 reality** + **8/8 hook** + **5/5 orchestrator** + **10/10 trigger** + **7/7 honcho** cases pass, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -245,6 +248,7 @@ Current result: **9/9 static** + **27/27 behavioral** + **20/20 memory** + **15/
 - The **reality** suite builds temp git repos where the record and the diff disagree: phantom completion, unmapped file, auth path under low tier, missing bugfix test, stale review hash, lying evidence, red-green catch, staged secret. It asserts the diff-grounded gates catch the lie.
 - The **hook** suite feeds fixture JSON into Claude/Codex-compatible shims and checks destructive Bash blocks, secret-write blocks, required edit-before-plan blocks, Stop-gate continuation, SessionStart context, and installer idempotence.
 - The **orchestrator** suite runs driven mode through the fake host and pins step order, transcript isolation for REVIEW, VERIFY-before-REVIEW blocking, tiny topology, and compatibility with the v1 record gates.
+- The **honcho** suite drives the Honcho memory adapter with a stubbed SDK and pins: transparent fallback when the SDK is missing, dual-write and recall via files + Honcho, boundary redaction of secrets and keywords before egress, zero-config local mode (keyless connection to `http://localhost:8000`), the cloud safety rail (`api.honcho.dev` without a key refuses to connect), files-only when the config omits the block, and `_client` accepting a raw config without a `KeyError`.
 
 </details>
 
