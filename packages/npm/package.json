@@ -1,0 +1,50 @@
+{
+  "name": "coding-quality-loop",
+  "version": "2.3.0",
+  "description": "Make your AI coding agent ship changes you can trust. One-command installer for the Coding Quality Loop skill.",
+  "keywords": [
+    "agent-skills",
+    "claude-code",
+    "codex",
+    "cursor",
+    "ai-agents",
+    "llm",
+    "code-review",
+    "prompt-engineering",
+    "anthropic",
+    "coding-agent",
+    "agentic"
+  ],
+  "homepage": "https://github.com/zaingz/coding-quality-loop#readme",
+  "bugs": {
+    "url": "https://github.com/zaingz/coding-quality-loop/issues"
+  },
+  "license": "MIT",
+  "author": "zaingz",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zaingz/coding-quality-loop.git",
+    "directory": "packages/npm"
+  },
+  "type": "module",
+  "bin": {
+    "coding-quality-loop": "bin/cql.mjs",
+    "cql": "bin/cql.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "prepack": "node scripts/prepack.mjs",
+    "test": "node --test test/",
+    "smoke": "node bin/cql.mjs init --dry-run --yes --target /tmp/cql-npm-smoke"
+  },
+  "dependencies": {}
+}
