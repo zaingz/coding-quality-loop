@@ -1,0 +1,8 @@
+{
+  "variant": "/home/user/workspace/ts-search-eval-2026-07-03/variants/claude-baseline",
+  "entry": "dist/src/index.js",
+  "total": 24,
+  "passed": 24,
+  "failed": 0,
+  "failures": []
+}

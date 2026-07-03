@@ -1,0 +1,62 @@
+{
+  "judge_id": "judge-1",
+  "scores": {
+    "A": {
+      "feature_completeness": { "score": 9, "reason": "Implements the required constructor, mutations, string and structured queries, BM25, snippets, introspection, and serialization, with only minor reservations around brute-force fuzzy/prefix internals rather than missing surface features." },
+      "correctness_edge_cases": { "score": 9, "reason": "Shared checks pass and the code handles empty queries, upsert/remove cleanup, unicode normalization, snippets on nonmatching fields, and partial updates, with only some unexercised parser/slop corner cases left." },
+      "ranking_quality": { "score": 8, "reason": "BM25, boosts, phrase proximity, and deterministic tie-breaking are present, though document frequency is computed across all fields rather than per field and phrase slop uses a simple greedy alignment." },
+      "type_safety_api_design": { "score": 8, "reason": "The generic public API is coherent and strict, but the implementation relies on record casts for dynamic field access and the field schema is not keyed to Doc fields." },
+      "performance": { "score": 7, "reason": "Index build and ordinary term/boolean/phrase queries are very fast, but memory estimate is very high and fuzzy queries scan the term dictionary with p50 around 20 ms." },
+      "test_evidence": { "score": 6, "reason": "The single test file covers the required minimum behaviors, but it has only 10 tests and relatively thin coverage of parser precedence, serialization variants, long docs, and deep edge cases." },
+      "verification_artifacts": { "score": 0, "reason": "No process-notes or comparable handoff verification artifacts were present for this variant." },
+      "code_quality_minimality": { "score": 8, "reason": "The implementation is readable and dependency-free, but it is a large monolithic file and the index snapshot/memory footprint are heavier than necessary." },
+      "readme_quality": { "score": 8, "reason": "The README is concise and documents the constructor, mutations, query DSL, ranking, search options, introspection, serialization, and benchmark with usable examples." },
+      "judge_gestalt": { "score": 7, "reason": "I would request changes mainly for fuzzy performance, memory footprint, and stronger tests, but the core library is otherwise solid." },
+      "total": 71.5,
+      "verdict": "request_changes"
+    },
+    "B": {
+      "feature_completeness": { "score": 8, "reason": "The required APIs and query forms are broadly implemented, but serialization rebuilds from docs rather than exact state and the public generic constraint is awkward for ordinary document interfaces." },
+      "correctness_edge_cases": { "score": 8, "reason": "It passes the shared suite and covers many required edge cases, but the parser recognizes operators only in exact uppercase and there are weaker guarantees around custom stopword restoration." },
+      "ranking_quality": { "score": 8, "reason": "BM25 with field boosts, phrase proximity, and stable tie-breaking are implemented with a reasonable formula, though phrase evaluation is brute-force over documents." },
+      "type_safety_api_design": { "score": 6, "reason": "Production code avoids any and builds strictly, but requiring Doc to extend Record<string, unknown> makes common typed interfaces fail without an index signature and hurts API ergonomics." },
+      "performance": { "score": 2, "reason": "Benchmarks are far slower than the target for regular queries, with single-term p50 about 8.7 ms and OR/phrase p50s in the tens of milliseconds despite an acceptable build time." },
+      "test_evidence": { "score": 7, "reason": "The 13-test suite covers the minimum list plus several edge cases, but it is still a single file with limited stress on parser variants, exact serialization semantics, and performance-sensitive paths." },
+      "verification_artifacts": { "score": 6, "reason": "Process notes include a validation contract, execution log, completion record, and benchmark evidence, but much of the material is checklist-like and less diagnostic than the best handoffs." },
+      "code_quality_minimality": { "score": 6, "reason": "The one-file implementation is compact and dependency-free, but the query execution choices cause poor performance and the public type constraint is not production-polished." },
+      "readme_quality": { "score": 5, "reason": "The README documents the basics but includes a confusing invalid query example and is thinner on complete per-method examples and design details." },
+      "judge_gestalt": { "score": 4, "reason": "I would not ship this without significant performance and API ergonomics changes, even though the basic behavior is mostly correct." },
+      "total": 63.5,
+      "verdict": "request_changes"
+    },
+    "C": {
+      "feature_completeness": { "score": 9, "reason": "The implementation covers the full surface area, including structured and string queries, snippets, serialization of postings, introspection, unicode, and benchmark support." },
+      "correctness_edge_cases": { "score": 8, "reason": "The shared suite and extensive tests pass, but custom tokenizer normalization is less robust than the default path and mutation methods have slightly surprising nonexistent-id behavior." },
+      "ranking_quality": { "score": 8, "reason": "BM25, field boosts, phrase slop/proximity, and deterministic ties are implemented, though phrase proximity uses a simple inverse factor and fuzzy/prefix scoring is dictionary-scan based." },
+      "type_safety_api_design": { "score": 8, "reason": "The modular public types are generic and strict, with a generally ergonomic SearchIndex<Doc>, though dynamic field access still requires internal record casts and the snapshot type is less Doc-specific." },
+      "performance": { "score": 4, "reason": "Build time is acceptable but normal queries miss the p50 target and fuzzy is especially poor, with p50 around 33 ms and p99 near 193 ms." },
+      "test_evidence": { "score": 9, "reason": "The six test files and 51 tests cover the required minimum, many edge cases, parser behavior, ranking, snippets, serialization, unicode, and introspection." },
+      "verification_artifacts": { "score": 0, "reason": "No process-notes or comparable handoff verification artifacts were present for this variant." },
+      "code_quality_minimality": { "score": 8, "reason": "The code is well-structured into focused modules and readable, but it is comparatively large and remove/update/fuzzy paths scan broad structures." },
+      "readme_quality": { "score": 9, "reason": "The README is thorough, clear, and documents API usage, query syntax, ranking formula, serialization, benchmark, constraints, and design notes within a reasonable length." },
+      "judge_gestalt": { "score": 7, "reason": "I would request changes primarily for performance and missing verification artifacts, but the source and tests are close to production quality." },
+      "total": 70.5,
+      "verdict": "request_changes"
+    },
+    "D": {
+      "feature_completeness": { "score": 8, "reason": "The library implements nearly all required features, but boostFields is treated as a multiplier on top of configured boosts rather than the specified per-query override." },
+      "correctness_edge_cases": { "score": 9, "reason": "It passes the shared suite and has strong explicit coverage for unicode, empty/all-stopword queries, upsert/remove/update, long documents, snippets, nested booleans, and serialization." },
+      "ranking_quality": { "score": 7, "reason": "BM25, phrase proximity, field boosts, and tie-breaking are present, but boostFields semantics are off and phrase slop accounting is simplified enough to be questionable for longer phrases." },
+      "type_safety_api_design": { "score": 9, "reason": "The API is generic, strict, well-exported, and ergonomically typed, with no production any or suppressions and a coherent module boundary." },
+      "performance": { "score": 6, "reason": "Build time is just under the 5s target and fuzzy is the best of the slower variants, but single-term p50 is still above the 500 us target and fuzzy still scans the dictionary." },
+      "test_evidence": { "score": 10, "reason": "The 62-test, nine-file suite is broad and behavioral, covering required cases plus custom tokenizer/stemmer/idField, unicode, parser precedence, serialization, snippets, ranking, and edge cases." },
+      "verification_artifacts": { "score": 10, "reason": "The process notes are substantive, with a detailed validation contract, execution log, decision log, bug-fix history, benchmark evidence, and final clean-room verification record." },
+      "code_quality_minimality": { "score": 8, "reason": "The code is professional and modular with a useful postings abstraction, though it is sizeable and still uses brute-force dictionary fuzzy search plus a few documented semantic deviations." },
+      "readme_quality": { "score": 9, "reason": "The README is comprehensive and readable, with examples, query DSL, search options, ranking notes, unicode limitations, serialization, and benchmark instructions." },
+      "judge_gestalt": { "score": 8, "reason": "This is the strongest submission and close to shippable, but I would still request changes for boost override semantics and performance polish." },
+      "total": 84.0,
+      "verdict": "request_changes"
+    }
+  },
+  "cross_notes": "All variants passed build, their own tests, and the shared correctness suite, so the separation is mostly in performance, API polish, tests, and verification evidence. D is the clear leader because it combines broad tests, strong process evidence, and good modular code, but it still needs boostFields semantics and performance cleanup. A is fast for ordinary queries and compact but lacks verification artifacts and has weak fuzzy/memory behavior; C has excellent tests and documentation but poor fuzzy performance and no artifacts; B is functionally adequate but has the weakest performance and API ergonomics."
+}

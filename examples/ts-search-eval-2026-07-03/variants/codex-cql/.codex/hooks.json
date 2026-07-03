@@ -1,0 +1,42 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/hosts/claude-code/sessionstart_context.py\"",
+            "timeout": 10,
+            "statusMessage": "Loading Quality Loop context"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/hosts/claude-code/pretooluse_guard.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking Quality Loop policy"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/hosts/claude-code/stop_gate.py\"",
+            "timeout": 30,
+            "statusMessage": "Running Quality Loop stop gate"
+          }
+        ]
+      }
+    ]
+  }
+}

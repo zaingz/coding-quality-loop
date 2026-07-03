@@ -1,0 +1,155 @@
+{
+  "$schema": "./quality-loop.config.schema.json",
+  "version": "2.2.0",
+  "description": "Agentic routing data for the Coding Quality Loop. Map each profile to a real model on your platform. Models are placeholders; replace with your provider's identifiers. This is routing DATA consumed by hosts (Claude subagents, Droid droids, Codex subagents, Pi providers) — it is not a runtime. The driven-mode orchestrator (quality_loop_run.py) uses a single host for all steps; per-role model routing is the host's job. orchestrator and security_reviewer are mission/boundary roles, not per-step profiles.",
+  "profiles": {
+    "orchestrator": {"role": "Mission: scope, classify, context, spec/validation contract, decompose, assign workers, collect findings, stop if unsafe", "model": "<strong-reasoning-model>", "tools": ["read", "search"]},
+    "contract_agent": {"role": "INTAKE: goal -> task contract", "model": "<cheap-fast-model>", "tools": ["read"]},
+    "repo_mapper": {"role": "EXPLORE/CONTEXT MAP: smallest relevant code map; findings not dumps", "model": "<cheap-fast-model>", "tools": ["read", "search", "grep"]},
+    "planner": {"role": "PLAN: design smallest correct change", "model": "<strong-reasoning-model>", "tools": ["read", "search"]},
+    "minimality_reviewer": {"role": "COMPLEXITY BRAKE: pick highest valid rung; simplicity review", "model": "<strong-reasoning-model>", "tools": ["read"]},
+    "implementer": {"role": "IMPLEMENT_SLICE: write the diff", "model": "<code-specialized-model>", "tools": ["read", "edit", "write", "exec"]},
+    "verification_runner": {"role": "VERIFY: run checks, capture evidence", "model": "<cheap-fast-model>", "tools": ["exec"]},
+    "fresh_reviewer": {"role": "INDEPENDENT REVIEW: validator; diff review vs validation contract", "model": "<strong-reasoning-model>", "tools": ["read", "search"], "independent_session": true},
+    "security_reviewer": {"role": "Risk boundaries only: auth, secrets, payments, PII, migrations, upload/download, network, shell, dependencies", "model": "<strong-reasoning-model>", "tools": ["read", "search"], "independent_session": true},
+    "packager": {"role": "SHIP/HANDOFF: assemble PR handoff + completion record", "model": "<cheap-fast-model>", "tools": ["read"]},
+    "policy_guard": {"role": "Cross-cutting deterministic safety blocks", "model": null, "tools": ["hook"], "deterministic": true}
+  },
+  "steps": [
+    {
+      "step": "INTAKE",
+      "profile": "contract_agent",
+      "model_class": "cheap_fast",
+      "tools": ["read"],
+      "required_artifacts": ["task_contract"],
+      "gates": ["contract_has_goal", "contract_has_acceptance_criteria", "contract_has_risk_tier"]
+    },
+    {
+      "step": "EXPLORE",
+      "profile": "repo_mapper",
+      "model_class": "cheap_fast",
+      "tools": ["read", "search", "grep"],
+      "required_artifacts": ["repo_map"],
+      "gates": ["likely_files_named"]
+    },
+    {
+      "step": "MINIMALITY_GATE",
+      "profile": "minimality_reviewer",
+      "model_class": "strong_reasoning",
+      "tools": ["read"],
+      "required_artifacts": ["minimality_decision"],
+      "gates": ["rung_chosen", "lower_rungs_rejected", "safety_exceptions_checked"]
+    },
+    {
+      "step": "PLAN",
+      "profile": "planner",
+      "model_class": "strong_reasoning",
+      "tools": ["read", "search"],
+      "required_artifacts": ["plan"],
+      "gates": ["plan_names_files", "plan_names_verification"]
+    },
+    {
+      "step": "IMPLEMENT_SLICE",
+      "profile": "implementer",
+      "model_class": "code_specialized",
+      "tools": ["read", "edit", "write", "exec"],
+      "required_artifacts": ["diff"],
+      "gates": ["diff_scoped_to_plan"]
+    },
+    {
+      "step": "VERIFY",
+      "profile": "verification_runner",
+      "model_class": "cheap_fast",
+      "tools": ["exec"],
+      "required_artifacts": ["command_evidence"],
+      "gates": ["evidence_matches_risk_tier"]
+    },
+    {
+      "step": "REVIEW",
+      "profile": "fresh_reviewer",
+      "model_class": "strong_reasoning",
+      "tools": ["read", "search"],
+      "independent_session": true,
+      "required_artifacts": ["review_verdict"],
+      "gates": ["verdict_recorded", "findings_recorded"]
+    },
+    {
+      "step": "PACKAGE",
+      "profile": "packager",
+      "model_class": "cheap_fast",
+      "tools": ["read"],
+      "required_artifacts": ["pr_handoff"],
+      "gates": ["handoff_complete"]
+    }
+  ],
+  "policy_guard": {
+    "profile": "policy_guard",
+    "enforcement": "deterministic",
+    "applies_to": ["all_steps"],
+    "block_or_escalate": [
+      "secrets_or_credentials_in_diff",
+      "destructive_migration_or_data_deletion",
+      "payment_billing_auth_infra_change",
+      "new_dependency_without_justification",
+      "diff_exceeds_review_budget"
+    ]
+  },
+  "routing_defaults": {
+    "low": {"agents": ["implementer"], "policy_guard": true, "note": "One agent runs the whole loop."},
+    "medium": {"agents": ["implementer", "fresh_reviewer", "verification_runner"], "policy_guard": true, "note": "Independent reviewer + real checks."},
+    "high": {"agents": ["orchestrator", "planner", "minimality_reviewer", "implementer", "verification_runner", "fresh_reviewer", "security_reviewer"], "policy_guard": true, "human_approval": true, "security_reviewer_at_boundaries": true, "note": "Full split with enforced security/migration blocks; security_reviewer required at risk boundaries."}
+  },
+  "memory": {
+    "lessons_store": "files",
+    "graph_relevance": "none",
+    "location": "checked_in",
+    "recall_budget_chars": 1500,
+    "honcho": {"workspace_id": null, "peer_id": null, "session_template": null, "target_peer": null, "base_url": "http://localhost:8000"},
+    "graphify": {"out_dir": "graphify-out", "token_budget": 2000}
+  },
+  "model_routing": {
+    "description": "Per-model-class routing applied by setup-models. Copy this file to quality-loop.config.json at your repo root, set host to your platform, adjust your host's block, then run: python3 scripts/quality_loop.py setup-models. Hosts that use frontmatter (claude-code, droid) get their agent .md files rewritten; codex and pi print the settings to apply. model_class values (cheap_fast, strong_reasoning, code_specialized) match the steps[].model_class field above.",
+    "host": null,
+    "host_models": {
+      "claude-code": {
+        "cheap_fast": {"model": "haiku"},
+        "strong_reasoning": {"model": "sonnet"},
+        "code_specialized": {"model": "inherit"}
+      },
+      "droid": {
+        "cheap_fast": {"model": "inherit", "note": "Replace with a Factory model id (docs.factory.ai/models) or custom:<id> for BYOK."},
+        "strong_reasoning": {"model": "inherit"},
+        "code_specialized": {"model": "inherit"}
+      },
+      "codex": {
+        "cheap_fast": {"model": "gpt-5.5", "thinking": "low"},
+        "strong_reasoning": {"model": "gpt-5.5", "thinking": "medium"},
+        "code_specialized": {"model": "gpt-5.5", "thinking": "medium"}
+      },
+      "pi": {
+        "cheap_fast": {"model": null, "thinking": "low", "note": "Fill with your provider's model id."},
+        "strong_reasoning": {"model": null, "thinking": "high"},
+        "code_specialized": {"model": null}
+      }
+    },
+    "agents": {
+      "quality-loop-context-mapper": "cheap_fast",
+      "quality-loop-planner": "strong_reasoning",
+      "quality-loop-reviewer": "strong_reasoning",
+      "quality-loop-security-reviewer": "strong_reasoning"
+    }
+  },
+  "hosts": {
+    "fake": {"adapter": "fake", "available": true},
+    "manual": {"adapter": "manual", "available": true},
+    "claude": {"adapter": "claude", "model": null},
+    "codex": {"adapter": "codex", "model": null}
+  },
+  "execution": {
+    "default_host": "fake",
+    "review_host": "fake",
+    "timeout_seconds": 30,
+    "journal_dir": ".quality-loop/runs",
+    "dry_run": false
+  }
+}

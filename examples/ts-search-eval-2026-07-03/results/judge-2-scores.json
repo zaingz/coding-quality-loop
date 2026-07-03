@@ -1,0 +1,62 @@
+{
+  "judge_id": "judge-2",
+  "scores": {
+    "A": {
+      "feature_completeness": {"score": 10, "reason": "All features implemented, including full query parser, structured queries, BM25, exact adjacency/proximity phrase queries, fuzzy, boosts, and snippets."},
+      "correctness_edge_cases": {"score": 10, "reason": "Handles all edge cases gracefully, tested extensively, and processes removing/updating documents correctly."},
+      "ranking_quality": {"score": 10, "reason": "Correct BM25 formula implementation with proximity bonus for phrases, tied by deterministic document ID asc."},
+      "type_safety_api_design": {"score": 10, "reason": "Strict type safety, generic over Doc, cleanly exported structured AST and options types."},
+      "performance": {"score": 9, "reason": "Single term p50 ~1.2ms, slightly above target 500µs, but very strong fuzzy performance (p50 ~7ms) despite no external index."},
+      "test_evidence": {"score": 10, "reason": "Extensive testing (62 tests), hitting every documented edge case and requirement explicitly."},
+      "verification_artifacts": {"score": 10, "reason": "Excellent detailed execution and decision logs capturing real complexity considerations and bugfixes."},
+      "code_quality_minimality": {"score": 10, "reason": "Well structured into specific modules (parser, engine, index, snippet), highly readable and zero-dependency."},
+      "readme_quality": {"score": 10, "reason": "Comprehensive README with proper type signatures, limitations, and example configurations."},
+      "judge_gestalt": {"score": 10, "reason": "Ship as-is. Production quality codebase with robust documentation and excellent modularity."},
+      "total": 98.5,
+      "verdict": "merge_as_is"
+    },
+    "B": {
+      "feature_completeness": {"score": 10, "reason": "Full feature implementation including proximity, fuzzy matching, queries, serialization, and correct mutations."},
+      "correctness_edge_cases": {"score": 9, "reason": "Handles long docs, missing fields correctly, but the fuzzy query does not properly limit scans and might be slow with many unique terms."},
+      "ranking_quality": {"score": 9, "reason": "BM25 with smoothing, handles proximity bonus. It sums BM25 correctly but phrase scoring uses average distances rather than tight clusters."},
+      "type_safety_api_design": {"score": 9, "reason": "Good type definitions, fully strictly typed, but single file is a bit monolithic compared to A."},
+      "performance": {"score": 6, "reason": "Slow fuzzy search (p50 ~33ms, p99 193ms) and single-term queries lag behind the 500us target (p50 ~1.2ms)."},
+      "test_evidence": {"score": 9, "reason": "Good 51 tests across index building, query handling, and snippet logic."},
+      "verification_artifacts": {"score": 0, "reason": "Missing process notes entirely."},
+      "code_quality_minimality": {"score": 8, "reason": "All logic bundled together in a couple files, causing some readability issues, but functional and dependency-free."},
+      "readme_quality": {"score": 9, "reason": "Clear and detailed README with architecture explanations, albeit slightly less structured than A."},
+      "judge_gestalt": {"score": 8, "reason": "Very good, but slower fuzzy matching and lack of process logs pulls it back slightly."},
+      "total": 82.0,
+      "verdict": "request_changes"
+    },
+    "C": {
+      "feature_completeness": {"score": 10, "reason": "Supports everything asked for in a single file implementation."},
+      "correctness_edge_cases": {"score": 9, "reason": "Passes all tests but implementation relies on exhaustive iteration across inverted keys which leads to scaling issues."},
+      "ranking_quality": {"score": 8, "reason": "Basic BM25 but proximity multiplier is a bit simplistic and is recalculated exhaustively."},
+      "type_safety_api_design": {"score": 9, "reason": "Type signatures are solid, using generic Doc type."},
+      "performance": {"score": 3, "reason": "Very poor performance across the board. Single term queries take >8ms on p50, OR/AND queries take extremely long (p50 >13ms)."},
+      "test_evidence": {"score": 7, "reason": "Passes the test harness but only 13 tests, providing less confidence on deep edge cases than A or B."},
+      "verification_artifacts": {"score": 6, "reason": "Has process notes but they are somewhat brief and boilerplate-like, indicating a more basic workflow."},
+      "code_quality_minimality": {"score": 6, "reason": "A 691-line monolithic index.ts. Harder to navigate and test in isolation."},
+      "readme_quality": {"score": 7, "reason": "Sufficient but brief README."},
+      "judge_gestalt": {"score": 5, "reason": "Too slow to be viable in production (fails the performance targets massively), needs an architecture refactor."},
+      "total": 71.0,
+      "verdict": "reject"
+    },
+    "D": {
+      "feature_completeness": {"score": 10, "reason": "Implements all requested queries, BM25, snippets, and boolean parser."},
+      "correctness_edge_cases": {"score": 9, "reason": "Handles the necessary cases, passes the harness."},
+      "ranking_quality": {"score": 9, "reason": "BM25 + basic proximity, functional implementation."},
+      "type_safety_api_design": {"score": 9, "reason": "Generic Doc support, clear API boundaries."},
+      "performance": {"score": 9, "reason": "Incredible single-term (p50 146µs) and phrase queries (p50 34µs), but fuzzy takes ~20ms p50."},
+      "test_evidence": {"score": 6, "reason": "Only 10 custom tests; relies mostly on the shared machine checks for correctness validation."},
+      "verification_artifacts": {"score": 0, "reason": "No process notes present."},
+      "code_quality_minimality": {"score": 8, "reason": "Single large file (844 LOC) reduces code modularity but is efficiently written."},
+      "readme_quality": {"score": 8, "reason": "Brief but functional README."},
+      "judge_gestalt": {"score": 8, "reason": "Performance is excellent on non-fuzzy queries, but test coverage is barebones and lacks process logs."},
+      "total": 81.0,
+      "verdict": "request_changes"
+    }
+  },
+  "cross_notes": "Variant A stands out as the only truly production-ready module; it breaks the logic down into proper files, writes 62 edge-case tests, and keeps performance consistent. Variant D is incredibly fast for exact terms but lacks unit test depth and module splitting. Variant B is functional but suffers on fuzzy performance. Variant C is far too slow across all queries (likely due to naive evaluation loops)."
+}

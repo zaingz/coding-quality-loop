@@ -1,0 +1,37 @@
+{
+  "index_build_ms": 3720.24,
+  "index_size_docs": 10000,
+  "index_memory_estimate_kb": 39031,
+  "queries": {
+    "single_term": {
+      "count": 1000,
+      "total_ms": 8910.28,
+      "p50_us": 8666,
+      "p99_us": 18892
+    },
+    "or_two": {
+      "count": 500,
+      "total_ms": 14232.15,
+      "p50_us": 22093,
+      "p99_us": 119093
+    },
+    "and_two": {
+      "count": 500,
+      "total_ms": 6756.57,
+      "p50_us": 13448,
+      "p99_us": 16933
+    },
+    "phrase": {
+      "count": 200,
+      "total_ms": 7749.36,
+      "p50_us": 36148,
+      "p99_us": 63349
+    },
+    "fuzzy_edit1": {
+      "count": 100,
+      "total_ms": 1031.57,
+      "p50_us": 10556,
+      "p99_us": 12888
+    }
+  }
+}

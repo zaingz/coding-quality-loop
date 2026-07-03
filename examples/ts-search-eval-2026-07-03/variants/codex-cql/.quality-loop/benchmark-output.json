@@ -1,0 +1,45 @@
+
+> @eval/minisearch@0.1.0 bench
+> npm run build && node dist/bench/bench.js
+
+
+> @eval/minisearch@0.1.0 build
+> tsc
+
+{
+  "index_build_ms": 5976.09,
+  "index_size_docs": 10000,
+  "index_memory_estimate_kb": 39031,
+  "queries": {
+    "single_term": {
+      "count": 1000,
+      "total_ms": 10507.05,
+      "p50_us": 9857,
+      "p99_us": 27640
+    },
+    "or_two": {
+      "count": 500,
+      "total_ms": 18091.04,
+      "p50_us": 25556,
+      "p99_us": 94881
+    },
+    "and_two": {
+      "count": 500,
+      "total_ms": 8254.38,
+      "p50_us": 15066,
+      "p99_us": 41014
+    },
+    "phrase": {
+      "count": 200,
+      "total_ms": 8248.89,
+      "p50_us": 36843,
+      "p99_us": 91220
+    },
+    "fuzzy_edit1": {
+      "count": 100,
+      "total_ms": 1242.74,
+      "p50_us": 11012,
+      "p99_us": 35671
+    }
+  }
+}

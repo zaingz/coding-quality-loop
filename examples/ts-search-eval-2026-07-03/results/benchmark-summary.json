@@ -1,0 +1,150 @@
+{
+  "codex-baseline": {
+    "index_build_ms": 1850.402,
+    "index_size_docs": 10000,
+    "index_memory_estimate_kb": 319802,
+    "queries": {
+      "single_term": {
+        "count": 1000,
+        "total_ms": 190.432,
+        "p50_us": 146,
+        "p99_us": 754
+      },
+      "or_two": {
+        "count": 500,
+        "total_ms": 181.681,
+        "p50_us": 335,
+        "p99_us": 1187
+      },
+      "and_two": {
+        "count": 500,
+        "total_ms": 126.112,
+        "p50_us": 238,
+        "p99_us": 786
+      },
+      "phrase": {
+        "count": 200,
+        "total_ms": 7.635,
+        "p50_us": 34,
+        "p99_us": 86
+      },
+      "fuzzy_edit1": {
+        "count": 100,
+        "total_ms": 2085.425,
+        "p50_us": 20886,
+        "p99_us": 27205
+      }
+    }
+  },
+  "codex-cql": {
+    "index_build_ms": 3720.24,
+    "index_size_docs": 10000,
+    "index_memory_estimate_kb": 39031,
+    "queries": {
+      "single_term": {
+        "count": 1000,
+        "total_ms": 8910.28,
+        "p50_us": 8666,
+        "p99_us": 18892
+      },
+      "or_two": {
+        "count": 500,
+        "total_ms": 14232.15,
+        "p50_us": 22093,
+        "p99_us": 119093
+      },
+      "and_two": {
+        "count": 500,
+        "total_ms": 6756.57,
+        "p50_us": 13448,
+        "p99_us": 16933
+      },
+      "phrase": {
+        "count": 200,
+        "total_ms": 7749.36,
+        "p50_us": 36148,
+        "p99_us": 63349
+      },
+      "fuzzy_edit1": {
+        "count": 100,
+        "total_ms": 1031.57,
+        "p50_us": 10556,
+        "p99_us": 12888
+      }
+    }
+  },
+  "claude-baseline": {
+    "index_build_ms": 3371.66,
+    "index_size_docs": 10000,
+    "index_memory_estimate_kb": 116386,
+    "queries": {
+      "single_term": {
+        "count": 1000,
+        "total_ms": 1427.21,
+        "p50_us": 1288.55,
+        "p99_us": 3015.34
+      },
+      "or_two": {
+        "count": 500,
+        "total_ms": 1530.56,
+        "p50_us": 2850.17,
+        "p99_us": 4379.92
+      },
+      "and_two": {
+        "count": 500,
+        "total_ms": 927.66,
+        "p50_us": 1695.87,
+        "p99_us": 3415.32
+      },
+      "phrase": {
+        "count": 200,
+        "total_ms": 108.11,
+        "p50_us": 467.09,
+        "p99_us": 1636.6
+      },
+      "fuzzy_edit1": {
+        "count": 100,
+        "total_ms": 3441.55,
+        "p50_us": 33447.68,
+        "p99_us": 193496.97
+      }
+    }
+  },
+  "claude-cql": {
+    "index_build_ms": 4216.25,
+    "index_size_docs": 10000,
+    "index_memory_estimate_kb": 81565.96,
+    "queries": {
+      "single_term": {
+        "count": 1000,
+        "total_ms": 1310.64,
+        "p50_us": 1208.29,
+        "p99_us": 3089.39
+      },
+      "or_two": {
+        "count": 500,
+        "total_ms": 772.07,
+        "p50_us": 1430.62,
+        "p99_us": 2988.59
+      },
+      "and_two": {
+        "count": 500,
+        "total_ms": 679.83,
+        "p50_us": 1262.59,
+        "p99_us": 3096.14
+      },
+      "phrase": {
+        "count": 200,
+        "total_ms": 234.74,
+        "p50_us": 1090.54,
+        "p99_us": 3768.51
+      },
+      "fuzzy_edit1": {
+        "count": 100,
+        "total_ms": 742.12,
+        "p50_us": 7417.91,
+        "p99_us": 16327.32
+      }
+    }
+  }
+}

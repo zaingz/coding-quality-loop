@@ -1,0 +1,21 @@
+{
+  "name": "@eval/minisearch",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "description": "In-memory full-text search library with BM25 ranking, boolean query parsing, phrase proximity, and fuzzy matching.",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test dist/test/",
+    "bench": "npm run build && node dist/bench/bench.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.9.3"
+  }
+}

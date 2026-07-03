@@ -1,0 +1,249 @@
+{
+  "aggregate": {
+    "codex-baseline": {
+      "judge1_total": 71.5,
+      "judge2_total": 81.0,
+      "mean_total": 76.25,
+      "judge1_verdict": "request_changes",
+      "judge2_verdict": "request_changes",
+      "per_dimension": {
+        "feature_completeness": {
+          "judge1": 9,
+          "judge2": 10,
+          "mean": 9.5
+        },
+        "correctness_edge_cases": {
+          "judge1": 9,
+          "judge2": 9,
+          "mean": 9.0
+        },
+        "ranking_quality": {
+          "judge1": 8,
+          "judge2": 9,
+          "mean": 8.5
+        },
+        "type_safety_api_design": {
+          "judge1": 8,
+          "judge2": 9,
+          "mean": 8.5
+        },
+        "performance": {
+          "judge1": 7,
+          "judge2": 9,
+          "mean": 8.0
+        },
+        "test_evidence": {
+          "judge1": 6,
+          "judge2": 6,
+          "mean": 6.0
+        },
+        "verification_artifacts": {
+          "judge1": 0,
+          "judge2": 0,
+          "mean": 0.0
+        },
+        "code_quality_minimality": {
+          "judge1": 8,
+          "judge2": 8,
+          "mean": 8.0
+        },
+        "readme_quality": {
+          "judge1": 8,
+          "judge2": 8,
+          "mean": 8.0
+        },
+        "judge_gestalt": {
+          "judge1": 7,
+          "judge2": 8,
+          "mean": 7.5
+        }
+      }
+    },
+    "codex-cql": {
+      "judge1_total": 63.5,
+      "judge2_total": 71.0,
+      "mean_total": 67.25,
+      "judge1_verdict": "request_changes",
+      "judge2_verdict": "reject",
+      "per_dimension": {
+        "feature_completeness": {
+          "judge1": 8,
+          "judge2": 10,
+          "mean": 9.0
+        },
+        "correctness_edge_cases": {
+          "judge1": 8,
+          "judge2": 9,
+          "mean": 8.5
+        },
+        "ranking_quality": {
+          "judge1": 8,
+          "judge2": 8,
+          "mean": 8.0
+        },
+        "type_safety_api_design": {
+          "judge1": 6,
+          "judge2": 9,
+          "mean": 7.5
+        },
+        "performance": {
+          "judge1": 2,
+          "judge2": 3,
+          "mean": 2.5
+        },
+        "test_evidence": {
+          "judge1": 7,
+          "judge2": 7,
+          "mean": 7.0
+        },
+        "verification_artifacts": {
+          "judge1": 6,
+          "judge2": 6,
+          "mean": 6.0
+        },
+        "code_quality_minimality": {
+          "judge1": 6,
+          "judge2": 6,
+          "mean": 6.0
+        },
+        "readme_quality": {
+          "judge1": 5,
+          "judge2": 7,
+          "mean": 6.0
+        },
+        "judge_gestalt": {
+          "judge1": 4,
+          "judge2": 5,
+          "mean": 4.5
+        }
+      }
+    },
+    "claude-baseline": {
+      "judge1_total": 70.5,
+      "judge2_total": 82.0,
+      "mean_total": 76.25,
+      "judge1_verdict": "request_changes",
+      "judge2_verdict": "request_changes",
+      "per_dimension": {
+        "feature_completeness": {
+          "judge1": 9,
+          "judge2": 10,
+          "mean": 9.5
+        },
+        "correctness_edge_cases": {
+          "judge1": 8,
+          "judge2": 9,
+          "mean": 8.5
+        },
+        "ranking_quality": {
+          "judge1": 8,
+          "judge2": 9,
+          "mean": 8.5
+        },
+        "type_safety_api_design": {
+          "judge1": 8,
+          "judge2": 9,
+          "mean": 8.5
+        },
+        "performance": {
+          "judge1": 4,
+          "judge2": 6,
+          "mean": 5.0
+        },
+        "test_evidence": {
+          "judge1": 9,
+          "judge2": 9,
+          "mean": 9.0
+        },
+        "verification_artifacts": {
+          "judge1": 0,
+          "judge2": 0,
+          "mean": 0.0
+        },
+        "code_quality_minimality": {
+          "judge1": 8,
+          "judge2": 8,
+          "mean": 8.0
+        },
+        "readme_quality": {
+          "judge1": 9,
+          "judge2": 9,
+          "mean": 9.0
+        },
+        "judge_gestalt": {
+          "judge1": 7,
+          "judge2": 8,
+          "mean": 7.5
+        }
+      }
+    },
+    "claude-cql": {
+      "judge1_total": 84.0,
+      "judge2_total": 98.5,
+      "mean_total": 91.25,
+      "judge1_verdict": "request_changes",
+      "judge2_verdict": "merge_as_is",
+      "per_dimension": {
+        "feature_completeness": {
+          "judge1": 8,
+          "judge2": 10,
+          "mean": 9.0
+        },
+        "correctness_edge_cases": {
+          "judge1": 9,
+          "judge2": 10,
+          "mean": 9.5
+        },
+        "ranking_quality": {
+          "judge1": 7,
+          "judge2": 10,
+          "mean": 8.5
+        },
+        "type_safety_api_design": {
+          "judge1": 9,
+          "judge2": 10,
+          "mean": 9.5
+        },
+        "performance": {
+          "judge1": 6,
+          "judge2": 9,
+          "mean": 7.5
+        },
+        "test_evidence": {
+          "judge1": 10,
+          "judge2": 10,
+          "mean": 10.0
+        },
+        "verification_artifacts": {
+          "judge1": 10,
+          "judge2": 10,
+          "mean": 10.0
+        },
+        "code_quality_minimality": {
+          "judge1": 8,
+          "judge2": 10,
+          "mean": 9.0
+        },
+        "readme_quality": {
+          "judge1": 9,
+          "judge2": 10,
+          "mean": 9.5
+        },
+        "judge_gestalt": {
+          "judge1": 8,
+          "judge2": 10,
+          "mean": 9.0
+        }
+      }
+    }
+  },
+  "family_lifts_mean_total": {
+    "codex_cql_minus_baseline": -9.0,
+    "claude_cql_minus_baseline": 15.0
+  },
+  "notes": [
+    "n=1 per cell; directional only",
+    "Judges: GPT-5 (judge-1), Gemini 3.1 Pro (judge-2)",
+    "Blinding: judge-1 and judge-2 used different letter mappings"
+  ]
+}

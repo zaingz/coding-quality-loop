@@ -1,0 +1,30 @@
+  ...
+# Subtest: serialization roundtrip preserves search behavior
+ok 7 - serialization roundtrip preserves search behavior
+  ---
+  duration_ms: 7.369644
+  ...
+# Subtest: snippet highlights matched text
+ok 8 - snippet highlights matched text
+  ---
+  duration_ms: 0.512613
+  ...
+# Subtest: update reindexes changed field only
+ok 9 - update reindexes changed field only
+  ---
+  duration_ms: 1.433005
+  ...
+# Subtest: edge cases: empty queries, missing fields, prefix, filters, and docs iterator
+ok 10 - edge cases: empty queries, missing fields, prefix, filters, and docs iterator
+  ---
+  duration_ms: 0.451237
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 88.396276

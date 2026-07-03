@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Coding Quality Loop Agent Record",
+  "type": "object",
+  "required": [
+    "task_id",
+    "goal",
+    "acceptance_criteria",
+    "constraints",
+    "non_goals",
+    "assumptions",
+    "risk_tier",
+    "verification_plan",
+    "status"
+  ],
+  "properties": {
+    "task_id": {"type": "string"},
+    "goal": {"type": "string", "minLength": 1},
+    "task_class": {"type": ["string", "null"], "enum": ["tiny", "small", "medium", "mission", null]},
+    "implementer": {"type": ["string", "null"]},
+    "security_sensitive": {"type": "boolean"},
+    "validation_contract": {"type": ["string", "object", "null"], "minLength": 1},
+    "completion_record": {"type": ["string", "object", "null"], "minLength": 1, "description": "Inline object (with optional files_changed array) or a path to a completion-record file"},
+    "repair_attempts": {"type": "integer", "minimum": 0},
+    "repeated_failure": {"type": "boolean"},
+    "harness_update": {"type": ["string", "object", "null"], "minLength": 1},
+    "independent_review": {
+      "type": ["object", "null"],
+      "required": ["verdict"],
+      "properties": {
+        "reviewer": {"type": "string"},
+        "validator": {"type": "string"},
+        "fresh_context": {"type": "boolean"},
+        "patched": {"type": "boolean"},
+        "verdict": {"type": "string", "enum": ["approve", "approved", "request_changes", "needs_discussion", "reject", "rejected", "fail", "failed", "blocked"]},
+        "diff_sha256": {"type": "string", "description": "sha256 of the git diff at review time (attest-review); checked for freshness by verify-gates --against-diff"},
+        "attested_at": {"type": "string"},
+        "findings": {"type": "array", "items": {"type": ["object", "string"]}}
+      },
+      "additionalProperties": true
+    },
+    "security_review": {
+      "type": ["object", "null"],
+      "required": ["verdict"],
+      "properties": {
+        "reviewer": {"type": "string"},
+        "fresh_context": {"type": "boolean"},
+        "patched": {"type": "boolean"},
+        "verdict": {"type": "string", "enum": ["approve", "approved", "request_changes", "needs_discussion", "reject", "rejected", "fail", "failed", "blocked"]},
+        "diff_sha256": {"type": "string", "description": "sha256 of the git diff at review time (attest-review)"},
+        "attested_at": {"type": "string"},
+        "findings": {"type": "array", "items": {"type": ["object", "string"]}}
+      },
+      "additionalProperties": true
+    },
+    "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
+    "constraints": {"type": "array", "items": {"type": "string"}},
+    "non_goals": {"type": "array", "items": {"type": "string"}},
+    "assumptions": {"type": "array", "items": {"type": "string"}},
+    "risk_tier": {"type": "string", "enum": ["low", "medium", "high"]},
+    "verification_plan": {"type": "array", "items": {"type": "string"}},
+    "repo_map": {
+      "type": "object",
+      "properties": {
+        "entry_points": {"type": "array", "items": {"type": "string"}},
+        "likely_files": {"type": "array", "items": {"type": "string"}},
+        "callers_checked": {"type": "array", "items": {"type": "string"}},
+        "tests": {"type": "array", "items": {"type": "string"}},
+        "patterns_to_follow": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "minimality_decision": {
+      "type": ["object", "null"],
+      "properties": {
+        "rung": {
+          "type": "string",
+          "enum": ["skip", "delete", "reuse", "stdlib", "native", "existing_dependency", "one_liner", "minimal_new_code"]
+        },
+        "reason": {"type": "string"},
+        "rejected_lower_rungs": {"type": "array", "items": {"type": "object"}},
+        "safety_exceptions_checked": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["rung", "reason"]
+    },
+    "next_action": {"type": "string"},
+    "plan": {"type": "array", "items": {"type": "string"}},
+    "commands_run": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cmd", "result"],
+        "properties": {
+          "cmd": {"type": "string"},
+          "class": {"type": "string"},
+          "result": {"type": "string", "enum": ["pass", "fail", "blocked"]},
+          "evidence": {"type": ["string", "object", "null"], "description": "A verifiable evidence handle (string) or structured object"},
+          "red_green": {"type": "boolean", "description": "Marks a command to be replayed at base (expect fail) and HEAD (expect pass) by run-evidence --red-green"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "open_risks": {"type": "array", "items": {"type": "string"}},
+    "review_findings": {"type": "array", "items": {"type": "string"}},
+    "status": {
+      "type": "string",
+      "enum": ["intake", "explore", "plan", "minimality_gate", "implement", "verify", "review", "package", "done", "iterating", "escalated"]
+    }
+  },
+  "additionalProperties": true
+}
