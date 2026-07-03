@@ -27,6 +27,22 @@ Each acceptance criterion must be paired with the concrete check that proves it.
 - Commands to run and the expected result:
 - Artifacts to capture (logs, screenshots, migration dry-run output):
 
+## Performance / Complexity Targets
+
+Fill this in **only** when the task is performance-sensitive (search/indexing/ranking,
+rendering, hot request paths, data pipelines, batch jobs, or anything with an explicit
+benchmark harness in the brief). Skip it otherwise — do not manufacture targets.
+
+- Hot path(s):
+- Worst-case complexity target for the chosen algorithm (e.g. `O(k log n)` where
+  `k = matched postings`, `n = corpus size`):
+- p50 / p95 latency budget on the reference input:
+- Memory / footprint budget:
+- Benchmark command and expected numbers:
+
+If the chosen approach cannot meet these targets, escalate at PLAN — do not implement,
+benchmark, and discover the miss at VERIFY.
+
 ## Risk Boundaries Touched
 
 - [ ] auth / authorization

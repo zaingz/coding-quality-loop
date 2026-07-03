@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.3.2
+
+Findings from the `ts-search-eval-2026-07-03` eval baked into the harness.
+
+- **New `performance_sensitive` medium signal** (`scripts/quality_loop.py`) — tasks whose brief includes a benchmark harness, or that touch a hot request path, indexing/ranking, rendering, or data-pipeline surface, now classify as **medium** even without other multi-file signals. This triggers the validation contract + independent-review gates that the ts-search Codex+CQL run should have run but did not.
+- **New `under-fanned` minimality flag** (`scripts/quality_loop.py`) — the simplicity reviewer now flags multi-feature medium/mission tasks that collapse into a single source file or a single test file. Signaled by `single_source_file` / `single_test_file` + `feature_count >= 3` in the proposed solution. Modularity is a maintainability property; a 700-LOC monolith with one 13-test file for a seven-feature brief is not "minimal."
+- **`assets/validation-contract.md`: new Performance / Complexity Targets section** — required for performance-sensitive tasks. Forces the implementer to commit to a worst-case complexity for the hot path, a p50/p95 latency budget, a memory budget, and the exact benchmark command *before* implementing. If the chosen approach cannot hit the target, escalate at PLAN — do not implement and discover the miss at VERIFY.
+- **`SKILL.md` COMPLEXITY BRAKE: algorithmic-complexity clause** — explicit rule that "simple linear scan" is not simpler than the required data structure when the brief includes a benchmark. Rewrites the perf blind spot from advisory ambient text into a named brake step. Adds an anti-pattern that separates *minimal code* from *minimal performance* and *minimal modularity*.
+- **`references/reviewer-checklists.md`: perf-regression and under-fanned checks** — the fresh-context reviewer now must confirm that the diff’s chosen algorithm honors the contract’s worst-case complexity commitment; a diff that meets correctness but misses the perf target is `blocking`, not `minor`. The simplicity reviewer explicitly flags monolithic multi-feature diffs.
+- **New eval cases** (`evals/cases/10-*.json`, `11-*.json`) — pin (a) `performance_sensitive` alone lifting a task to medium with the full medium gate set, and (b) `single_source_file` + `single_test_file` + `feature_count >= 3` producing the `under-fanned` minimality flag. Full suite: 11/11 case runs + 31 + 9 + 5 + 15 + 11 + 10 + 27 + 7 = 115 runner checks green.
+- **Reference eval published**: `examples/ts-search-eval-2026-07-03/` contains the full 2×2 blind eval, both judge score files, aggregate JSON, and a report that motivates every change above. Directional finding: CQL lifted Claude Code (Sonnet 5) by **+15.0** blind mean but hurt Codex (GPT-5) by **−9.0** on this task — the harness now closes the specific gap that caused the Codex regression.
+
 ## 2.3.1
 
 One-command `npx` installer (first npm-installable release).

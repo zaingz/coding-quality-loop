@@ -1,0 +1,24 @@
+{
+  "name": "under-fanned-monolith-flagged",
+  "description": "A medium task with several distinct features (e.g. tokenizer + parser + ranker + serializer) implemented as a single source file with a single test file is not minimality \u2014 it is under-fanned modularity. The simplicity reviewer must flag `under-fanned`.",
+  "input": {
+    "goal": "Ship a multi-feature library (tokenizer, query parser, ranker, snippet extractor, serializer) as a single index.ts with a single search.test.ts",
+    "signals": ["multi_file", "behavior_change"],
+    "proposed_solution": {
+      "introduces": [],
+      "lower_rung_available": false,
+      "single_source_file": true,
+      "single_test_file": true,
+      "feature_count": 5
+    }
+  },
+  "expected": {
+    "risk_tier": "medium",
+    "task_class": "medium",
+    "minimality_flags": ["under-fanned"],
+    "escalate": false,
+    "requires_validation_contract": true,
+    "requires_independent_review": true,
+    "requires_completion_record": true
+  }
+}

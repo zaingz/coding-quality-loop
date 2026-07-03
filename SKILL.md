@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "2.3.0"
+  version: "2.3.2"
 ---
 
 # Coding Quality Loop
@@ -140,6 +140,8 @@ Before writing code, choose the highest valid rung:
 If the solution needs a new dependency, framework, queue, cache, background job, service, migration, or abstraction, justify why every lower rung is insufficient.
 
 **Non-negotiables — never sacrificed for minimality:** trust-boundary validation, data-loss prevention, security, accessibility, explicitly required behavior, and real-world calibration (the change must behave correctly under realistic inputs and load, not just in the happy path).
+
+**Minimality is not a license to pick a slower algorithm.** When the task is performance-sensitive (search/indexing/ranking, rendering, hot request paths, data pipelines, batch jobs, or anything with an explicit benchmark in the brief), the complexity brake must also produce a **worst-case-complexity commitment** and a **p50/p95 target** for the hot path, recorded in the validation contract. "Simple linear scan" is not simpler than "inverted index + posting-list merge" when the brief includes a benchmark harness — it is a covert requirement miss. Escalate at PLAN if the chosen approach cannot hit the target; do not discover the miss at VERIFY.
 
 ### PLAN
 
@@ -417,6 +419,7 @@ Stop and escalate before:
 - **Test-gaming** — weakening, skipping, or deleting tests to reach green; co-mutating implementation and the test that should catch it in one slice; claiming RED→GREEN without a recorded failing-then-passing run.
 - Context-file bloat that buries the current task under stale or generic instructions.
 - Calling something "minimal" after skipping safety.
+- Confusing **minimal code** with **minimal performance**. Collapsing a multi-feature medium task into a single monolithic file, or into one test file per project, is not minimality — it is under-fanned modularity, and the diff will read that way to a fresh-context reviewer.
 - Correcting the same mistake in chat instead of making a durable harness change.
 
 ## Metrics and Improvement Loop

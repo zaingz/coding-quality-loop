@@ -914,6 +914,12 @@ MEDIUM_SIGNALS = {
     "shared_utility",
     "persistence_adjacent",
     "auth_adjacent",
+    # Performance-sensitive work (search/indexing/ranking, rendering, hot request
+    # paths, data pipelines, batch jobs, or briefs with an explicit benchmark
+    # harness) is at least medium risk: it requires a worst-case-complexity
+    # commitment and a p50/p95 target in the validation contract, and a fresh
+    # reviewer must confirm both.
+    "performance_sensitive",
 }
 HIGH_SIGNALS = {
     "authn",
@@ -998,9 +1004,18 @@ def requires_security_reviewer(signals: list[str]) -> bool:
 def minimality_flags(proposed: dict[str, Any]) -> list[str]:
     introduces = proposed.get("introduces", [])
     lower_rung_available = proposed.get("lower_rung_available", False)
+    flags: list[str] = []
     if introduces and lower_rung_available:
-        return ["overengineering"]
-    return []
+        flags.append("overengineering")
+    # under-fanned: a multi-feature medium/mission task collapsed into a single
+    # source or test file. Modularity is a maintainability property; a monolith
+    # for a 7-feature brief is not "minimal," it is under-fanned.
+    if proposed.get("single_source_file") and proposed.get("feature_count", 0) >= 3:
+        flags.append("under-fanned")
+    if proposed.get("single_test_file") and proposed.get("feature_count", 0) >= 3:
+        if "under-fanned" not in flags:
+            flags.append("under-fanned")
+    return flags
 
 
 def evaluate_input(case_input: dict[str, Any]) -> dict[str, Any]:

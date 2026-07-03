@@ -60,6 +60,8 @@ You are a skeptical but practical senior engineer. Review the diff against the t
 - Could the change create race conditions, timeouts, memory growth, N+1 queries, or cache inconsistency?
 - Are retries, backoff, and failure modes appropriate?
 - Is observability sufficient for the changed path?
+- **If the brief includes a benchmark harness or the task is performance-sensitive:** does the validation contract commit to a worst-case complexity for the hot path, and does the diff’s chosen algorithm honor it? Reject linear-scan-per-term implementations of tasks that require an inverted index, per-request re-tokenization on hot paths, or O(n) fuzzy matching over full corpora when a bounded prefix + edit-distance filter is expected.
+- **Benchmark numbers must be captured against the stated target**, not just recorded. A diff that meets correctness but misses the perf target is `blocking`, not `minor`.
 
 ## Simplicity Reviewer Pass (Complexity Brake)
 
@@ -76,6 +78,12 @@ Flag `overengineering` when a new dependency or abstraction is introduced while 
 available. Never use minimality to justify dropping a non-negotiable (trust-boundary
 validation, data-loss prevention, security, accessibility, required behavior, real-world
 calibration).
+
+Also flag `under-fanned` when a medium/mission task with multiple distinct features (parser +
+ranker + tokenizer + serializer, etc.) is collapsed into a single source file or a single
+test file. Modularity is a maintainability property, not overengineering. A 700-LOC monolith
+with one 13-test file is not "minimal" for a task with 7 required feature areas — it is
+under-fanned, and future edits will pay for it.
 
 ## Security Reviewer Pass (Risk Boundaries Only)
 

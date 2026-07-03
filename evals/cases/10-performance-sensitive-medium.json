@@ -1,0 +1,28 @@
+{
+  "name": "performance-sensitive-task-is-medium",
+  "description": "A task whose brief includes a benchmark harness (e.g. an in-memory search library or a rendering hot path) is at least medium risk. The validation contract must commit to a worst-case complexity and p50/p95 target; a fresh reviewer is required. This case pins that the `performance_sensitive` signal alone lifts the task to medium.",
+  "input": {
+    "goal": "Build a small in-memory search library with a required benchmark harness (BM25, boolean, phrase, fuzzy)",
+    "signals": ["multi_file", "behavior_change", "performance_sensitive"],
+    "proposed_solution": {
+      "introduces": [],
+      "lower_rung_available": false
+    }
+  },
+  "expected": {
+    "risk_tier": "medium",
+    "task_class": "medium",
+    "required_gates": [
+      "targeted_tests",
+      "relevant_tests",
+      "typecheck_or_build",
+      "caller_review",
+      "fresh_review"
+    ],
+    "minimality_flags": [],
+    "escalate": false,
+    "requires_validation_contract": true,
+    "requires_independent_review": true,
+    "requires_completion_record": true
+  }
+}
