@@ -4,30 +4,34 @@
 > commitment; the loop's non-negotiable is that we ship the smallest correct change,
 > and that includes the roadmap itself.
 
-Last updated: 2026-07-02.
+Last updated: 2026-07-03.
 
-## Now — landed in v2.3
+## Now — landed in v2.4
+
+- ✅ **Three-phase canonical model.** Lifecycle recast as **PLAN → EXECUTE → REVIEW**, each closed by its own verification gate. The nine sub-steps (`INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN`, `IMPLEMENT_SLICE`, `VERIFY`, `REVIEW`, `PACKAGE`, `RETROSPECT`) survive as valid machine names mapped onto the phases.
+- ✅ **Context as a declared budget.** New `context_budget` schema field and `context-check` subcommand enforce per-phase `{inputs, excluded, output_summary}` envelopes on medium/mission work.
+- ✅ **Per-phase verification gate.** New `phase_verifications` schema field and `verify-phases` subcommand require a `passed` entry for the current phase and every prior phase; reject `review` verified by `same_agent` on medium/mission.
+- ✅ **Execution trace substrate.** New `execution-log.jsonl` format plus `trace-audit` subcommand that flags `(tool, args_hash)` repeated ≥3× as a pathological loop and aggregates per-phase steps/duration/cost.
+- ✅ **Eval-runner now executes gates.** Cases carrying `gate` + `record_fixture` + `gate_fixture_expectation` fields spawn the gate against the fixture and assert the exit code.
+- ✅ 129 offline eval cases across 9 suites (14 static + 31 behavioral + 27 memory + 15 reality + 11 routing + 10 trigger + 9 hook + 7 honcho + 5 orchestrator), re-run on every push.
+
+## Landed earlier — v2.3
 
 - ✅ Config-based model routing (`setup-models`, per-role, per-host, drift detection).
 - ✅ Multi-agent role separation with per-role prompt cards.
 - ✅ Honcho runnable memory adapter with zero-config local mode + cloud safety rail.
 - ✅ Reality layer (`verify-gates --against-diff`) with 15 diff-grounded gates.
-- ✅ 124 offline eval cases across 9 suites, re-run on every push.
 
-## Next — v2.4 (target: Q3 2026)
+## Next — v2.5 (target: Q3 2026)
 
-- **Skills Hub publish.** Tag `v2.3.0`, validate frontmatter, publish to
-  [agentskills.io](https://agentskills.io) so `gh skill install` works without a manual
-  copy. Blocked only on the publish checklist in [README.md § Release & pinning](README.md#release--pinning).
-- **First live cross-agent benchmark.** Run the `bench/` harness with real Claude Code,
-  Codex, and Droid arms — not the fixture smoke result — and commit results with
-  host, model, seed, cost, and null-result artifacts.
-- **VS Code / Zed extension.** Thin extension that surfaces the current record, the
-  next gate to satisfy, and a one-click `verify-gates` runner in the IDE status bar.
-- **Reviewer diff view.** A read-only web viewer for the state record + diff + evidence
-  bundle, so a human reviewer can approve or block without cloning the repo.
+- **Skills Hub publish.** Validate frontmatter and publish to [agentskills.io](https://agentskills.io) so `gh skill install` works without a manual copy. Blocked only on the publish checklist in [README.md § Release & pinning](README.md#release--pinning).
+- **First live cross-agent benchmark.** Run the `bench/` harness with real Claude Code, Codex, and Droid arms — not the fixture smoke result — and commit results with host, model, seed, cost, and null-result artifacts.
+- **VS Code / Zed extension.** Thin extension that surfaces the current record, the next gate to satisfy, and a one-click `verify-gates` runner in the IDE status bar.
+- **Reviewer diff view.** A read-only web viewer for the state record + diff + evidence bundle, so a human reviewer can approve or block without cloning the repo.
+- **Mutation testing (`mutate-lite`).** Explicit non-goal of v2.4 that we still want: check that acceptance-criteria tests would catch the intended root-cause mutation, not just the code path the implementer touched.
+- **Reviewer-heterogeneity `check-config` rule.** Reject configs where the same model or identity is routed to both `implementer` and `validator` on medium/mission tasks.
 
-## Later — v2.5 and beyond (exploring, no ETA)
+## Later — v2.6 and beyond (exploring, no ETA)
 
 - **Cross-repo memory.** Point multiple repos at the same Honcho workspace and let a
   team-wide lesson (for example, "our secrets live in Vault, never `.env`") propagate.

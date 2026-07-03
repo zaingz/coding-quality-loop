@@ -122,6 +122,11 @@ python3 scripts/quality_loop_run.py --record agent-record.json --host manual
 # real host adapters
 python3 scripts/quality_loop_run.py --goal "Fix invoice rounding" --host claude
 python3 scripts/quality_loop_run.py --goal "Fix invoice rounding" --host codex
+
+# medium/mission tasks: enforce the per-phase gates (v2.4)
+python3 scripts/quality_loop.py context-check agent-record.json    # per-phase context_budget
+python3 scripts/quality_loop.py verify-phases agent-record.json    # current + prior phases passed
+python3 scripts/quality_loop.py trace-audit .quality-loop/runs/<id>/execution-log.jsonl
 ```
 
 The driven runner writes a local redacted journal under `.quality-loop/runs/<id>/`. VERIFY

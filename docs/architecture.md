@@ -5,7 +5,7 @@
 
 <div align="center">
 
-<img src="images/architecture.png" alt="Architecture: Agent Skill layer, Executable Gates layer, Multi-Agent Roles layer" width="900">
+<img src="images/architecture.png" alt="Architecture: three layers — Agent Skill (SKILL.md + references + assets + examples), Executable Gates (a representative subset of the stdlib CLI; the full catalogue is in the table below), and Multi-Agent Roles (context-mapper, implementer, validator, security-reviewer, package, orchestrated across the three canonical phases)." width="900">
 
 </div>
 
@@ -45,21 +45,24 @@ Advisory text drifts across sessions; a gate either fires or it does not.
 |---|---|
 | `verify-gates` | Reads the state record. Confirms every recorded field is present, well-formed, and non-empty. Rejects bare booleans, empty strings, and nonexistent paths. |
 | `verify-gates --against-diff` | Adds diff-grounded checks against the real `git diff`: phantom completion, scope integrity, diff-derived risk floor, bugfix-test co-presence, and stale review hashes. |
+| `verify-phases` | *(v2.4)* Checks per-phase verification blocks. Requires a `passed` entry for the current phase and every prior phase (`plan → execute → review`); rejects `review` verified by `same_agent` on medium/mission. |
+| `context-check` | *(v2.4)* Validates the record's `context_budget`. Requires `output_summary` on every declared phase budget, rejects overlap between `inputs` and `excluded`, and requires medium/mission tasks to declare a budget for the active phase. |
+| `trace-audit` | *(v2.4)* Reads an `execution-log.jsonl` trace. Flags `(tool, args_hash)` repeated ≥3× consecutively as a pathological loop and aggregates per-phase step count, wall-clock, and cost. |
 | `diff-audit` | Scans the diff (or `--staged` for pre-commit) for possible secrets, dependency edits, migrations, oversized changes, and test weakening. Flags untracked files too. |
 | `run-evidence` | Re-executes recorded pass commands from the record's allowlist. `--red-green` replays a red_green command in a worktree at base and HEAD. |
 | `attest-review` | Embeds a recomputed diff hash so a review verdict cannot silently outlast the diff it approved. |
 | `scan-text --stdin` | Secret-scan-as-a-service, for hook shims and paste boxes. |
-| `check-record` | Structural lint of a state record against `assets/agent-record.schema.json`. |
+| `check-record` | Structural lint of a state record against `assets/agent-record.schema.json`. Validates the optional `phase` field against the `plan|execute|review|done|escalated` enum. |
 | `check-config` | Structural lint of `quality-loop.config.json` against `assets/quality-loop.config.schema.json`. |
-| `init-record` / `stats` / `brief` / `setup-models` | Housekeeping and reporting. |
+| `eval-cases` | Runs offline eval cases that pin task-class, risk-tier, gate, security-reviewer, completion-record, and complexity-brake logic. *(v2.4)* Cases can carry a `gate` + `record_fixture` pair; the runner actually executes the gate against the fixture. |
+| `init-record` / `stats` / `brief` / `setup-models` | Housekeeping and reporting. `init-record` accepts `--phase {plan,execute,review}` to pin the initial phase. |
 
 These commands are **portable and stdlib-only**. They complement CI, tests, scanners, and
 human review; they do not replace them. The runtime dependency count is zero.
 
 ### 3. Multi-agent roles (the loop)
 
-The lifecycle is a state machine of ten steps. Each can run as a different agent, model,
-or tool profile, mapped by **role** rather than vendor:
+The canonical model since v2.4 is three phases — **PLAN → EXECUTE → REVIEW** — each closed by its own verification gate before the next may start. The nine sub-steps (`INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN`, `IMPLEMENT_SLICE`, `VERIFY`, `REVIEW`, `PACKAGE`, `RETROSPECT`) map onto the three phases and stay valid as machine names in every record and config. Each step can run as a different agent, model, or tool profile, mapped by **role** rather than vendor:
 
 <div align="center">
 
@@ -122,6 +125,20 @@ prints exactly what is **enforced** by hooks versus **advisory** in text.
 
 ## Data flow
 
+The three phases group the nine sub-steps like this:
+
+```mermaid
+flowchart LR
+  A[User goal] --> P{{PLAN<br/>INTAKE · EXPLORE · MINIMALITY_GATE · PLAN}}
+  P -->|context-check + verify-phases| E{{EXECUTE<br/>IMPLEMENT_SLICE · VERIFY}}
+  E -->|context-check + verify-phases| R{{REVIEW<br/>REVIEW · PACKAGE · RETROSPECT}}
+  R -. lessons .-> A
+  E --> G{{policy_guard<br/>hooks fire?}}
+  G -- block --> E
+```
+
+Zooming into the sub-steps within each phase:
+
 ```mermaid
 flowchart LR
   A[User goal] --> B[INTAKE<br/>task contract]
@@ -141,6 +158,8 @@ flowchart LR
 The **complexity brake runs twice**: once at `MINIMALITY_GATE` to pick the smallest
 approach, and again at `PACKAGE` (via `verify-gates --against-diff`) to confirm nothing
 crept in.
+
+Each phase carries its own **context budget** (`assets/context-budget.md`) declaring `inputs`, `excluded`, and an `output_summary` that is the only thing passed to the next phase. `context-check` enforces the budget; `verify-phases` enforces that the current phase and every prior phase have a `passed` verification entry before the next may start.
 
 ## Memory (optional)
 

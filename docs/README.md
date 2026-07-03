@@ -41,9 +41,9 @@ Extended documentation for the [Coding Quality Loop](../README.md). The top-leve
 All images live under `docs/images/`. Every diagram is generated with the same visual
 language: off-white cream background, thin black borders, teal-green accents.
 
-- `banner.png` — README hero
+- `banner.png` — README hero. Depicts the seven customer-facing sub-steps of the loop (INTAKE, PLAN, IMPLEMENT, VERIFY, REVIEW, SHIP, LEARN); these map onto the three canonical phases as PLAN = INTAKE + PLAN, EXECUTE = IMPLEMENT + VERIFY, REVIEW = REVIEW + SHIP + LEARN.
 - `before-after.png` — README "without vs with the loop"
-- `architecture.png` — three-layer architecture
+- `architecture.png` — three-layer architecture. The gate-command lineup shows a representative subset; the full CLI catalogue is in [`architecture.md`](architecture.md).
 - `roles.png` — multi-agent role separation
 - `memory-flow.png` — project memory recall/commit
 - `ceremony-scales.png` — ceremony scaling with risk
