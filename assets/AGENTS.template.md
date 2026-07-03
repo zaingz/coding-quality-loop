@@ -27,7 +27,10 @@ Run the relevant checks before claiming a task is done. Green tests are necessar
 Follow the Coding Quality Loop: produce the smallest correct change with enough evidence to
 trust, review, revert, or merge it.
 
-`INTAKE -> CONTEXT MAP -> SPEC/VALIDATION CONTRACT -> COMPLEXITY BRAKE -> PLAN -> IMPLEMENT IN SMALL SLICES -> VERIFY -> INDEPENDENT REVIEW -> SHIP/HANDOFF -> RETROSPECTIVE`
+Three phases, each closed by its own verification gate: `PLAN -> EXECUTE -> REVIEW`. Unchanged
+sub-steps under each phase (machine names): PLAN groups `INTAKE`, `EXPLORE`,
+`MINIMALITY_GATE`, `PLAN`; EXECUTE groups `IMPLEMENT_SLICE`, `VERIFY`; REVIEW groups `REVIEW`,
+`PACKAGE`, `RETROSPECT`.
 
 - Pick the smallest safe task class (tiny/small/medium/mission).
 - Prefer deletion, reuse, stdlib, and native features before new code or new dependencies.

@@ -10,10 +10,10 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-2.3.2-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.4.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-124%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-127%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-111111?style=flat-square)](#install--use-matrix)
@@ -57,6 +57,8 @@ You ask your agent to *"fix the checkout retry bug."*
 | Relearns the same lesson next session. | Remembers it and recalls it next time. |
 
 That is the whole idea: smaller changes, real proof, a second set of eyes, and memory that sticks. The work scales to the risk: a typo just gets fixed; a payment migration runs the full process. See a real worked example in [`examples/walkthrough/`](examples/walkthrough/README.md).
+
+- **New in 2.4.0**: the ten-stage lifecycle is now framed as three phases — **PLAN → EXECUTE → REVIEW** — with context treated as a budget and a verification gate that must pass before each phase can close. The familiar sub-steps (context map, minimality gate, implement, verify, ship, retrospective) are unchanged; they are just organized under the phase that owns them. See [`CHANGELOG.md`](CHANGELOG.md#240) for the full list of additions.
 
 <details>
 <summary><strong>What the agent produces, step by step</strong></summary>
@@ -154,36 +156,39 @@ agent: PR: summary, files changed, evidence table, risk note, rollback: revert t
 
 ## The loop, visualized
 
-Ten stages, smallest-safe-first. The **complexity brake runs twice**: once to choose the smallest approach, once to confirm nothing crept in before review.
+Three phases, smallest-safe-first, each closed by its own verification gate before the next may start. **Context is a budget; verification is what terminates a phase.** The **complexity brake runs twice**: once in PLAN to choose the smallest approach, once in REVIEW to confirm nothing crept in.
 
 ```text
-  ┌─ INTAKE ──────── task contract: goal, acceptance criteria, risk tier
-  ├─ CONTEXT MAP ─── the files that matter, callers, tests — not the whole tree
-  ├─ VALIDATION ──── write down what "done" means before writing code
-  ├─ COMPLEXITY ──── pick the smallest valid rung; reject bigger rewrites with reasons
-  ├─ PLAN ────────── files to change, slices, verification commands, rollback
-  ├─ IMPLEMENT ───── one small, reviewable, revertible slice at a time
-  ├─ VERIFY ──────── run sufficient checks; record exact commands + results
-  ├─ REVIEW ──────── a separate agent checks the diff against the contract
-  ├─ SHIP ────────── PR handoff + completion record, the shipping gate
-  └─ RETROSPECT ──── turn repeated mistakes into durable harness changes
+PLAN -> EXECUTE -> REVIEW
 ```
 
 ```mermaid
 flowchart LR
-  INTAKE[INTAKE] --> CONTEXT[CONTEXT MAP]
-  CONTEXT --> VALIDATION[VALIDATION]
-  VALIDATION --> COMPLEXITY[COMPLEXITY]
-  COMPLEXITY --> PLAN[PLAN]
-  PLAN --> IMPLEMENT[IMPLEMENT]
-  IMPLEMENT --> VERIFY[VERIFY]
-  VERIFY --> REVIEW[REVIEW]
-  REVIEW --> SHIP[SHIP]
-  SHIP --> RETROSPECT[RETROSPECT]
-  RETROSPECT -. durable lessons .-> INTAKE
+  PLAN[PLAN] --> EXECUTE[EXECUTE]
+  EXECUTE --> REVIEW[REVIEW]
+  REVIEW -. durable lessons .-> PLAN
 ```
 
-The helper script, config, and state record use stable short machine names: `INTAKE`, `EXPLORE`, `PLAN`, `MINIMALITY_GATE`, `IMPLEMENT_SLICE`, `VERIFY`, `REVIEW`, `PACKAGE`, and `RETROSPECT`. The validation contract spans `INTAKE` plus `PLAN`. Across tasks, durable lessons can persist in optional [per-project memory](#project-memory).
+- **PLAN** — turn the goal into a task contract, map the change, write the validation contract, apply the complexity brake, and produce a plan. Terminates when the plan (and, for non-trivial work, the validation contract) exist and are checkable.
+- **EXECUTE** — implement in small slices and verify. Terminates when the smallest sufficient checks pass with recorded evidence.
+- **REVIEW** — independent review and ship/handoff. Terminates when a fresh-context reviewer has checked the diff against the validation contract and, for non-trivial work, a completion record exists.
+
+Every older sub-step inherits one of these three phases; nothing is unlabeled. The helper script, config, and state record still use the original nine stable short machine names as sub-steps, so existing records, configs, and automation keep working unchanged:
+
+| Phase | Sub-step (machine name) | What it produces |
+|---|---|---|
+| PLAN | `INTAKE` | task contract: goal, acceptance criteria, risk tier |
+| PLAN | `EXPLORE` | the files that matter, callers, tests — not the whole tree |
+| PLAN | `INTAKE`+`PLAN` | `validation-contract.md` — what "done" means before writing code |
+| PLAN | `MINIMALITY_GATE` | the smallest valid rung; bigger rewrites rejected with reasons |
+| PLAN | `PLAN` | files to change, slices, verification commands, rollback |
+| EXECUTE | `IMPLEMENT_SLICE` | one small, reviewable, revertible slice at a time |
+| EXECUTE | `VERIFY` | sufficient checks run; exact commands + results recorded |
+| REVIEW | `REVIEW` | a separate agent checks the diff against the contract |
+| REVIEW | `PACKAGE` | PR handoff + completion record, the shipping gate |
+| REVIEW | `RETROSPECT` | repeated mistakes turned into durable harness changes |
+
+The validation contract spans the `INTAKE` and `PLAN` sub-steps, both inside PLAN. Across tasks, durable lessons can persist in optional [per-project memory](#project-memory). See [`SKILL.md`](SKILL.md#lifecycle) for the canonical version of this mapping.
 
 <div align="center">
 

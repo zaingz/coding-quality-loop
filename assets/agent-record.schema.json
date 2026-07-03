@@ -16,6 +16,35 @@
   "properties": {
     "task_id": {"type": "string"},
     "goal": {"type": "string", "minLength": 1},
+    "phase": {"type": "string", "enum": ["plan", "execute", "review", "done", "escalated"]},
+    "context_budget": {
+      "type": ["object", "null"],
+      "additionalProperties": {
+        "type": "object",
+        "required": ["output_summary"],
+        "properties": {
+          "inputs": {"type": "array", "items": {"type": "string"}},
+          "excluded": {"type": "array", "items": {"type": "string"}},
+          "output_summary": {"type": "string", "minLength": 1},
+          "output_summary_max_tokens": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "phase_verifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["phase", "verifier", "status"],
+        "properties": {
+          "phase": {"type": "string", "enum": ["plan", "execute", "review"]},
+          "verified_by": {"type": "array", "items": {"type": "string"}},
+          "evidence": {"type": "array", "items": {"type": "string"}},
+          "verifier": {"type": "string", "enum": ["same_agent", "different_context", "different_model", "human"]},
+          "status": {"type": "string", "enum": ["verified", "failed", "skipped_with_reason"]},
+          "notes": {"type": "string"}
+        }
+      }
+    },
     "task_class": {"type": ["string", "null"], "enum": ["tiny", "small", "medium", "mission", null]},
     "implementer": {"type": ["string", "null"]},
     "security_sensitive": {"type": "boolean"},

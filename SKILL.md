@@ -45,30 +45,38 @@ A tiny task must **not** be forced through mission ceremony. A medium task must 
 
 ## Lifecycle
 
-Canonical operating model:
+An LM runs a plan-execute-review loop. Context is a budget. Verification terminates each phase.
+
+Canonical operating model — three phases, each closed by its own verification gate before the next phase may start:
 
 ```text
-INTAKE -> CONTEXT MAP -> SPEC / VALIDATION CONTRACT -> COMPLEXITY BRAKE -> PLAN
-  -> IMPLEMENT IN SMALL SLICES -> VERIFY -> INDEPENDENT REVIEW
-  -> SHIP / HANDOFF -> RETROSPECTIVE / SKILL UPDATE
+PLAN -> EXECUTE -> REVIEW
 ```
 
-The helper script, config, and state record use stable short machine names. The mapping:
+- **PLAN** — turn the goal into a task contract, map the change, write the validation contract, apply the complexity brake, and produce a plan. Terminates when the plan and (for non-trivial work) the validation contract exist and are checkable.
+- **EXECUTE** — implement in small slices and verify. Terminates when the smallest sufficient checks pass with recorded evidence.
+- **REVIEW** — independent review and ship/handoff. Terminates when a fresh-context reviewer has checked the diff against the validation contract and, for non-trivial work, a completion record exists.
 
-| Canonical step | Machine name | Primary artifact |
-|---|---|---|
-| INTAKE | `INTAKE` | task contract |
-| CONTEXT MAP | `EXPLORE` | `context-map.md` |
-| SPEC / VALIDATION CONTRACT | `INTAKE`+`PLAN` | `validation-contract.md` |
-| COMPLEXITY BRAKE | `MINIMALITY_GATE` | minimality decision |
-| PLAN | `PLAN` | `plan.md` |
-| IMPLEMENT IN SMALL SLICES | `IMPLEMENT_SLICE` | diff + `execution-log.md` |
-| VERIFY | `VERIFY` | command evidence |
-| INDEPENDENT REVIEW | `REVIEW` | review verdict |
-| SHIP / HANDOFF | `PACKAGE` | `completion-record.md` |
-| RETROSPECTIVE / SKILL UPDATE | `RETROSPECT` | durable harness change |
+Every older sub-step inherits one of these three roles; nothing is unlabeled. The helper script, config, and state record still use the nine stable short machine names as sub-steps — this keeps existing records, configs, and automation working unchanged. The mapping:
 
-The **complexity brake runs twice**: once before PLAN (choose the smallest approach) and again before INDEPENDENT REVIEW (confirm nothing crept in).
+| Phase | Sub-step (machine name) | Canonical step | Primary artifact |
+|---|---|---|---|
+| PLAN | `INTAKE` | INTAKE | task contract |
+| PLAN | `EXPLORE` | CONTEXT MAP | `context-map.md` |
+| PLAN | `INTAKE`+`PLAN` | SPEC / VALIDATION CONTRACT | `validation-contract.md` |
+| PLAN | `MINIMALITY_GATE` | COMPLEXITY BRAKE | minimality decision |
+| PLAN | `PLAN` | PLAN | `plan.md` |
+| EXECUTE | `IMPLEMENT_SLICE` | IMPLEMENT IN SMALL SLICES | diff + `execution-log.md` |
+| EXECUTE | `VERIFY` | VERIFY | command evidence |
+| REVIEW | `REVIEW` | INDEPENDENT REVIEW | review verdict |
+| REVIEW | `PACKAGE` | SHIP / HANDOFF | `completion-record.md` |
+| REVIEW | `RETROSPECT` | RETROSPECTIVE / SKILL UPDATE | durable harness change |
+
+The status↔phase mapping used by the helper script and state record (`intake`, `explore`, `plan`, `minimality_gate` -> `plan`; `implement`, `verify`, `iterating` -> `execute`; `review`, `package` -> `review`; `done` -> `done`; `escalated` -> `escalated`) is implemented by `resolve_phase()` in `scripts/quality_loop.py` and exercised by `verify-phases`.
+
+The **complexity brake runs twice**: once during PLAN before implementation (choose the smallest approach) and again during REVIEW (confirm nothing crept in).
+
+RETROSPECT (the durable harness-update sub-step of REVIEW) is where a fresh-context reviewer or the orchestrator distills repeated mistakes back into `SKILL.md`, `AGENTS.md`, tests, hooks, or eval cases before the loop closes.
 
 ## Mental Model: Map the Change Before You Touch It
 
@@ -446,7 +454,7 @@ Use this when only a single prompt/rule can be installed:
 ```markdown
 You are a coding agent that runs the Coding Quality Loop — an engineering operating system, not just a prompt.
 
-Lifecycle: INTAKE -> CONTEXT MAP -> SPEC/VALIDATION CONTRACT -> COMPLEXITY BRAKE -> PLAN -> IMPLEMENT IN SMALL SLICES -> VERIFY -> INDEPENDENT REVIEW -> SHIP/HANDOFF -> RETROSPECTIVE.
+Lifecycle: PLAN -> EXECUTE -> REVIEW. An LM runs a plan-execute-review loop; context is a budget; verification terminates each phase. PLAN covers intake, context map, validation contract, minimality brake, and planning. EXECUTE covers implementation slices and local verification. REVIEW covers fresh-context review, packaging, and retrospective.
 
 Pick the smallest safe task class (tiny/small/medium/mission); do not force a typo through mission ceremony. Before editing, map the change (goal, user-visible behavior, non-goals, constraints, affected surfaces, patterns, tests, risks, evidence) and, for non-trivial work, write a validation contract that pairs each acceptance criterion with the check that proves it. Apply the complexity brake: choose the highest valid rung — no change, delete, reuse, stdlib, native, existing dependency, one-liner, minimal new code — and never trade away security, validation, authorization, accessibility, data-loss protection, or required behavior for minimality.
 

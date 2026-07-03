@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.4.0
+
+Three-phase lifecycle: PLAN → EXECUTE → REVIEW.
+
+- **Canonical model recast as three phases** (`SKILL.md`) — the operating model is now **PLAN → EXECUTE → REVIEW**, each phase closed by its own verification gate before the next may start. Guiding principle: *"An LM runs a plan-execute-review loop. Context is a budget. Verification terminates each phase."* The previous nine-step lifecycle (`INTAKE -> CONTEXT MAP -> SPEC/VALIDATION CONTRACT -> COMPLEXITY BRAKE -> PLAN -> IMPLEMENT IN SMALL SLICES -> VERIFY -> INDEPENDENT REVIEW -> SHIP/HANDOFF -> RETROSPECTIVE`) is preserved in full as sub-steps, mapped onto the three phases in a table so every older machine name (`INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN`, `IMPLEMENT_SLICE`, `VERIFY`, `REVIEW`, `PACKAGE`, `RETROSPECT`) stays valid and unlabeled steps do not exist. Existing records, configs, and automation keep working unchanged.
+- **New `context-check` subcommand** (`scripts/quality_loop.py`) — enforces that medium/mission tasks declare a per-phase `context_budget` (`inputs`, `excluded`, `output_summary`) in the state record; flags missing budgets, missing `output_summary`, and overlapping `inputs`/`excluded`.
+- **New `verify-phases` subcommand** (`scripts/quality_loop.py`) — checks the state record's `phase_verifications` array so a medium/mission task cannot advance phases without a `verified` block, and fails when the `review` phase is verified by the same agent that ran `plan` or `execute` (`verifier: same_agent` is a hard fail for review on medium/mission).
+- **New `trace-audit` subcommand** (`scripts/quality_loop.py`) — reads an `execution-log.jsonl` trace, flags pathological loops (same `tool` + `args_hash` three or more times consecutively), and aggregates per-phase step count, duration, and cost.
+- **New assets**: `assets/context-budget.md` (context-budget template), `assets/phase-verification.md` (per-phase verification block template), `assets/execution-log.jsonl.md` (execution-trace format doc).
+- **Schema additions** (`assets/agent-record.schema.json`) — `phase` (enum `plan|execute|review|done|escalated`), `context_budget`, and `phase_verifications` are all new, optional fields. The existing `status` field is kept for backward compatibility and silently mapped to `phase`; v2.3.x records with no `phase` field continue to validate unchanged.
+- **3 new eval cases** (`evals/cases/12-*.json`, `13-*.json`, `14-*.json`) pin the new gates: a medium task missing `context_budget` (fails `context-check`), a medium task missing `phase_verifications` (fails `verify-phases`), and a medium task where the `review` phase is verified by `same_agent` (fails `verify-phases`). Full suite: 14/14 eval-case runs green.
+- **Docs sweep** — `README.md`, `references/lifecycle.md`, `references/agentic-orchestration.md`, and the packaged host quickstarts (`examples/claude-code/CLAUDE.md`, `examples/codex/AGENTS.md`, `examples/cursor/.cursor/rules/coding-quality-loop.mdc`) now lead with the three-phase model; the nine machine-name sub-steps remain documented as the mapping table, not removed.
+- **Non-goals, explicitly deferred to v2.5.0+**: mutation testing, environment manifest, phantom-symbol resolution, and a metrics aggregator. None of these are in scope for this release.
+- **Packaging** — `packages/npm/package.json` bumped to `2.4.0`; `packages/npm/scripts/prepack.mjs` continues to bundle the new asset files (it globs `assets/` recursively, so no prepack changes were required).
+
 ## 2.3.2
 
 Findings from the `ts-search-eval-2026-07-03` eval baked into the harness.

@@ -1,0 +1,111 @@
+{
+  "name": "review-verified-by-same-agent-fails-verify-phases",
+  "description": "A medium multi-file task whose state record has a `phase_verifications` entry for the `review` phase with `verifier: same_agent` (the agent that ran plan/execute also signs off on review). Per v2.4.0 AC4, `python scripts/quality_loop.py verify-phases <record>` must fail when the `review` phase is verified by the same agent as plan or execute \u2014 the implementer cannot be the final validator. This case pins that the underlying task still classifies as medium (full gate set, validation contract, independent review, completion record all required) independent of the phase-verification check, which is exercised directly against a record fixture by `verify-phases` rather than through `eval-cases`.",
+  "input": {
+    "goal": "Refactor the shared auth-token refresh logic used by both the web and mobile API clients",
+    "signals": [
+      "multi_file",
+      "behavior_change"
+    ],
+    "proposed_solution": {
+      "introduces": [],
+      "lower_rung_available": false
+    }
+  },
+  "expected": {
+    "risk_tier": "medium",
+    "task_class": "medium",
+    "required_gates": [
+      "targeted_tests",
+      "relevant_tests",
+      "typecheck_or_build",
+      "caller_review",
+      "fresh_review"
+    ],
+    "minimality_flags": [],
+    "escalate": false,
+    "requires_validation_contract": true,
+    "requires_independent_review": true,
+    "requires_completion_record": true,
+    "requires_security_reviewer": false,
+    "hard_gate": false
+  },
+  "gate": "verify-phases",
+  "gate_fixture_expectation": "fails",
+  "gate_fixture_note": "A v2.4.0 record for this task with a `review` phase_verifications entry where `verifier == same_agent` as the plan/execute agent must fail `python scripts/quality_loop.py verify-phases <record>`.",
+  "record_fixture": {
+    "task_id": "FIX-CASE-14",
+    "goal": "Add per-tenant rate limiting to billing webhook",
+    "acceptance_criteria": [
+      "limit enforced"
+    ],
+    "constraints": [],
+    "non_goals": [],
+    "assumptions": [],
+    "risk_tier": "medium",
+    "verification_plan": [
+      "pytest tests/webhook/"
+    ],
+    "status": "review",
+    "phase": "review",
+    "task_class": "medium",
+    "context_budget": {
+      "plan": {
+        "inputs": [
+          "SKILL.md"
+        ],
+        "excluded": [],
+        "output_summary": "x"
+      },
+      "execute": {
+        "inputs": [
+          "plan.md"
+        ],
+        "excluded": [],
+        "output_summary": "y"
+      },
+      "review": {
+        "inputs": [
+          "diff"
+        ],
+        "excluded": [],
+        "output_summary": "z"
+      }
+    },
+    "phase_verifications": [
+      {
+        "phase": "plan",
+        "verifier": "same_agent",
+        "status": "verified",
+        "verified_by": [
+          "goal"
+        ],
+        "evidence": [
+          "plan.md"
+        ]
+      },
+      {
+        "phase": "execute",
+        "verifier": "same_agent",
+        "status": "verified",
+        "verified_by": [
+          "tests"
+        ],
+        "evidence": [
+          "pytest out"
+        ]
+      },
+      {
+        "phase": "review",
+        "verifier": "same_agent",
+        "status": "verified",
+        "verified_by": [
+          "diff"
+        ],
+        "evidence": [
+          "review.md"
+        ]
+      }
+    ]
+  }
+}

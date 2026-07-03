@@ -3,8 +3,11 @@
 Follow the Coding Quality Loop: produce the smallest correct change with enough evidence to
 trust, review, revert, or merge it.
 
-Lifecycle: `INTAKE -> EXPLORE -> MINIMALITY_GATE -> PLAN -> IMPLEMENT_SLICE -> VERIFY -> REVIEW -> PACKAGE`.
+Lifecycle: three phases, **PLAN → EXECUTE → REVIEW**, each closed by its own verification
+gate. Sub-steps under each phase (unchanged machine names): PLAN groups `INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN`
+EXECUTE groups `IMPLEMENT_SLICE`, `VERIFY`; REVIEW groups `REVIEW`, `PACKAGE`, `RETROSPECT`.
 
+PLAN:
 1. **INTAKE** — goal, acceptance criteria, constraints, assumptions, risk tier
    (`low|medium|high`), verification plan.
 2. **EXPLORE / PLAN** — map only relevant files, callers, tests, config; name likely files
@@ -12,8 +15,12 @@ Lifecycle: `INTAKE -> EXPLORE -> MINIMALITY_GATE -> PLAN -> IMPLEMENT_SLICE -> V
 3. **MINIMALITY_GATE** — pick the highest valid rung (no change, delete, reuse, stdlib,
    native, existing dependency, one-liner, minimal new code). Never trade away security,
    validation, authorization, accessibility, or data-loss protection.
+
+EXECUTE:
 4. **IMPLEMENT_SLICE** — one small, reviewable slice in existing conventions.
 5. **VERIFY** — run the smallest sufficient checks first; record exact commands and results.
+
+REVIEW:
 6. **REVIEW** — independent fresh-context review against the contract.
 7. **PACKAGE** — goal, files changed, minimality decision, evidence, risks, rollback, follow-ups.
 

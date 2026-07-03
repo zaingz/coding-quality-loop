@@ -4,6 +4,13 @@ The Coding Quality Loop is **agentic-first**: each lifecycle step is a node that
 run by a different agent, model, or tool profile. Teams pick the best model for each use
 case instead of forcing one model to do intake, architecture, implementation, and review.
 
+The canonical lifecycle is three phases — **PLAN → EXECUTE → REVIEW** (see
+`references/lifecycle.md`) — and every step below is a sub-step of one of those phases:
+`contract_agent`, `repo_mapper`, `planner`, and `minimality_reviewer` run during **PLAN**;
+`implementer` and `verification_runner` run during **EXECUTE**; `fresh_reviewer` and
+`packager` run during **REVIEW**. Roles are still mapped by step, not by phase, because a
+step is the smallest unit that has its own model-selection heuristic.
+
 This file defines the routing model. The machine-readable form is
 `assets/quality-loop.config.example.json`.
 
@@ -57,17 +64,20 @@ are mission/boundary roles. Wire them in for medium/mission work and at risk bou
 
 ## Default Step-to-Agent Matrix
 
-| Step | Profile | Default model class | Required artifacts | Gate |
-|---|---|---|---|---|
-| INTAKE | `contract_agent` | cheap/fast | task contract | contract has goal, criteria, risk tier |
-| EXPLORE | `repo_mapper` | cheap/fast | repo map | likely files named |
-| PLAN | `planner` | strong reasoning | plan | plan names files + verification |
-| MINIMALITY_GATE | `minimality_reviewer` | strong reasoning | minimality decision | rung chosen + lower rungs rejected |
-| IMPLEMENT_SLICE | `implementer` | code-specialized | diff | diff scoped to plan |
-| VERIFY | `verification_runner` | cheap/fast + exec | command evidence | evidence matches risk tier |
-| REVIEW | `fresh_reviewer` | strong reasoning (separate session) | review verdict | verdict + findings recorded |
-| PACKAGE | `packager` | cheap/fast | PR handoff | handoff complete |
-| (all) | `policy_guard` | deterministic hook | block/allow log | no unsafe action passed |
+The `Phase` column shows which of the three canonical phases (PLAN / EXECUTE / REVIEW) each
+machine-name step belongs to; see `references/lifecycle.md` for the full mapping.
+
+| Phase | Step | Profile | Default model class | Required artifacts | Gate |
+|---|---|---|---|---|---|
+| PLAN | INTAKE | `contract_agent` | cheap/fast | task contract | contract has goal, criteria, risk tier |
+| PLAN | EXPLORE | `repo_mapper` | cheap/fast | repo map | likely files named |
+| PLAN | PLAN | `planner` | strong reasoning | plan | plan names files + verification |
+| PLAN | MINIMALITY_GATE | `minimality_reviewer` | strong reasoning | minimality decision | rung chosen + lower rungs rejected |
+| EXECUTE | IMPLEMENT_SLICE | `implementer` | code-specialized | diff | diff scoped to plan |
+| EXECUTE | VERIFY | `verification_runner` | cheap/fast + exec | command evidence | evidence matches risk tier |
+| REVIEW | REVIEW | `fresh_reviewer` | strong reasoning (separate session) | review verdict | verdict + findings recorded |
+| REVIEW | PACKAGE | `packager` | cheap/fast | PR handoff | handoff complete |
+| (all) | (all) | `policy_guard` | deterministic hook | block/allow log | no unsafe action passed |
 
 ## Model Selection Heuristics
 

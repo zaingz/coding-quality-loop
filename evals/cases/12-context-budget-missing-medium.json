@@ -1,0 +1,53 @@
+{
+  "name": "context-budget-missing-on-medium-fails-context-check",
+  "description": "A medium multi-file task whose state record omits `context_budget` for a phase. Per v2.4.0 AC3, `python scripts/quality_loop.py context-check <record>` must flag medium/mission phases with a missing `context_budget`, missing `output_summary`, or overlapping `inputs`/`excluded`. This case pins that a plain multi-file/behavior-change signal set still classifies as medium and requires the full medium gate set (validation contract, independent review, completion record) independent of the context-budget check, which is exercised directly against a record fixture by `context-check` rather than through `eval-cases`.",
+  "input": {
+    "goal": "Add per-tenant rate limiting to the billing webhook handler",
+    "signals": [
+      "multi_file",
+      "behavior_change"
+    ],
+    "proposed_solution": {
+      "introduces": [],
+      "lower_rung_available": false
+    }
+  },
+  "expected": {
+    "risk_tier": "medium",
+    "task_class": "medium",
+    "required_gates": [
+      "targeted_tests",
+      "relevant_tests",
+      "typecheck_or_build",
+      "caller_review",
+      "fresh_review"
+    ],
+    "minimality_flags": [],
+    "escalate": false,
+    "requires_validation_contract": true,
+    "requires_independent_review": true,
+    "requires_completion_record": true,
+    "requires_security_reviewer": false,
+    "hard_gate": false
+  },
+  "gate": "context-check",
+  "gate_fixture_expectation": "fails",
+  "gate_fixture_note": "A v2.4.0 record for this task with a phase entry (e.g. plan) missing `context_budget` must fail `python scripts/quality_loop.py context-check <record>`.",
+  "record_fixture": {
+    "task_id": "FIX-CASE-12",
+    "goal": "Add per-tenant rate limiting to billing webhook",
+    "acceptance_criteria": [
+      "limit enforced"
+    ],
+    "constraints": [],
+    "non_goals": [],
+    "assumptions": [],
+    "risk_tier": "medium",
+    "verification_plan": [
+      "pytest tests/webhook/"
+    ],
+    "status": "plan",
+    "phase": "plan",
+    "task_class": "medium"
+  }
+}

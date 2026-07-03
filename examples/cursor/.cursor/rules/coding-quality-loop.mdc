@@ -8,20 +8,21 @@ alwaysApply: true
 
 Produce the smallest correct change with enough evidence to trust, review, revert, or merge.
 
-Lifecycle: `INTAKE -> EXPLORE -> PLAN -> MINIMALITY_GATE -> IMPLEMENT_SLICE -> VERIFY -> REVIEW -> PACKAGE`.
+Lifecycle: three phases, **PLAN → EXECUTE → REVIEW**, each closed by its own verification
+gate. Sub-steps under each phase (unchanged machine names): PLAN groups `INTAKE`, `EXPLORE`, `PLAN`, `MINIMALITY_GATE`
+EXECUTE groups `IMPLEMENT_SLICE`, `VERIFY`; REVIEW groups `REVIEW`, `PACKAGE`, `RETROSPECT`.
 
-- **INTAKE**: goal, acceptance criteria, constraints, assumptions, risk tier
-  (`low|medium|high`), verification plan.
-- **EXPLORE / PLAN**: map only relevant files, callers, tests, config; name likely files and
-  the checks you will run.
-- **MINIMALITY_GATE**: highest valid rung — no change, delete, reuse, stdlib, native, existing
-  dependency, one-liner, minimal new code. Never trade away security, validation,
+- **PLAN** — `INTAKE`: goal, acceptance criteria, constraints, assumptions, risk tier
+  (`low|medium|high`), verification plan. `EXPLORE / PLAN`: map only relevant files,
+  callers, tests, config; name likely files and the checks you will run.
+  `MINIMALITY_GATE`: highest valid rung — no change, delete, reuse, stdlib, native,
+  existing dependency, one-liner, minimal new code. Never trade away security, validation,
   authorization, accessibility, or data-loss protection.
-- **IMPLEMENT_SLICE**: one small, reviewable slice in existing conventions.
-- **VERIFY**: smallest sufficient checks first; record exact commands and results. Green tests
-  are necessary, not sufficient.
-- **REVIEW**: independent fresh-context review against the original contract.
-- **PACKAGE**: goal, files changed, minimality decision, evidence, risks, rollback, follow-ups.
+- **EXECUTE** — `IMPLEMENT_SLICE`: one small, reviewable slice in existing conventions.
+  `VERIFY`: smallest sufficient checks first; record exact commands and results. Green
+  tests are necessary, not sufficient.
+- **REVIEW** — `REVIEW`: independent fresh-context review against the original contract.
+  `PACKAGE`: goal, files changed, minimality decision, evidence, risks, rollback, follow-ups.
 
 Escalate before destructive migrations, secret exposure, payments/billing, production infra,
 ambiguous user-facing behavior, or after two failed repair loops.

@@ -14,21 +14,23 @@ test before wiring real models.
 
 ## Wire the steps
 
-Model each lifecycle step as a workflow node. Route each node to a profile from
+Model each lifecycle step as a workflow node. The canonical lifecycle is three phases —
+**PLAN → EXECUTE → REVIEW** (see `references/lifecycle.md`) — the steps below are the
+sub-steps that belong to each phase. Route each node to a profile from
 `assets/quality-loop.config.example.json` (replace the `<...>` model placeholders with your
 provider's identifiers):
 
-| Step | Profile | Model class | Independent? |
-|---|---|---|---|
-| INTAKE | `contract_agent` | cheap/fast | no |
-| EXPLORE | `repo_mapper` | cheap/fast | no |
-| PLAN | `planner` | strong reasoning | no |
-| MINIMALITY_GATE | `minimality_reviewer` | strong reasoning | no |
-| IMPLEMENT_SLICE | `implementer` | code-specialized | no |
-| VERIFY | `verification_runner` | cheap/fast + exec | no |
-| REVIEW | `fresh_reviewer` | strong reasoning | **yes** |
-| PACKAGE | `packager` | cheap/fast | no |
-| (all) | `policy_guard` | deterministic hook | enforced |
+| Phase | Step | Profile | Model class | Independent? |
+|---|---|---|---|---|
+| PLAN | INTAKE | `contract_agent` | cheap/fast | no |
+| PLAN | EXPLORE | `repo_mapper` | cheap/fast | no |
+| PLAN | PLAN | `planner` | strong reasoning | no |
+| PLAN | MINIMALITY_GATE | `minimality_reviewer` | strong reasoning | no |
+| EXECUTE | IMPLEMENT_SLICE | `implementer` | code-specialized | no |
+| EXECUTE | VERIFY | `verification_runner` | cheap/fast + exec | no |
+| REVIEW | REVIEW | `fresh_reviewer` | strong reasoning | **yes** |
+| REVIEW | PACKAGE | `packager` | cheap/fast | no |
+| (all) | (all) | `policy_guard` | deterministic hook | enforced |
 
 Tool contracts for each node (repo-map, verification runner, reviewer, policy hook) are in
 `references/tool-contracts.md`.

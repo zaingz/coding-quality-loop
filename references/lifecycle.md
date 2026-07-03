@@ -1,31 +1,53 @@
 # Coding Quality Loop Lifecycle
 
-## Canonical Operating Model and Machine Aliases
+## Canonical Operating Model: Three Phases
 
-The documented operating model has ten steps. The helper script, config, and state record use
-stable short machine names for compatibility. Both describe the same loop.
+An LM runs a plan-execute-review loop. Context is a budget. Verification terminates each
+phase. The canonical operating model is three phases, each closed by its own verification
+gate before the next may start:
 
 ```text
-INTAKE -> CONTEXT MAP -> SPEC / VALIDATION CONTRACT -> COMPLEXITY BRAKE -> PLAN
-  -> IMPLEMENT IN SMALL SLICES -> VERIFY -> INDEPENDENT REVIEW
-  -> SHIP / HANDOFF -> RETROSPECTIVE / SKILL UPDATE
+PLAN -> EXECUTE -> REVIEW
 ```
 
-| Canonical step | Machine name | Primary artifact |
-|---|---|---|
-| INTAKE | `INTAKE` | task contract |
-| CONTEXT MAP | `EXPLORE` | `context-map.md` |
-| SPEC / VALIDATION CONTRACT | `INTAKE`+`PLAN` | `validation-contract.md` |
-| COMPLEXITY BRAKE | `MINIMALITY_GATE` | minimality decision |
-| PLAN | `PLAN` | `plan.md` |
-| IMPLEMENT IN SMALL SLICES | `IMPLEMENT_SLICE` | diff + `execution-log.md` |
-| VERIFY | `VERIFY` | command evidence |
-| INDEPENDENT REVIEW | `REVIEW` | review verdict |
-| SHIP / HANDOFF | `PACKAGE` | `completion-record.md` |
-| RETROSPECTIVE / SKILL UPDATE | `RETROSPECT` | durable harness change |
+- **PLAN** — turn the goal into a task contract, map the change, write the validation
+  contract, apply the complexity brake, and produce a plan. Terminates when the plan and
+  (for non-trivial work) the validation contract exist and are checkable.
+- **EXECUTE** — implement in small slices and verify. Terminates when the smallest
+  sufficient checks pass with recorded evidence.
+- **REVIEW** — independent review and ship/handoff. Terminates when a fresh-context
+  reviewer has checked the diff against the validation contract and, for non-trivial work,
+  a completion record exists.
+
+## Sub-Steps and Machine Aliases
+
+Every earlier sub-step inherits one of the three phases above; nothing is unlabeled. The
+helper script, config, and state record use stable short machine names for these sub-steps,
+unchanged from prior versions, so existing records, configs, and automation keep working.
+The pre-2.4.0 nine-step chain (retained below only as a historical cross-reference; see
+`CHANGELOG.md` for the full v2.3.x lineage) mapped one-to-one onto these sub-steps and now
+maps onto the three phases as shown in the table:
+
+| Phase | Canonical sub-step | Machine name | Primary artifact |
+|---|---|---|---|
+| PLAN | INTAKE | `INTAKE` | task contract |
+| PLAN | CONTEXT MAP | `EXPLORE` | `context-map.md` |
+| PLAN | SPEC / VALIDATION CONTRACT | `INTAKE`+`PLAN` | `validation-contract.md` |
+| PLAN | COMPLEXITY BRAKE | `MINIMALITY_GATE` | minimality decision |
+| PLAN | PLAN | `PLAN` | `plan.md` |
+| EXECUTE | IMPLEMENT IN SMALL SLICES | `IMPLEMENT_SLICE` | diff + `execution-log.md` |
+| EXECUTE | VERIFY | `VERIFY` | command evidence |
+| REVIEW | INDEPENDENT REVIEW | `REVIEW` | review verdict |
+| REVIEW | SHIP / HANDOFF | `PACKAGE` | `completion-record.md` |
+| REVIEW | RETROSPECTIVE / SKILL UPDATE | `RETROSPECT` | durable harness change |
 
 The **complexity brake runs twice**: before PLAN (pick the smallest approach) and before
-INDEPENDENT REVIEW (confirm nothing crept in).
+INDEPENDENT REVIEW (confirm nothing crept in) — both inside the PLAN and REVIEW phases
+respectively.
+
+Context budgets and per-phase verification blocks (`context_budget`, `phase_verifications`
+in `assets/agent-record.schema.json`) are declared per phase, not per sub-step; see
+`assets/context-budget.md` and `assets/phase-verification.md`.
 
 ## State Machine (machine names)
 

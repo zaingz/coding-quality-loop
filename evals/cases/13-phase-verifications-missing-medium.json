@@ -1,0 +1,63 @@
+{
+  "name": "phase-verifications-missing-on-medium-fails-verify-phases",
+  "description": "A medium multi-file task whose state record has no `phase_verifications` array at all. Per v2.4.0 AC4, `python scripts/quality_loop.py verify-phases <record>` must fail when a medium/mission record advances phases without a verified block for each completed phase. This case pins that the underlying task still classifies as medium (full gate set, validation contract, independent review, completion record all required) independent of the phase-verification check, which is exercised directly against a record fixture by `verify-phases` rather than through `eval-cases`.",
+  "input": {
+    "goal": "Migrate the notifications service from polling to a webhook-driven push model",
+    "signals": [
+      "multi_file",
+      "behavior_change",
+      "api_contract"
+    ],
+    "proposed_solution": {
+      "introduces": [],
+      "lower_rung_available": false
+    }
+  },
+  "expected": {
+    "risk_tier": "medium",
+    "task_class": "medium",
+    "required_gates": [
+      "targeted_tests",
+      "relevant_tests",
+      "typecheck_or_build",
+      "caller_review",
+      "fresh_review"
+    ],
+    "minimality_flags": [],
+    "escalate": false,
+    "requires_validation_contract": true,
+    "requires_independent_review": true,
+    "requires_completion_record": true,
+    "requires_security_reviewer": false,
+    "hard_gate": false
+  },
+  "gate": "verify-phases",
+  "gate_fixture_expectation": "fails",
+  "gate_fixture_note": "A v2.4.0 record for this task with `phase_verifications` absent (or an empty array) after phases have advanced must fail `python scripts/quality_loop.py verify-phases <record>`.",
+  "record_fixture": {
+    "task_id": "FIX-CASE-13",
+    "goal": "Add per-tenant rate limiting to billing webhook",
+    "acceptance_criteria": [
+      "limit enforced"
+    ],
+    "constraints": [],
+    "non_goals": [],
+    "assumptions": [],
+    "risk_tier": "medium",
+    "verification_plan": [
+      "pytest tests/webhook/"
+    ],
+    "status": "plan",
+    "phase": "plan",
+    "task_class": "medium",
+    "context_budget": {
+      "plan": {
+        "inputs": [
+          "SKILL.md"
+        ],
+        "excluded": [],
+        "output_summary": "x"
+      }
+    }
+  }
+}

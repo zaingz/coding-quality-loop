@@ -3,23 +3,24 @@
 This project follows the Coding Quality Loop. Produce the smallest correct change with
 enough evidence that a human can trust, review, revert, or merge it.
 
-Lifecycle: `INTAKE -> EXPLORE -> MINIMALITY_GATE -> PLAN -> IMPLEMENT_SLICE -> VERIFY -> REVIEW -> PACKAGE`.
+Lifecycle: three phases, **PLAN → EXECUTE → REVIEW**, each closed by its own verification
+gate. Sub-steps under each phase (unchanged machine names): PLAN groups `INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN`
+EXECUTE groups `IMPLEMENT_SLICE`, `VERIFY`; REVIEW groups `REVIEW`, `PACKAGE`, `RETROSPECT`.
 
-- **INTAKE**: turn the goal into acceptance criteria, constraints, assumptions, a risk tier
-  (`low|medium|high`), and a verification plan. Ask only if a missing answer changes
-  architecture, data safety, security, cost, side effects, or user-visible behavior.
-- **EXPLORE / PLAN**: map only the relevant files, callers, tests, and config. Name the
-  files you expect to change and the checks you will run.
-- **MINIMALITY_GATE**: pick the highest valid rung — no change, delete, reuse, stdlib,
-  native, existing dependency, one-liner, minimal new code. Never drop security, validation,
-  authorization, accessibility, or data-loss protection for the sake of minimality.
-- **IMPLEMENT_SLICE**: one small, reviewable slice using existing conventions.
-- **VERIFY**: run the smallest sufficient checks, then broader checks if risk warrants.
+- **PLAN** — `INTAKE`: turn the goal into acceptance criteria, constraints, assumptions, a
+  risk tier (`low|medium|high`), and a verification plan. Ask only if a missing answer
+  changes architecture, data safety, security, cost, side effects, or user-visible behavior.
+  `EXPLORE / PLAN`: map only the relevant files, callers, tests, and config. Name the files
+  you expect to change and the checks you will run. `MINIMALITY_GATE`: pick the highest
+  valid rung — no change, delete, reuse, stdlib, native, existing dependency, one-liner,
+  minimal new code. Never drop security, validation, authorization, accessibility, or
+  data-loss protection for the sake of minimality.
+- **EXECUTE** — `IMPLEMENT_SLICE`: one small, reviewable slice using existing conventions.
+  `VERIFY`: run the smallest sufficient checks, then broader checks if risk warrants.
   Record exact commands and results. Green tests are necessary, not sufficient.
-- **REVIEW**: for non-trivial work, review the diff in a **fresh context / subagent** against
-  the original contract.
-- **PACKAGE**: hand off goal, files changed, minimality decision, verification evidence,
-  risks, rollback, and follow-ups.
+- **REVIEW** — `REVIEW`: for non-trivial work, review the diff in a **fresh context /
+  subagent** against the original contract. `PACKAGE`: hand off goal, files changed,
+  minimality decision, verification evidence, risks, rollback, and follow-ups.
 
 Escalate before destructive migrations, secret/credential exposure, payments/billing,
 production infra, ambiguous user-facing behavior, or after two failed repair loops.
