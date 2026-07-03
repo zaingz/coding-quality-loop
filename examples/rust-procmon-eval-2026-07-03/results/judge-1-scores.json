@@ -1,0 +1,182 @@
+{
+  "judge_id": "judge-1",
+  "scores": {
+    "A": {
+      "correctness": {
+        "score": 8,
+        "reason": "Implements list/find/kill/watch/tree and JSON formats with robust stat parsing in src/procfs.rs, but relies on fixed clock/page constants and tree JSON/root handling is fairly minimal."
+      },
+      "test_evidence": {
+        "score": 7,
+        "reason": "tests/cli.rs covers list, find JSON, and PID 1 guard, and src/procfs.rs has a synthetic stat parser test with spaces/parentheses, but there is no spawned-child lifecycle test."
+      },
+      "diff_code_minimality": {
+        "score": 7,
+        "reason": "src is about 929 LOC and focused, but Cargo.toml uses five runtime dependencies including ctrlc and serde where the brief asked for minimal dependencies."
+      },
+      "safety_robustness": {
+        "score": 8,
+        "reason": "read_process skips disappearing or unreadable /proc entries, send_signal maps EPERM/ESRCH to meaningful errors, and broken pipes are handled, though system constants are hard-coded."
+      },
+      "idiomatic_rust": {
+        "score": 8,
+        "reason": "The code uses Result-based flow, iterator filtering, no shell-outs, and a justified libc::kill unsafe block; the machine checks report build/test/clippy passing."
+      },
+      "readme_quality": {
+        "score": 9,
+        "reason": "README.md is concise, documents every subcommand with examples, states exit codes, and justifies each dependency."
+      },
+      "verification_artifacts": {
+        "score": 1,
+        "reason": "The variant ships code, tests, and README only, with no separate validation contract, plan, execution log, or completion artifact."
+      },
+      "reviewability": {
+        "score": 8,
+        "reason": "The implementation is organized into main.rs plus procfs.rs with clear responsibilities and little dead code or debug noise."
+      },
+      "absence_of_scope_creep": {
+        "score": 9,
+        "reason": "The implementation stays within the requested Linux procmon v1 scope without extra TUI, daemon, config, plugin, or unrelated features."
+      },
+      "judge_gestalt": {
+        "score": 8,
+        "reason": "I would be close to approving this as a solid v1, with small follow-up requests around runtime constants and tree edge cases."
+      },
+      "total": 71.5,
+      "verdict": "merge_as_is"
+    },
+    "B": {
+      "correctness": {
+        "score": 7,
+        "reason": "Core commands mostly exist and JSON is stable, but watch relies on default signal termination, tree table output is more an indented table than an ASCII tree, and kill can signal some matches before later rejecting protected PIDs."
+      },
+      "test_evidence": {
+        "score": 6,
+        "reason": "Unit tests cover stat parsing, sorting, literal matching, JSON escaping, and tree depths, while integration tests are only three smoke-level binary checks and do not spawn a child process."
+      },
+      "diff_code_minimality": {
+        "score": 9,
+        "reason": "Cargo.toml has only regex and libc runtime dependencies and src is about 932 LOC with no generated or vendored code."
+      },
+      "safety_robustness": {
+        "score": 7,
+        "reason": "collect_processes skips races and permission-denied entries and uses sysconf for constants, but kill_target behavior is not atomic with protected matches and watch lacks an explicit clean Ctrl-C path."
+      },
+      "idiomatic_rust": {
+        "score": 8,
+        "reason": "The library is Result-oriented, avoids shell-outs, documents unsafe libc calls, and passes the required clippy check, though it hand-rolls JSON and uses a very large lib.rs."
+      },
+      "readme_quality": {
+        "score": 9,
+        "reason": "README.md clearly describes all subcommands, examples, JSON output, exit codes, assumptions, and the two dependency choices."
+      },
+      "verification_artifacts": {
+        "score": 1,
+        "reason": "There are no process or validation artifacts beyond README and tests."
+      },
+      "reviewability": {
+        "score": 7,
+        "reason": "The code is understandable and has little noise, but almost all behavior is concentrated in one 922-line lib.rs, making targeted review slower."
+      },
+      "absence_of_scope_creep": {
+        "score": 9,
+        "reason": "It stays on the requested CLI/process-management scope with only minor niceties such as numeric signal parsing."
+      },
+      "judge_gestalt": {
+        "score": 6,
+        "reason": "I would request changes for kill atomicity/protected-process behavior, explicit watch Ctrl-C handling, and more faithful tree output."
+      },
+      "total": 67.0,
+      "verdict": "request_changes"
+    },
+    "C": {
+      "correctness": {
+        "score": 6,
+        "reason": "Most commands are present, but watch --format json emits screen clears/process lines/status text instead of stable frame objects, mem_pct is divided by 1024 incorrectly, invalid signals silently default to SIGTERM, and pattern kill can partially signal before hitting protected targets."
+      },
+      "test_evidence": {
+        "score": 7,
+        "reason": "tests/integration.rs has broad binary coverage including a spawned sleep process and JSON checks, but its advertised tricky stat-parser test does not actually call parse_stat with a synthetic spaces/parentheses input."
+      },
+      "diff_code_minimality": {
+        "score": 7,
+        "reason": "src is a compact 744 LOC, but Cargo.toml uses five runtime dependencies and the CLI adds an off-brief --all option plus release profile tweaks."
+      },
+      "safety_robustness": {
+        "score": 5,
+        "reason": "Racy /proc reads are skipped and SIGINT uses an atomic flag, but signal parsing defaults on invalid input, send_signal maps nonexistent PIDs to internal errors, and several paths call process::exit directly."
+      },
+      "idiomatic_rust": {
+        "score": 5,
+        "reason": "The code passes required clippy, but main.rs uses process::exit throughout, unwraps in serialization/sorting/signal parsing paths, and installs a raw libc signal handler."
+      },
+      "readme_quality": {
+        "score": 8,
+        "reason": "README.md is comprehensive with examples, exit codes, JSON, dependency rationale, and design notes, but it is long and documents the off-scope --all option."
+      },
+      "verification_artifacts": {
+        "score": 1,
+        "reason": "No standalone validation, planning, contract, execution log, or handoff artifact is present."
+      },
+      "reviewability": {
+        "score": 7,
+        "reason": "Files are split logically into format/main/proc, but direct exits and some inaccurate tests/comments make the behavior less easy to reason about."
+      },
+      "absence_of_scope_creep": {
+        "score": 7,
+        "reason": "The extra --all option and release-profile/package metadata go beyond the v1 brief, though there is no large unrelated subsystem."
+      },
+      "judge_gestalt": {
+        "score": 5,
+        "reason": "I would request substantive changes, especially to watch JSON, signal errors, and the incorrect memory percentage."
+      },
+      "total": 57.5,
+      "verdict": "request_changes"
+    },
+    "D": {
+      "correctness": {
+        "score": 5,
+        "reason": "The basic commands exist, but %CPU is always 0.0, watch --format json emits screen-cleared NDJSON rather than stable frame objects, kill has no --format and skips protected/failed pattern targets instead of refusing or returning permission consistently, and tree JSON lacks depth and silently succeeds for missing roots."
+      },
+      "test_evidence": {
+        "score": 8,
+        "reason": "There are substantial unit and integration tests including tricky stat parsing, JSON validation, PID guards, sort checks, and a spawned child lifecycle test, though some find assertions are weak and the integration file has an unused import under stricter clippy."
+      },
+      "diff_code_minimality": {
+        "score": 6,
+        "reason": "src is about 968 LOC across many modules and Cargo.toml has five runtime dependencies, which is still under the rough LOC anchor but not especially minimal."
+      },
+      "safety_robustness": {
+        "score": 5,
+        "reason": "Disappearing /proc entries are skipped and unsafe kill is wrapped, but fixed HZ/page-size assumptions, pattern-kill permission handling, and non-atomic protected-target behavior reduce robustness."
+      },
+      "idiomatic_rust": {
+        "score": 7,
+        "reason": "The modular code generally uses Result and serde, avoids shell-outs, and passes the required clippy check, but the stricter all-target clippy issue and a few unwrap_or_default/fallback patterns keep it from being excellent."
+      },
+      "readme_quality": {
+        "score": 8,
+        "reason": "README.md gives examples for every command, exit codes, JSON shape, dependencies, and limitations, but it documents a significant limitation that list/find CPU is always 0.0."
+      },
+      "verification_artifacts": {
+        "score": 1,
+        "reason": "The repository contains no validation contract, plan, execution log, or other handoff artifact beyond README and tests."
+      },
+      "reviewability": {
+        "score": 7,
+        "reason": "The multi-module layout is easy to navigate, but watch has unused/vestigial state, tree lacks missing-root errors, and behavior is spread across several small files."
+      },
+      "absence_of_scope_creep": {
+        "score": 9,
+        "reason": "It stays within the requested process-manager CLI scope and avoids TUI, config, daemon, plugin, or unrelated features."
+      },
+      "judge_gestalt": {
+        "score": 5,
+        "reason": "I would request changes because CPU reporting, watch JSON, and kill error semantics are too far from the brief to ship as-is."
+      },
+      "total": 59.0,
+      "verdict": "request_changes"
+    }
+  },
+  "cross_notes": "A is the strongest overall implementation: it is feature-complete, concise enough, and has the fewest serious behavioral gaps, though it lacks process artifacts. B is the most dependency-minimal but needs behavior fixes around kill atomicity, watch Ctrl-C, and tree output. C has broad integration tests and compact code but has correctness problems in watch JSON, memory percentage, and signal handling, plus an off-scope --all option. D has the strongest test suite but weaker core fidelity because CPU is never computed and watch/kill/tree semantics diverge from the brief. All four variants have low verification-artifact scores because the judged directories contain no separate validation or handoff documents."
+}

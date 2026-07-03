@@ -1,0 +1,45 @@
+{
+  "per_variant": {
+    "codex-baseline": {
+      "j1_orig": 71.5,
+      "j2_orig": 73.0,
+      "avg_orig": 72.25,
+      "j1_corr": 70.5,
+      "j2_corr": 73.0,
+      "avg_corr": 71.75,
+      "d7": 0
+    },
+    "codex-cql": {
+      "j1_orig": 67.0,
+      "j2_orig": 71.5,
+      "avg_orig": 69.25,
+      "j1_corr": 73.0,
+      "j2_corr": 78.5,
+      "avg_corr": 75.75,
+      "d7": 7
+    },
+    "claude-baseline": {
+      "j1_orig": 57.5,
+      "j2_orig": 82.0,
+      "avg_orig": 69.75,
+      "j1_corr": 56.5,
+      "j2_corr": 82.0,
+      "avg_corr": 69.25,
+      "d7": 0
+    },
+    "claude-cql": {
+      "j1_orig": 59.0,
+      "j2_orig": 75.5,
+      "avg_orig": 67.25,
+      "j1_corr": 68.0,
+      "j2_corr": 85.5,
+      "avg_corr": 76.75,
+      "d7": 10
+    }
+  },
+  "family_lift": {
+    "codex": 4.0,
+    "claude": 7.5,
+    "overall": 5.75
+  }
+}

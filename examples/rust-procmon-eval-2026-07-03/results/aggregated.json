@@ -1,0 +1,165 @@
+{
+  "per_variant": {
+    "codex-baseline": {
+      "judge1": {
+        "letter": "A",
+        "reported_total": 71.5,
+        "computed_total": 71.5,
+        "verdict": "merge_as_is",
+        "dims": {
+          "correctness": 8,
+          "test_evidence": 7,
+          "diff_code_minimality": 7,
+          "safety_robustness": 8,
+          "idiomatic_rust": 8,
+          "readme_quality": 9,
+          "verification_artifacts": 1,
+          "reviewability": 8,
+          "absence_of_scope_creep": 9,
+          "judge_gestalt": 8
+        }
+      },
+      "judge2": {
+        "letter": "C",
+        "reported_total": 73,
+        "computed_total": 73.0,
+        "verdict": "merge_as_is",
+        "dims": {
+          "correctness": 9,
+          "test_evidence": 6,
+          "diff_code_minimality": 9,
+          "safety_robustness": 8,
+          "idiomatic_rust": 8,
+          "readme_quality": 8,
+          "verification_artifacts": 0,
+          "reviewability": 8,
+          "absence_of_scope_creep": 10,
+          "judge_gestalt": 8
+        }
+      },
+      "avg_total": 72.25
+    },
+    "codex-cql": {
+      "judge1": {
+        "letter": "B",
+        "reported_total": 67.0,
+        "computed_total": 67.0,
+        "verdict": "request_changes",
+        "dims": {
+          "correctness": 7,
+          "test_evidence": 6,
+          "diff_code_minimality": 9,
+          "safety_robustness": 7,
+          "idiomatic_rust": 8,
+          "readme_quality": 9,
+          "verification_artifacts": 1,
+          "reviewability": 7,
+          "absence_of_scope_creep": 9,
+          "judge_gestalt": 6
+        }
+      },
+      "judge2": {
+        "letter": "D",
+        "reported_total": 71,
+        "computed_total": 71.5,
+        "verdict": "request_changes",
+        "dims": {
+          "correctness": 9,
+          "test_evidence": 6,
+          "diff_code_minimality": 9,
+          "safety_robustness": 9,
+          "idiomatic_rust": 7,
+          "readme_quality": 8,
+          "verification_artifacts": 0,
+          "reviewability": 7,
+          "absence_of_scope_creep": 10,
+          "judge_gestalt": 7
+        }
+      },
+      "avg_total": 69.25
+    },
+    "claude-baseline": {
+      "judge1": {
+        "letter": "C",
+        "reported_total": 57.5,
+        "computed_total": 57.5,
+        "verdict": "request_changes",
+        "dims": {
+          "correctness": 6,
+          "test_evidence": 7,
+          "diff_code_minimality": 7,
+          "safety_robustness": 5,
+          "idiomatic_rust": 5,
+          "readme_quality": 8,
+          "verification_artifacts": 1,
+          "reviewability": 7,
+          "absence_of_scope_creep": 7,
+          "judge_gestalt": 5
+        }
+      },
+      "judge2": {
+        "letter": "A",
+        "reported_total": 82,
+        "computed_total": 82.0,
+        "verdict": "merge_as_is",
+        "dims": {
+          "correctness": 9,
+          "test_evidence": 10,
+          "diff_code_minimality": 8,
+          "safety_robustness": 9,
+          "idiomatic_rust": 9,
+          "readme_quality": 9,
+          "verification_artifacts": 0,
+          "reviewability": 9,
+          "absence_of_scope_creep": 10,
+          "judge_gestalt": 9
+        }
+      },
+      "avg_total": 69.75
+    },
+    "claude-cql": {
+      "judge1": {
+        "letter": "D",
+        "reported_total": 59.0,
+        "computed_total": 59.0,
+        "verdict": "request_changes",
+        "dims": {
+          "correctness": 5,
+          "test_evidence": 8,
+          "diff_code_minimality": 6,
+          "safety_robustness": 5,
+          "idiomatic_rust": 7,
+          "readme_quality": 8,
+          "verification_artifacts": 1,
+          "reviewability": 7,
+          "absence_of_scope_creep": 9,
+          "judge_gestalt": 5
+        }
+      },
+      "judge2": {
+        "letter": "B",
+        "reported_total": 75,
+        "computed_total": 75.5,
+        "verdict": "merge_as_is",
+        "dims": {
+          "correctness": 8,
+          "test_evidence": 8,
+          "diff_code_minimality": 8,
+          "safety_robustness": 9,
+          "idiomatic_rust": 9,
+          "readme_quality": 9,
+          "verification_artifacts": 0,
+          "reviewability": 8,
+          "absence_of_scope_creep": 10,
+          "judge_gestalt": 8
+        }
+      },
+      "avg_total": 67.25
+    }
+  },
+  "family_lift": {
+    "codex": -3.0,
+    "claude": -2.5,
+    "overall": -2.75
+  }
+}

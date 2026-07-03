@@ -1,0 +1,182 @@
+{
+  "judge_id": "judge-2",
+  "scores": {
+    "A": {
+      "correctness": {
+        "score": 9,
+        "reason": "Implementation passes all required tests and handles `/proc` parsing accurately, including edge cases like `comm` with spaces."
+      },
+      "test_evidence": {
+        "score": 10,
+        "reason": "Comprehensive integration and unit tests are provided. Tricky `/proc` parsing cases and child process tracking are explicitly tested."
+      },
+      "diff_code_minimality": {
+        "score": 8,
+        "reason": "Code is well-structured and uses appropriate dependencies like `clap` and `serde`. Minimal and focused implementation (~900 lines)."
+      },
+      "safety_robustness": {
+        "score": 9,
+        "reason": "Gracefully skips unreadable processes and safely manages signals. Correctly calculates process properties despite TOCTOU races."
+      },
+      "idiomatic_rust": {
+        "score": 9,
+        "reason": "Clean codebase utilizing iterators, `Result`, and idiomatic constructs. Passes all `clippy` checks."
+      },
+      "readme_quality": {
+        "score": 9,
+        "reason": "Clear and detailed README with examples for every command and explained exit codes."
+      },
+      "verification_artifacts": {
+        "score": 0,
+        "reason": "No additional validation contracts, planning docs, or handoff artifacts are present."
+      },
+      "reviewability": {
+        "score": 9,
+        "reason": "Code is separated into logical modules (`format.rs`, `proc.rs`) making it very reviewable."
+      },
+      "absence_of_scope_creep": {
+        "score": 10,
+        "reason": "Implements exactly what was asked for without any unnecessary additions."
+      },
+      "judge_gestalt": {
+        "score": 9,
+        "reason": "High-quality, correct, and robust implementation that meets the specifications perfectly."
+      },
+      "total": 82,
+      "verdict": "merge_as_is"
+    },
+    "B": {
+      "correctness": {
+        "score": 8,
+        "reason": "Functions well and handles core commands, but single-shot `%CPU` is hardcoded to 0.0 which isn't ideal but documented."
+      },
+      "test_evidence": {
+        "score": 8,
+        "reason": "Integration tests exist and verify behavior, including child process tracking and PID refusal."
+      },
+      "diff_code_minimality": {
+        "score": 8,
+        "reason": "Appropriately sized (~800 lines) with standard CLI tools (`clap`, `serde`)."
+      },
+      "safety_robustness": {
+        "score": 9,
+        "reason": "Safely wraps `libc::kill` and handles `/proc` file races effectively."
+      },
+      "idiomatic_rust": {
+        "score": 9,
+        "reason": "Idiomatic usage of error handling, modules, and `Option`/`Result`."
+      },
+      "readme_quality": {
+        "score": 9,
+        "reason": "Excellent README detailing options, dependencies, and assumptions."
+      },
+      "verification_artifacts": {
+        "score": 0,
+        "reason": "No planning or verification artifacts are provided."
+      },
+      "reviewability": {
+        "score": 8,
+        "reason": "Good module separation makes the logic relatively easy to trace and understand."
+      },
+      "absence_of_scope_creep": {
+        "score": 10,
+        "reason": "Strictly adheres to the given requirements without over-engineering."
+      },
+      "judge_gestalt": {
+        "score": 8,
+        "reason": "Solid submission, but the lack of single-shot `%CPU` calculation makes it slightly less complete than others."
+      },
+      "total": 75,
+      "verdict": "merge_as_is"
+    },
+    "C": {
+      "correctness": {
+        "score": 9,
+        "reason": "Correctly implements all commands, handles signals robustly, and computes `%CPU` accurately."
+      },
+      "test_evidence": {
+        "score": 6,
+        "reason": "Includes minimal integration tests; could use more extensive testing of edge cases and child process lifetimes."
+      },
+      "diff_code_minimality": {
+        "score": 9,
+        "reason": "Does not use `clap` to minimize dependencies, implementing its own arg parser; very small and focused source size."
+      },
+      "safety_robustness": {
+        "score": 8,
+        "reason": "Handles `kill` and signals cleanly, with appropriate `unsafe` documentation. Handles races gracefully."
+      },
+      "idiomatic_rust": {
+        "score": 8,
+        "reason": "Mostly idiomatic, though manual argument parsing is slightly less conventional than using `clap`."
+      },
+      "readme_quality": {
+        "score": 8,
+        "reason": "Concise but clear README with adequate examples and explanations."
+      },
+      "verification_artifacts": {
+        "score": 0,
+        "reason": "No handoff or planning artifacts found."
+      },
+      "reviewability": {
+        "score": 8,
+        "reason": "Code is condensed into fewer files which is slightly denser to read, but still manageable."
+      },
+      "absence_of_scope_creep": {
+        "score": 10,
+        "reason": "Stayed exactly within the requested bounds."
+      },
+      "judge_gestalt": {
+        "score": 8,
+        "reason": "A strong, lightweight implementation, though the manual argument parsing and light tests hold it back slightly."
+      },
+      "total": 73,
+      "verdict": "merge_as_is"
+    },
+    "D": {
+      "correctness": {
+        "score": 9,
+        "reason": "All commands are correctly implemented, including accurate `/proc` parsing and signal handling."
+      },
+      "test_evidence": {
+        "score": 6,
+        "reason": "Limited integration tests, mostly basic smoke tests. Missing tests for complex `/proc` edge cases."
+      },
+      "diff_code_minimality": {
+        "score": 9,
+        "reason": "Very minimal dependencies (only `libc` and `regex`). Manual argument parsing and JSON generation keeps binary small."
+      },
+      "safety_robustness": {
+        "score": 9,
+        "reason": "Good documentation around `unsafe` blocks, handles racy `/proc` reads well."
+      },
+      "idiomatic_rust": {
+        "score": 7,
+        "reason": "Manual argument parsing and JSON string generation feels less idiomatic and more error-prone than using `serde`/`clap`."
+      },
+      "readme_quality": {
+        "score": 8,
+        "reason": "Clear and succinct README, though slightly less detailed on output schemas compared to others."
+      },
+      "verification_artifacts": {
+        "score": 0,
+        "reason": "No process/planning artifacts included."
+      },
+      "reviewability": {
+        "score": 7,
+        "reason": "Large files with manual parsing logic make the code somewhat dense and harder to review."
+      },
+      "absence_of_scope_creep": {
+        "score": 10,
+        "reason": "Perfectly scoped to the assignment."
+      },
+      "judge_gestalt": {
+        "score": 7,
+        "reason": "A technically sound and minimal implementation, but the hand-rolled JSON/CLI parsing and light tests make it less robust."
+      },
+      "total": 71,
+      "verdict": "request_changes"
+    }
+  },
+  "cross_notes": "All four variants successfully completed the core assignment, showing strong competence in Rust and Linux systems programming. Variants A and B chose to use standard CLI crates (`clap`, `serde`) which made their codebases more robust and idiomatic, whereas Variants C and D manually implemented parsing to minimize dependencies. Variant A stands out with the strongest test suite and most robust feature implementation. None of the variants included external verification artifacts."
+}

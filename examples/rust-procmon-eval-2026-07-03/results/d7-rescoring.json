@@ -1,0 +1,20 @@
+{
+  "scores": {
+    "W": {
+      "score": 0,
+      "reason": "No quality-loop artifacts provided beyond code and README."
+    },
+    "X": {
+      "score": 7,
+      "reason": "Artifacts are present and contain some specific details (e.g., broken-pipe panic fix, manual smoke commands), but rely heavily on standard shell output piping descriptions rather than deep analysis."
+    },
+    "Y": {
+      "score": 0,
+      "reason": "No quality-loop artifacts provided beyond code and README."
+    },
+    "Z": {
+      "score": 10,
+      "reason": "Artifacts are highly detailed, including specific commands, expected outputs, build logs, and precise notes on build cycle warnings/fixes and an architectural limitation (%CPU in single-shot)."
+    }
+  }
+}

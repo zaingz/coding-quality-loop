@@ -1,0 +1,28 @@
+[package]
+name = "procmon"
+version = "0.1.0"
+edition = "2021"
+description = "A command-line process monitor for Linux"
+license = "MIT"
+
+[[bin]]
+name = "procmon"
+path = "src/main.rs"
+
+[dependencies]
+# clap: industry-standard CLI argument parsing with derive macros
+clap = { version = "4", features = ["derive"] }
+# regex: required for find/kill pattern matching
+regex = "1"
+# serde + serde_json: JSON output for --format json
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# libc: needed for kill(2) syscall and signal constants
+libc = "0.2"
+
+[dev-dependencies]
+serde_json = "1"
+
+[profile.release]
+strip = true
+opt-level = 3
