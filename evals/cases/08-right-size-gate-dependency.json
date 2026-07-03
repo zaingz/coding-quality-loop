@@ -1,6 +1,6 @@
 {
-  "name": "complexity-brake-catches-unnecessary-dependency",
-  "description": "A small behavior tweak where the agent proposes pulling in a new dependency and a generic abstraction although a lower rung is available. The complexity brake must flag overengineering.",
+  "name": "right-size-gate-catches-unnecessary-dependency",
+  "description": "A small behavior tweak where the agent proposes pulling in a new dependency and a generic abstraction although a lower rung is available. The right-size gate must flag overengineering.",
   "input": {
     "goal": "Trim whitespace from usernames before saving",
     "signals": ["behavior_change"],

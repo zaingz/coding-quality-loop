@@ -1,5 +1,87 @@
 # Changelog
 
+## 3.0.0
+
+Outcome-grounded, model-adaptive, 40% smaller. The biggest refactor since v1.0:
+the harness now optimizes for code quality (not artifact production), adapts
+ceremony to model strength, and uses a single `verify` command as the primary
+gate. Built on evidence from three live cross-agent evals and external research
+(Anthropic Mar 2026, Cognition Apr 2026).
+
+### Cut and archived (surface −40%)
+
+- **Archived** to `archive/`: Honcho memory adapter (`quality_loop_honcho.py`),
+  driven-mode orchestrator (`quality_loop_run.py`, `quality_loop_hosts.py`),
+  v2.4 ceremony subcommands (`context-check`, `verify-phases`, `trace-audit`),
+  telemetry/stats, Honcho and Graphify eval suites, memory reference docs for
+  those backends, and v2.4 eval cases (12-14).
+- **Scripts**: 4,600 → 3,300 lines. **Eval suites**: 9 → 6 (in CI). **Eval
+  cases**: 129 → 111. **CLI subcommands**: 20 → 16. **SKILL.md**: 477 → 172 lines.
+- **Config/schema**: removed `memory.honcho`, `memory.graphify`, `hosts`,
+  `execution` blocks; removed `context_budget` and `phase_verifications` from
+  the record schema (kept `phase` for backward compat).
+- **Memory**: files backend is the only backend. `memory-recall` and
+  `memory-commit` no longer accept `--config` (Honcho selection).
+
+### Rewritten SKILL.md (model-adaptive calibration)
+
+- **New Calibration section**: strong models skip ceremony on tiny/small; weaker
+  models get full scaffolding; review is paid only when the task exceeds what the
+  model does reliably solo. Cites own eval data (GLM +8.0, Claude +4.5, Codex +1.0
+  on Sudoku; Codex −9.0 on ts-search).
+- **Complexity Brake → Right-Size Gate**: "minimal diff is not minimal
+  architecture" promoted to the rule itself. Fixes the Codex −9.0 failure class
+  where the gate pushed GPT-5 into a 60x-slower monolith.
+- **Enforcement matrix** moved to `references/enforcement-matrix.md`; 5-line
+  summary in SKILL.md.
+
+### Outcome-grounded gate path
+
+- **New `verify` umbrella command**: runs record-shape gates, diff-grounded
+  reality checks, evidence re-execution, and AC-to-command coverage in one pass.
+  One command to remember instead of four.
+- **AC-to-command coverage check**: each acceptance criterion with a
+  `proving_command` must have that command in `commands_run` with `result=pass`.
+- **Reviewer card v2**: reviewer must **execute** tests/benchmarks when
+  available (tool-using evaluator), not just read the diff. Verdict records
+  `ran_checks: true|false`. Skeptical-evaluator guidance: penalize stubs,
+  verify end-to-end.
+- **Communication-bridge rule**: implementer filters reviewer findings against
+  the contract; in-scope findings become fix tasks, out-of-scope findings become
+  follow-ups. Prevents review loops.
+
+### Capability routing
+
+- **Reviewer heterogeneity**: `check-config` now hard-fails when implementer and
+  fresh_reviewer resolve to the same model on medium+ tasks. Checks both profile
+  models and model-class resolution via `model_routing.host_models`.
+- **Capability annotations**: model classes annotated (cheap_fast = map/package/
+  summarize; strong_reasoning = plan/review/debug; code_specialized = implement/
+  test) in the config description.
+- **Smart Friend pattern**: optional role where the implementer consults a
+  stronger model on defined triggers (2 failed repairs, merge conflicts,
+  architecture uncertainty). Documented in `references/agentic-orchestration.md`
+  with per-host wiring.
+
+### Ablation eval program
+
+- **`bench/ablation-protocol.md`**: 3 tasks × 2-3 model families × 3 seeds × 4
+  arms (baseline, v3-full, v3-no-review, v3-no-contract). Headline metric
+  excludes D7 (artifact production) — code-quality lift only.
+- **New web-app task** (`bench/tasks/13-webapp-task-manager.json`): browser-based
+  task manager with localStorage persistence and browser-automation verification.
+- **Pruning rule**: a component whose ablation shows no code-quality lift across
+  ≥2 families is a v3.1 cut candidate.
+- **Bench runner** updated with `--ablation` flag and ablation arms.
+
+### Docs and packaging
+
+- **ROADMAP.md** updated for v3.0.
+- **npm package** bumped to 3.0.0.
+- **CI workflow** updated to remove archived eval suites.
+- All 111 eval cases pass (11 static + 31 behavioral + 26 memory + 13 reality +
+  9 hook + 10 trigger + 11 routing).
+
 ## 2.4.0
 
 Three-phase lifecycle: PLAN → EXECUTE → REVIEW.

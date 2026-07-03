@@ -4,7 +4,7 @@ Keep it short enough that another agent can check whether the diff followed it.
 
 ## Approach (one paragraph)
 
-<the smallest correct change, and why lower complexity-brake rungs were rejected>
+<the smallest correct change, and why lower right-size rungs were rejected>
 
 ## Files / Modules to Change
 

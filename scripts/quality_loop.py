@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 import quality_loop_memory as qlmem
-import quality_loop_honcho as qlhoncho
 import quality_loop_reality as qlreal
 import quality_loop_routing as qlroute
 
@@ -129,7 +128,9 @@ SECRET_PATTERNS = [
     # real value like `api_key = your_realProductionKey` is still flagged.
     re.compile(
         r"(?i)(api[_-]?key|secret|token|password|passwd|pwd|credential|private[_-]?key)\s*[:=]\s*"
-        r"(?!['\"]?(?:replace_me|change_me|changeme|placeholder|example|dummy|xxx+|<|\$\{))[^\s'\"]{8,}"
+        r"(?!['\"]?(?:replace_me|change_me|changeme|placeholder|example|dummy|xxx+|<|\$\{))"
+        r"(?!(?:os\.|getattr|self\.|cfg\.|config\.))"
+        r"[A-Za-z0-9._~/+=:@_-]{8,}"
     ),
     re.compile(r"(?:sk|rk)_live_[A-Za-z0-9]{16,}"),
     re.compile(r"gh[opusr]_[A-Za-z0-9]{20,}"),
@@ -438,119 +439,6 @@ def init_record(args: argparse.Namespace) -> int:
     return 0
 
 
-PHASE_NAMES = {"plan", "execute", "review"}
-PHASE_VERIFIERS = {"same_agent", "different_context", "different_model", "human"}
-PHASE_VERIFICATION_STATUSES = {"verified", "failed", "skipped_with_reason"}
-
-
-def verify_phases(args: argparse.Namespace) -> int:
-    """AC4 gate (S3): check phase_verifications on a state record.
-
-    Uses `resolve_phase()` (S1) to find the record's current phase, then
-    requires a phase_verifications entry for it on medium/mission records,
-    blocks a review entry verified by 'same_agent' on medium/mission, blocks
-    any entry with status 'failed', and requires non-empty evidence for
-    non-plan phases.
-    """
-    record = load_json(Path(args.record))
-    errors: list[str] = []
-
-    task_class = record.get("task_class")
-    non_trivial = task_class in {"medium", "mission"}
-
-    raw_verifications = record.get("phase_verifications")
-    current_phase = resolve_phase(record)
-
-    if non_trivial:
-        if raw_verifications is None:
-            errors.append("phase_verifications is required for medium/mission task_class")
-        elif not isinstance(raw_verifications, list):
-            errors.append("phase_verifications must be an array")
-        elif current_phase is None:
-            errors.append(
-                "could not resolve the current phase from record.phase or "
-                "record.status; cannot confirm phase_verifications coverage"
-            )
-        else:
-            # AC4 (strengthened, v2.4.0 review): require the current phase and
-            # all prior phases to have a `verified` entry. `plan -> execute ->
-            # review` is the fixed order; `done` requires all three verified;
-            # `escalated` is a terminal without an ordering claim.
-            PHASE_ORDER = ["plan", "execute", "review"]
-            verified_phases = {
-                entry.get("phase")
-                for entry in raw_verifications
-                if isinstance(entry, dict) and entry.get("status") == "verified"
-            }
-            if current_phase == "escalated":
-                required_verified: list[str] = []
-            elif current_phase == "done":
-                required_verified = list(PHASE_ORDER)
-            elif current_phase in PHASE_ORDER:
-                # Current phase and everything before it must be verified.
-                idx_here = PHASE_ORDER.index(current_phase)
-                required_verified = PHASE_ORDER[: idx_here + 1]
-            else:
-                required_verified = []
-            for req in required_verified:
-                if req not in verified_phases:
-                    errors.append(
-                        f"phase_verifications does not include a verified entry "
-                        f"for {req!r} (required before advancing to {current_phase!r})"
-                    )
-
-    entries = raw_verifications if isinstance(raw_verifications, list) else []
-    for idx, entry in enumerate(entries):
-        if not isinstance(entry, dict):
-            errors.append(f"phase_verifications[{idx}] must be an object")
-            continue
-
-        phase = entry.get("phase")
-        if phase not in PHASE_NAMES:
-            errors.append(
-                f"phase_verifications[{idx}].phase must be one of {sorted(PHASE_NAMES)}, got {phase!r}"
-            )
-
-        verifier = entry.get("verifier")
-        if verifier not in PHASE_VERIFIERS:
-            errors.append(
-                f"phase_verifications[{idx}].verifier must be one of {sorted(PHASE_VERIFIERS)}, got {verifier!r}"
-            )
-
-        status = entry.get("status")
-        if status not in PHASE_VERIFICATION_STATUSES:
-            errors.append(
-                f"phase_verifications[{idx}].status must be one of "
-                f"{sorted(PHASE_VERIFICATION_STATUSES)}, got {status!r}"
-            )
-        elif status == "failed":
-            errors.append(
-                f"phase_verifications[{idx}] ({phase}) has status 'failed'; task should not advance"
-            )
-
-        # review MUST NOT use same_agent for medium/mission.
-        if phase == "review" and non_trivial and verifier == "same_agent":
-            errors.append(
-                f"phase_verifications[{idx}]: review phase must not use verifier "
-                "'same_agent' for medium/mission task_class"
-            )
-
-        # evidence must be non-empty for non-plan phases.
-        if phase in {"execute", "review"}:
-            evidence = entry.get("evidence")
-            if not isinstance(evidence, list) or not evidence:
-                errors.append(
-                    f"phase_verifications[{idx}] ({phase}): evidence must be a "
-                    "non-empty list for non-plan phases"
-                )
-
-    if errors:
-        for error in errors:
-            print(f"error: {error}", file=sys.stderr)
-        return 1
-
-    print("phase verifications ok")
-    return 0
 
 
 def check_record(args: argparse.Namespace) -> int:
@@ -868,9 +756,6 @@ def diff_audit(args: argparse.Namespace) -> int:
         "warnings": warnings,
     }
 
-    qlreal.record_telemetry(
-        "diff-audit", None, None, len(warnings), not warnings, cwd=Path.cwd(),
-    )
     print(json.dumps(result, indent=2))
     return 1 if warnings else 0
 
@@ -1035,11 +920,6 @@ def verify_gates(args: argparse.Namespace) -> int:
                 "ensure this is a git repository" % (exc.code,)
             )
 
-    qlreal.record_telemetry(
-        "verify-gates", record.get("task_id"), risk,
-        len(findings), not findings, cwd=Path.cwd(),
-    )
-
     if findings:
         for finding in findings:
             print(f"warning: {finding}")
@@ -1200,6 +1080,23 @@ def evaluate_input(case_input: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _is_placeholder_model(model: Any) -> bool:
+    """True for model identifiers that are not real concrete models.
+
+    Used by reviewer-heterogeneity checks so an unfilled config (null / inherit
+    / angle-bracket placeholders like ``<strong-reasoning-model>``) does not
+    false-positive before the user supplies real model ids.
+    """
+    if not isinstance(model, str):
+        return True  # null / None / unset
+    s = model.strip()
+    if not s or s == "inherit":
+        return True
+    if s.startswith("<") and s.endswith(">"):
+        return True
+    return False
+
+
 def check_config(args: argparse.Namespace) -> int:
     config = load_json(Path(args.config))
     errors: list[str] = []
@@ -1248,6 +1145,72 @@ def check_config(args: argparse.Namespace) -> int:
     routing = config.get("model_routing")
     if routing is not None:
         errors.extend(qlroute.validate_model_routing(routing))
+
+    # Reviewer heterogeneity: implementer and validator must not be the same model on medium+.
+    impl_profile = profiles.get("implementer", {}) if isinstance(profiles, dict) else {}
+    rev_profile = profiles.get("fresh_reviewer", {}) if isinstance(profiles, dict) else {}
+    impl_model = impl_profile.get("model") if isinstance(impl_profile, dict) else None
+    rev_model = rev_profile.get("model") if isinstance(rev_profile, dict) else None
+    if (
+        isinstance(impl_model, str) and isinstance(rev_model, str)
+        and impl_model and rev_model and impl_model == rev_model
+        and not _is_placeholder_model(impl_model)
+    ):
+        errors.append(
+            f"reviewer heterogeneity: implementer and fresh_reviewer are both "
+            f"routed to {impl_model!r}; medium+ tasks require a different model "
+            f"for review (use a different model or model_class)"
+        )
+
+    # If model_routing is configured, also check model-class resolution.
+    if isinstance(routing, dict):
+        host = routing.get("host")
+        host_models = routing.get("host_models", {})
+        if isinstance(host_models, dict) and host and host in host_models:
+            hblock = host_models.get(host, {})
+            if isinstance(hblock, dict):
+                impl_class = None
+                rev_class = None
+                for step in (steps if isinstance(steps, list) else []):
+                    if not isinstance(step, dict):
+                        continue
+                    if step.get("step") == "IMPLEMENT_SLICE":
+                        impl_class = step.get("model_class")
+                    elif step.get("step") == "REVIEW":
+                        rev_class = step.get("model_class")
+                if impl_class and rev_class:
+                    impl_resolved = hblock.get(impl_class, {}).get("model")
+                    rev_resolved = hblock.get(rev_class, {}).get("model")
+                    if impl_class == rev_class:
+                        # Same model_class on IMPLEMENT_SLICE and REVIEW means the
+                        # same model on medium+ routing. Skip placeholder models
+                        # (null / "inherit" / "<...>") so an unfilled config does
+                        # not false-positive before the user supplies real models.
+                        if not (
+                            _is_placeholder_model(impl_resolved)
+                            or _is_placeholder_model(rev_resolved)
+                        ):
+                            errors.append(
+                                f"reviewer heterogeneity: IMPLEMENT_SLICE and REVIEW both "
+                                f"use model_class={impl_class!r} on host {host!r}; medium+ "
+                                f"tasks require a different model for review (use a different "
+                                f"model or model_class)"
+                            )
+                    else:
+                        if (
+                            isinstance(impl_resolved, str) and isinstance(rev_resolved, str)
+                            and impl_resolved and rev_resolved
+                            and impl_resolved == rev_resolved
+                            and not (
+                                _is_placeholder_model(impl_resolved)
+                                or _is_placeholder_model(rev_resolved)
+                            )
+                        ):
+                            errors.append(
+                                f"reviewer heterogeneity: implementer (model_class={impl_class!r}) "
+                                f"and fresh_reviewer (model_class={rev_class!r}) both resolve to "
+                                f"{impl_resolved!r} on host {host!r}; use a different model for review"
+                            )
 
     if errors:
         for error in errors:
@@ -1411,92 +1374,6 @@ def cmd_brief(args: argparse.Namespace) -> int:
     return 0
 
 
-SOFT_MAX_OUTPUT_SUMMARY_TOKENS = 2000
-
-
-def _approx_tokens(text: str) -> int:
-    """Rough token estimate (chars / 4) — good enough for a soft budget warning."""
-    return max(1, len(text) // 4)
-
-
-def context_check(args: argparse.Namespace) -> int:
-    record = load_json(Path(args.record))
-    task_class = record.get("task_class")
-    context_budget = record.get("context_budget")
-    errors: list[str] = []
-    warnings: list[str] = []
-
-    non_trivial = task_class in {"medium", "mission"}
-
-    if context_budget is None:
-        if non_trivial:
-            errors.append(
-                "context_budget is required for medium/mission records "
-                f"(task_class={task_class!r})"
-            )
-        else:
-            warnings.append(
-                f"context_budget is missing (task_class={task_class!r}); "
-                "recommended even for small/tiny work"
-            )
-    elif not isinstance(context_budget, dict):
-        errors.append("context_budget must be an object keyed by phase name")
-    elif not context_budget:
-        if non_trivial:
-            errors.append("context_budget is empty; at least one phase is required")
-        else:
-            warnings.append("context_budget is empty")
-    else:
-        for phase, budget in context_budget.items():
-            if not isinstance(budget, dict):
-                errors.append(f"context_budget[{phase!r}] must be an object")
-                continue
-
-            output_summary = budget.get("output_summary")
-            if not isinstance(output_summary, str) or not output_summary.strip():
-                errors.append(
-                    f"context_budget[{phase!r}].output_summary is missing or empty"
-                )
-
-            inputs = budget.get("inputs", []) or []
-            excluded = budget.get("excluded", []) or []
-            if not isinstance(inputs, list):
-                errors.append(f"context_budget[{phase!r}].inputs must be an array")
-                inputs = []
-            if not isinstance(excluded, list):
-                errors.append(f"context_budget[{phase!r}].excluded must be an array")
-                excluded = []
-            overlap = set(inputs) & set(excluded)
-            if overlap:
-                errors.append(
-                    f"context_budget[{phase!r}] has entries in both inputs and "
-                    f"excluded: {sorted(overlap)}"
-                )
-
-            max_tokens = budget.get("output_summary_max_tokens")
-            if max_tokens is not None:
-                if isinstance(max_tokens, bool) or not isinstance(max_tokens, int):
-                    errors.append(
-                        f"context_budget[{phase!r}].output_summary_max_tokens must be an integer"
-                    )
-                elif max_tokens > SOFT_MAX_OUTPUT_SUMMARY_TOKENS:
-                    warnings.append(
-                        f"context_budget[{phase!r}].output_summary_max_tokens="
-                        f"{max_tokens} exceeds the soft budget of "
-                        f"{SOFT_MAX_OUTPUT_SUMMARY_TOKENS}"
-                    )
-
-    if errors:
-        for error in errors:
-            print(f"error: {error}", file=sys.stderr)
-        for warning in warnings:
-            print(f"warning: {warning}", file=sys.stderr)
-        return 1
-
-    for warning in warnings:
-        print(f"warning: {warning}", file=sys.stderr)
-    print("context budget ok")
-    return 0
 
 
 def eval_cases(args: argparse.Namespace) -> int:
@@ -1540,43 +1417,6 @@ def eval_cases(args: argparse.Namespace) -> int:
             if key in expected and expected[key] != actual[key]:
                 mismatches.append(f"{key}: expected {expected[key]!r}, got {actual[key]!r}")
 
-        # v2.4.0: if the case declares a `gate` + `record_fixture` +
-        # `gate_fixture_expectation`, actually run the gate command against
-        # the fixture and confirm it passes/fails as expected. This replaces
-        # the metadata-only shape used by cases 12-14.
-        gate = case.get("gate")
-        fixture = case.get("record_fixture")
-        expectation = case.get("gate_fixture_expectation")
-        if gate and fixture is not None and expectation in {"passes", "fails"}:
-            gate_runners = {
-                "context-check": context_check,
-                "verify-phases": verify_phases,
-                "check-record": check_record,
-            }
-            runner = gate_runners.get(gate)
-            if runner is None:
-                mismatches.append(f"gate {gate!r} is not runnable by eval-cases")
-            else:
-                import tempfile
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".json", delete=False
-                ) as tf:
-                    json.dump(fixture, tf)
-                    fixture_path = tf.name
-                # Silence subcommand stdout/stderr during eval so the report is clean.
-                import contextlib, io
-                buf = io.StringIO()
-                with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-                    rc = runner(argparse.Namespace(record=fixture_path))
-                Path(fixture_path).unlink(missing_ok=True)
-                actually_passed = (rc == 0)
-                expected_pass = (expectation == "passes")
-                if actually_passed != expected_pass:
-                    mismatches.append(
-                        f"gate {gate!r}: expected fixture to {expectation}, "
-                        f"got exit_code={rc}"
-                    )
-
         total += 1
         if mismatches:
             failed += 1
@@ -1590,144 +1430,137 @@ def eval_cases(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
-def _phase_key(entry: dict[str, Any]) -> Any:
-    return (entry.get("tool"), entry.get("args_hash"))
+def _check_ac_coverage(record: dict[str, Any]) -> list[str]:
+    """Check that each acceptance criterion with a proving_command has a matching pass command."""
+    findings: list[str] = []
+    criteria = record.get("acceptance_criteria", [])
+    commands = record.get("commands_run", [])
+    pass_cmds = [c.get("cmd", "") for c in commands if isinstance(c, dict) and c.get("result") == "pass"]
 
-
-def trace_audit(args: argparse.Namespace) -> int:
-    """Read a JSONL execution log and report pathological loops + per-phase totals.
-
-    Detects:
-    - pathological loop: same (tool, args_hash) 3+ times CONSECUTIVELY (fails).
-    - repeated-call warning: same (tool, args_hash) 5+ times total, not
-      necessarily consecutive (warns only, does not fail).
-    Aggregates per phase: step count, total duration_ms, total cost_usd
-    (entries without cost_usd are skipped from the cost sum).
-    """
-    log_path = Path(args.log_path)
-    try:
-        raw_lines = log_path.read_text().splitlines()
-    except FileNotFoundError:
-        print(f"error: file not found: {log_path}", file=sys.stderr)
-        return 2
-    except OSError as exc:
-        print(f"error: could not read {log_path}: {exc}", file=sys.stderr)
-        return 2
-
-    entries: list[dict[str, Any]] = []
-    for line_no, raw in enumerate(raw_lines, start=1):
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError as exc:
-            print(f"error: malformed JSON at line {line_no}: {exc}", file=sys.stderr)
-            return 2
-        if not isinstance(obj, dict):
-            print(f"error: line {line_no} is not a JSON object", file=sys.stderr)
-            return 2
-        obj["_line_no"] = line_no
-        entries.append(obj)
-
-    # Consecutive pathological-loop detection.
-    pathological: list[dict[str, Any]] = []
-    run_key: Any = None
-    run_entries: list[dict[str, Any]] = []
-    for entry in entries:
-        key = _phase_key(entry)
-        if key == run_key and key != (None, None):
-            run_entries.append(entry)
-        else:
-            if len(run_entries) >= 3:
-                pathological.append({
-                    "tool": run_key[0],
-                    "args_hash": run_key[1],
-                    "count": len(run_entries),
-                    "line_numbers": [e["_line_no"] for e in run_entries],
-                })
-            run_key = key
-            run_entries = [entry]
-    if len(run_entries) >= 3:
-        pathological.append({
-            "tool": run_key[0],
-            "args_hash": run_key[1],
-            "count": len(run_entries),
-            "line_numbers": [e["_line_no"] for e in run_entries],
-        })
-
-    # Total (non-consecutive) repeat detection, 5+ occurrences.
-    totals: dict[Any, list[int]] = {}
-    for entry in entries:
-        key = _phase_key(entry)
-        if key == (None, None):
-            continue
-        totals.setdefault(key, []).append(entry["_line_no"])
-    repeated_total = [
-        {"tool": key[0], "args_hash": key[1], "count": len(lines), "line_numbers": lines}
-        for key, lines in totals.items()
-        if len(lines) >= 5
-    ]
-
-    # Per-phase aggregation.
-    phase_agg: dict[str, dict[str, Any]] = {}
-    for entry in entries:
-        phase = entry.get("phase") or "unknown"
-        agg = phase_agg.setdefault(phase, {"steps": 0, "duration_ms": 0, "cost_usd": 0.0, "has_cost": False})
-        agg["steps"] += 1
-        duration = entry.get("duration_ms")
-        if isinstance(duration, (int, float)) and not isinstance(duration, bool):
-            agg["duration_ms"] += duration
-        cost = entry.get("cost_usd")
-        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
-            agg["cost_usd"] += cost
-            agg["has_cost"] = True
-
-    result = {
-        "log_path": str(log_path),
-        "total_entries": len(entries),
-        "pathological_loops": pathological,
-        "repeated_calls": repeated_total,
-        "phases": {
-            phase: {
-                "steps": agg["steps"],
-                "duration_ms": agg["duration_ms"],
-                "cost_usd": agg["cost_usd"] if agg["has_cost"] else None,
-            }
-            for phase, agg in phase_agg.items()
-        },
-    }
-
-    if getattr(args, "json", False):
-        print(json.dumps(result, indent=2))
-    else:
-        print(f"Trace audit: {log_path}")
-        print(f"  total entries: {len(entries)}")
-        if pathological:
-            print(f"  PATHOLOGICAL LOOPS DETECTED: {len(pathological)}")
-            for loop in pathological:
-                print(
-                    f"    - tool={loop['tool']!r} args_hash={loop['args_hash']!r} "
-                    f"count={loop['count']} lines={loop['line_numbers']}"
+    for idx, ac in enumerate(criteria):
+        if isinstance(ac, dict) and ac.get("proving_command"):
+            proving = ac["proving_command"]
+            if proving not in pass_cmds:
+                findings.append(
+                    f"acceptance_criteria[{idx}].proving_command {proving!r} not found in "
+                    f"commands_run with result=pass"
                 )
-        else:
-            print("  no pathological loops detected")
-        if repeated_total:
-            print(f"  repeated-call warnings (5+ total, non-consecutive): {len(repeated_total)}")
-            for rep in repeated_total:
-                print(
-                    f"    - tool={rep['tool']!r} args_hash={rep['args_hash']!r} "
-                    f"count={rep['count']} lines={rep['line_numbers']}"
-                )
-        print("  per-phase aggregation:")
-        for phase, agg in result["phases"].items():
-            cost_str = "n/a" if agg["cost_usd"] is None else f"${agg['cost_usd']:.4f}"
-            print(
-                f"    - {phase}: steps={agg['steps']} duration_ms={agg['duration_ms']} cost_usd={cost_str}"
+        elif isinstance(ac, dict) and not ac.get("proving_command"):
+            findings.append(
+                f"acceptance_criteria[{idx}] has no proving_command; "
+                f"each criterion should name the check that proves it"
             )
+    return findings
 
-    return 1 if pathological else 0
 
+def verify(args: argparse.Namespace) -> int:
+    """Umbrella verification: record-shape gates + diff-grounded checks + evidence re-execution + AC coverage."""
+    import contextlib
+    import io
+
+    record_path = Path(args.record)
+    record = load_json(record_path)
+    base = getattr(args, "base", "HEAD")
+    all_findings: list[str] = []
+    all_warnings: list[str] = []
+    sections: list[tuple[str, int, str]] = []  # (name, exit_code, output)
+
+    def _run_section(fn) -> tuple[int, str]:
+        """Run a section callable, capturing stdout/stderr.
+
+        Survives a SystemExit (e.g. git's 129 when not in a repository) so the
+        unified report is always emitted. Returns (exit_code, captured_output).
+        """
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                rc = fn()
+        except SystemExit as exc:
+            rc = exc.code if isinstance(exc.code, int) and exc.code is not None else 1
+            if not buf.getvalue().strip():
+                buf.write(f"section aborted (exit {rc})")
+        return int(rc), buf.getvalue().strip()
+
+    # 1. Record-shape + diff-grounded gates
+    vg_args = argparse.Namespace(record=str(record_path), against_diff=True, base=base)
+    vg_rc, vg_out = _run_section(lambda: verify_gates(vg_args))
+    sections.append(("verify-gates (record + diff)", vg_rc, vg_out))
+    if vg_rc != 0:
+        for line in vg_out.splitlines():
+            line = line.strip()
+            if line.startswith("warning:"):
+                all_warnings.append(line[len("warning:"):].strip())
+
+    # 2. Diff audit (wrapped so a non-git repo produces a failed section, not a
+    #    bare exit 129 with no report).
+    da_args = argparse.Namespace(base=base, staged=False, max_files=12, max_lines=600)
+    da_rc, da_out = _run_section(lambda: diff_audit(da_args))
+    sections.append(("diff-audit", da_rc, da_out))
+    if da_rc != 0:
+        try:
+            result = json.loads(da_out)
+            for w in result.get("warnings", []):
+                all_warnings.append(w)
+        except json.JSONDecodeError:
+            if da_out and "section aborted" not in da_out:
+                all_warnings.append(da_out)
+
+    # 3. Evidence re-execution (if pass commands exist)
+    pass_cmds = [c for c in record.get("commands_run", []) if isinstance(c, dict) and c.get("result") == "pass"]
+    if pass_cmds:
+        re_args = argparse.Namespace(
+            record=str(record_path), base=base,
+            red_green=getattr(args, "red_green", False), timeout=30,
+        )
+        re_rc, re_out = _run_section(lambda: qlreal.cmd_run_evidence(re_args))
+        sections.append(("run-evidence (re-execution)", re_rc, re_out))
+        if re_rc != 0:
+            try:
+                result = json.loads(re_out)
+                for f in result.get("findings", []):
+                    all_findings.append(f)
+            except json.JSONDecodeError:
+                all_findings.append("run-evidence reported failures (see output above)")
+    else:
+        sections.append(("run-evidence", 0, "skipped (no pass commands in record)"))
+
+    # 4. AC-to-command coverage
+    ac_findings = _check_ac_coverage(record)
+    if ac_findings:
+        sections.append(("AC coverage", 1, "\n".join(ac_findings)))
+        all_findings.extend(ac_findings)
+    else:
+        sections.append(("AC coverage", 0, "ok"))
+
+    # Unified report
+    print("=" * 60)
+    print("VERIFY — unified gate report")
+    print("=" * 60)
+    for name, rc, output in sections:
+        status = "PASS" if rc == 0 else "FAIL"
+        print(f"\n[{status}] {name}")
+        if output and output != "ok":
+            for line in output.splitlines():
+                print(f"  {line}")
+
+    print("\n" + "-" * 60)
+    if all_findings:
+        print(f"Findings ({len(all_findings)}):")
+        for f in all_findings:
+            print(f"  - {f}")
+    if all_warnings:
+        print(f"Warnings ({len(all_warnings)}):")
+        for w in all_warnings:
+            print(f"  - {w}")
+
+    # Umbrella fails if ANY constituent section failed (verify-gates, diff-audit,
+    # run-evidence, AC coverage) OR if any finding was recorded. Warnings alone
+    # from diff-audit are reported but a non-zero section rc still fails the
+    # umbrella, so a section exit code can never be silently swallowed.
+    section_fail = any(rc != 0 for _, rc, _ in sections)
+    overall = 1 if (all_findings or section_fail) else 0
+    print(f"\nOverall: {'FAIL' if overall else 'PASS'}")
+    return overall
 
 
 def main() -> int:
@@ -1760,33 +1593,20 @@ def main() -> int:
     p_gates.add_argument("--base", default="HEAD", help="Git base ref for --against-diff (default HEAD)")
     p_gates.set_defaults(func=verify_gates)
 
+    p_verify = sub.add_parser("verify", help="Umbrella: record gates + diff audit + evidence re-execution + AC coverage in one command")
+    p_verify.add_argument("record")
+    p_verify.add_argument("--base", default="HEAD", help="Git base ref (default HEAD)")
+    p_verify.add_argument("--red-green", action="store_true", help="Also replay red_green commands at base (expect fail) and HEAD (expect pass)")
+    p_verify.set_defaults(func=verify)
+
     p_config = sub.add_parser("check-config", help="Validate an orchestration config")
     p_config.add_argument("config")
     p_config.set_defaults(func=check_config)
-
-    p_phases = sub.add_parser(
-        "verify-phases",
-        help="Check per-phase verification blocks (plan/execute/review) on a state record",
-    )
-    p_phases.add_argument("record")
-    p_phases.set_defaults(func=verify_phases)
-
-    p_ctxcheck = sub.add_parser(
-        "context-check",
-        help="Validate a record's per-phase context_budget (inputs/excluded/output_summary)",
-    )
-    p_ctxcheck.add_argument("record")
-    p_ctxcheck.set_defaults(func=context_check)
 
     p_eval = sub.add_parser("eval-cases", help="Run static eval cases against expected gates")
     p_eval.add_argument("cases_dir", help="Directory of *.json cases or a single case file")
     p_eval.add_argument("--config", help="Optional orchestration config to validate first")
     p_eval.set_defaults(func=eval_cases)
-
-    p_trace = sub.add_parser("trace-audit", help="Audit a JSONL execution log for pathological loops and per-phase cost/duration")
-    p_trace.add_argument("log_path", help="Path to an execution-log.jsonl file")
-    p_trace.add_argument("--json", action="store_true", help="Machine-readable JSON output")
-    p_trace.set_defaults(func=trace_audit)
 
 
     p_mrecall = sub.add_parser("memory-recall", help="Recall relevant prior lessons (budget-capped)")
@@ -1797,8 +1617,7 @@ def main() -> int:
     p_mrecall.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_mrecall.add_argument("--json", action="store_true")
     p_mrecall.add_argument("--no-bump", action="store_true", help="Read-only: do not increment hit counts or rewrite the store")
-    p_mrecall.add_argument("--config", help="Read memory backend selection (files|honcho) from this config file")
-    p_mrecall.set_defaults(func=qlhoncho.cmd_recall_honcho)
+    p_mrecall.set_defaults(func=qlmem.cmd_recall)
 
     p_mcommit = sub.add_parser("memory-commit", help="Distill an agent record into durable lessons")
     p_mcommit.add_argument("record", nargs="?", help="Agent record JSON (required unless --lesson is given)")
@@ -1807,8 +1626,7 @@ def main() -> int:
     p_mcommit.add_argument("--scope", help="Override scope glob, e.g. 'src/payments/**'")
     p_mcommit.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_mcommit.add_argument("--global", dest="global_store", action="store_true", help="Write to the cross-project global store (~/.quality-loop/global/)")
-    p_mcommit.add_argument("--config", help="Also mirror committed lessons to Honcho if configured")
-    p_mcommit.set_defaults(func=qlhoncho.cmd_commit_honcho)
+    p_mcommit.set_defaults(func=qlmem.cmd_commit)
 
     p_mprune = sub.add_parser("memory-prune", help="Dedup + cap the lessons ledger")
     p_mprune.add_argument("--max", type=int, default=200)
@@ -1819,7 +1637,6 @@ def main() -> int:
 
     p_mstatus = sub.add_parser("memory-status", help="Show memory store location and lesson counts")
     p_mstatus.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
-    p_mstatus.add_argument("--config", help="Read memory backend selection from this quality-loop config file")
     p_mstatus.set_defaults(func=qlmem.cmd_status)
 
     p_attest = sub.add_parser("attest-review", help="Embed a recomputed diff sha256 into a review object")
@@ -1838,9 +1655,6 @@ def main() -> int:
     p_scan = sub.add_parser("scan-text", help="Secret-scan text from stdin (for host hook shims)")
     p_scan.add_argument("--stdin", action="store_true", help="Read text to scan from stdin")
     p_scan.set_defaults(func=qlreal.cmd_scan_text)
-
-    p_stats = sub.add_parser("stats", help="Render the metrics table from local telemetry")
-    p_stats.set_defaults(func=qlreal.cmd_stats)
 
     p_brief = sub.add_parser("brief", help="Print a session-start project briefing (last run, risks, lessons, progress)")
     p_brief.add_argument("--budget", type=int, default=800, help="Char budget for lesson recall (default 800)")

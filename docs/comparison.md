@@ -21,7 +21,7 @@
 | [**Coding Quality Loop**](https://github.com/zaingz/coding-quality-loop) | Executable gates + candor. One dependency-free package where the non-negotiables are checked by a script you can read. | You want the same skill to drop into Claude Code, Codex, Cursor, Pi, and Droid, and you care that "tests pass" means someone can prove it. |
 | [**superpowers**](https://github.com/obra/superpowers) | Subagent-driven TDD with a two-stage review flow. | You are all-in on Claude Code and want the deepest subagent choreography. |
 | [**addyosmani/agent-skills**](https://github.com/addyosmani/agent-skills) | Broad, 24-skill SDLC suite covering the whole software lifecycle. | You want a **library** of skills (planning, testing, release, ops) rather than one focused loop. |
-| [**ponytail**](https://github.com/DietrichGebert/ponytail) | A tight minimality ladder — "always take the smaller rung". | You want the simplest possible complexity brake and nothing else. |
+| [**ponytail**](https://github.com/DietrichGebert/ponytail) | A tight minimality ladder — "always take the smaller rung". | You want the simplest possible right-size gate and nothing else. |
 
 ## Feature comparison
 
@@ -30,12 +30,12 @@
 | **Executable gates** (rejects a claim when evidence is missing) | ✅ | ◐ | ◐ | ❌ |
 | **Independent review** (implementer ≠ reviewer, checked) | ✅ | ✅ | ❌ | ❌ |
 | **Multi-agent role separation** (context-mapper / implementer / validator / security) | ✅ | ✅ | ✅ | ◐ |
-| **Complexity brake** (smallest-safe rung, rejected rungs recorded) | ✅ | ◐ | ◐ | ✅ |
+| **Right-size gate** (smallest-safe rung, rejected rungs recorded) | ✅ | ◐ | ◐ | ✅ |
 | **Project memory** (distilled lessons across sessions) | ✅ | ❌ | ◐ | ❌ |
 | **Diff-grounded reality layer** (record vs `git diff`) | ✅ | ❌ | ❌ | ❌ |
 | **Zero runtime dependencies** (stdlib-only helper) | ✅ | ❌ | ◐ | ✅ |
 | **Portable across hosts** (Claude, Codex, Cursor, Pi, Droid, standalone) | ✅ | Claude-first | Claude-first | Claude-first |
-| **Offline eval suite** (proves the gates actually fire) | ✅ (129 cases across 9 suites) | ◐ | ❌ | ❌ |
+| **Offline eval suite** (proves the gates actually fire) | ✅ (116 cases across 7 suites) | ◐ | ❌ | ❌ |
 | **Public benchmark harness** with trap tasks | ✅ (`bench/`) | ❌ | ❌ | ❌ |
 
 Legend: ✅ first-class · ◐ partial or advisory · ❌ not a goal

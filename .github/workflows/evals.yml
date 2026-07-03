@@ -27,10 +27,6 @@ jobs:
         run: python3 evals/run_reality_evals.py
       - name: Run host hook eval harness
         run: python3 evals/run_hook_evals.py
-      - name: Run driven-mode orchestrator eval harness
-        run: python3 evals/run_orchestrator_evals.py
-      - name: Run Honcho adapter eval harness
-        run: python3 evals/run_honcho_evals.py
       - name: Run model routing eval harness
         run: python3 evals/run_routing_evals.py
       - name: Run benchmark fixture smoke

@@ -1,7 +1,7 @@
 {
   "$schema": "./quality-loop.config.schema.json",
   "version": "2.2.0",
-  "description": "Agentic routing data for the Coding Quality Loop. Map each profile to a real model on your platform. Models are placeholders; replace with your provider's identifiers. This is routing DATA consumed by hosts (Claude subagents, Droid droids, Codex subagents, Pi providers) — it is not a runtime. The driven-mode orchestrator (quality_loop_run.py) uses a single host for all steps; per-role model routing is the host's job. orchestrator and security_reviewer are mission/boundary roles, not per-step profiles.",
+  "description": "Agentic routing data for the Coding Quality Loop. Map each profile to a real model on your platform. Models are placeholders; replace with your provider's identifiers. This is routing DATA consumed by hosts (Claude subagents, Droid droids, Codex subagents, Pi providers) — it is not a runtime. Per-role model routing is the host's job via the config profiles and the harness-agnostic role pack in assets/prompts/ and .claude/agents/. orchestrator and security_reviewer are mission/boundary roles, not per-step profiles.",
   "profiles": {
     "orchestrator": {"role": "Mission: scope, classify, context, spec/validation contract, decompose, assign workers, collect findings, stop if unsafe", "model": "<strong-reasoning-model>", "tools": ["read", "search"]},
     "contract_agent": {"role": "INTAKE: goal -> task contract", "model": "<cheap-fast-model>", "tools": ["read"]},
@@ -101,14 +101,11 @@
   },
   "memory": {
     "lessons_store": "files",
-    "graph_relevance": "none",
     "location": "checked_in",
-    "recall_budget_chars": 1500,
-    "honcho": {"workspace_id": null, "peer_id": null, "session_template": null, "target_peer": null, "base_url": "http://localhost:8000"},
-    "graphify": {"out_dir": "graphify-out", "token_budget": 2000}
+    "recall_budget_chars": 1500
   },
   "model_routing": {
-    "description": "Per-model-class routing applied by setup-models. Copy this file to quality-loop.config.json at your repo root, set host to your platform, adjust your host's block, then run: python3 scripts/quality_loop.py setup-models. Hosts that use frontmatter (claude-code, droid) get their agent .md files rewritten; codex and pi print the settings to apply. model_class values (cheap_fast, strong_reasoning, code_specialized) match the steps[].model_class field above.",
+    "description": "Per-model-class routing applied by setup-models. Copy this file to quality-loop.config.json at your repo root, set host to your platform, adjust your host's block, then run: python3 scripts/quality_loop.py setup-models. Hosts that use frontmatter (claude-code, droid) get their agent .md files rewritten; codex and pi print the settings to apply. model_class values (cheap_fast, strong_reasoning, code_specialized) match the steps[].model_class field above. Capability annotations: cheap_fast = map, package, summarize, verify-orchestration; strong_reasoning = plan, review, debug, risk-assess; code_specialized = implement, test. check-config enforces reviewer heterogeneity: implementer and fresh_reviewer must not resolve to the same model on medium+ tasks.",
     "host": null,
     "host_models": {
       "claude-code": {
@@ -138,18 +135,5 @@
       "quality-loop-reviewer": "strong_reasoning",
       "quality-loop-security-reviewer": "strong_reasoning"
     }
-  },
-  "hosts": {
-    "fake": {"adapter": "fake", "available": true},
-    "manual": {"adapter": "manual", "available": true},
-    "claude": {"adapter": "claude", "model": null},
-    "codex": {"adapter": "codex", "model": null}
-  },
-  "execution": {
-    "default_host": "fake",
-    "review_host": "fake",
-    "timeout_seconds": 30,
-    "journal_dir": ".quality-loop/runs",
-    "dry_run": false
   }
 }

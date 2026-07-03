@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Files-backed, stdlib-only lessons memory for the Coding Quality Loop.
 
-The default (and only dependency-free) lessons-store backend. Honcho and
-Graphify are documented in references/ and driven by the agent over MCP/CLI;
-this module is the reference implementation and the offline eval target.
+The default (and only dependency-free) lessons-store backend. This module is
+the reference implementation and the offline eval target.
 """
 
 from __future__ import annotations
@@ -454,56 +453,29 @@ def validate_memory_config(memory: Any) -> list[str]:
     if not isinstance(memory, dict):
         return ["memory must be an object"]
     errors: list[str] = []
-    if memory.get("lessons_store", "files") not in {"files", "honcho"}:
-        errors.append("memory.lessons_store must be 'files' or 'honcho'")
-    if memory.get("graph_relevance", "none") not in {"none", "graphify"}:
-        errors.append("memory.graph_relevance must be 'none' or 'graphify'")
+    if memory.get("lessons_store", "files") != "files":
+        errors.append("memory.lessons_store must be 'files'")
     if memory.get("location", "checked_in") not in {"checked_in", "local"}:
         errors.append("memory.location must be 'checked_in' or 'local'")
     budget = memory.get("recall_budget_chars", 1500)
     if isinstance(budget, bool) or not isinstance(budget, int) or budget <= 0:
         errors.append("memory.recall_budget_chars must be a positive integer")
-    if memory.get("lessons_store") == "honcho":
-        honcho = memory.get("honcho") or {}
-        if not isinstance(honcho, dict):
-            errors.append("memory.honcho must be an object when lessons_store='honcho'")
-        else:
-            for required in ("workspace_id", "peer_id"):
-                if not str(honcho.get(required, "")).strip():
-                    errors.append(f"memory.honcho.{required} is required when lessons_store='honcho'")
     return errors
 
 
 def cmd_status(args: Any) -> int:
-    lessons_store, graph_relevance, location = "files", "none", args.location
-    config_error = None
-    config_path = getattr(args, "config", None)
-    if config_path:
-        try:
-            cfg = json.loads(Path(config_path).read_text(encoding="utf-8"))
-            mem_cfg = cfg.get("memory") or {}
-            lessons_store = mem_cfg.get("lessons_store", "files")
-            graph_relevance = mem_cfg.get("graph_relevance", "none")
-            location = mem_cfg.get("location", args.location)
-        except (OSError, json.JSONDecodeError) as exc:
-            config_error = f"could not read {config_path}: {exc}"
-    mem_dir = resolve_memory_dir(location)
+    mem_dir = resolve_memory_dir(args.location)
     lessons = load_lessons(mem_dir)
     global_dir = resolve_global_memory_dir()
     global_lessons = load_lessons(global_dir)
     status: dict[str, Any] = {
         "memory_dir": str(mem_dir),
         "exists": (mem_dir / "lessons.jsonl").is_file(),
-        "location": location,
-        "lessons_store": lessons_store,
-        "graph_relevance": graph_relevance,
+        "location": args.location,
         "lesson_count": len(lessons),
         "kinds": count_kinds(lessons),
         "global_dir": str(global_dir),
         "global_lesson_count": len(global_lessons),
-        "note": "files is the coded backend; honcho/graphify are agent-driven and degrade to files when unavailable",
     }
-    if config_error:
-        status["config_error"] = config_error
     print(json.dumps(status, indent=2))
     return 0

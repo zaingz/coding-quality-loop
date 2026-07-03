@@ -11,7 +11,7 @@ PLAN -> EXECUTE -> REVIEW
 ```
 
 - **PLAN** — turn the goal into a task contract, map the change, write the validation
-  contract, apply the complexity brake, and produce a plan. Terminates when the plan and
+  contract, apply the right-size gate, and produce a plan. Terminates when the plan and
   (for non-trivial work) the validation contract exist and are checkable.
 - **EXECUTE** — implement in small slices and verify. Terminates when the smallest
   sufficient checks pass with recorded evidence.
@@ -33,7 +33,7 @@ maps onto the three phases as shown in the table:
 | PLAN | INTAKE | `INTAKE` | task contract |
 | PLAN | CONTEXT MAP | `EXPLORE` | `context-map.md` |
 | PLAN | SPEC / VALIDATION CONTRACT | `INTAKE`+`PLAN` | `validation-contract.md` |
-| PLAN | COMPLEXITY BRAKE | `MINIMALITY_GATE` | minimality decision |
+| PLAN | RIGHT-SIZE GATE | `MINIMALITY_GATE` | minimality decision |
 | PLAN | PLAN | `PLAN` | `plan.md` |
 | EXECUTE | IMPLEMENT IN SMALL SLICES | `IMPLEMENT_SLICE` | diff + `execution-log.md` |
 | EXECUTE | VERIFY | `VERIFY` | command evidence |
@@ -41,13 +41,9 @@ maps onto the three phases as shown in the table:
 | REVIEW | SHIP / HANDOFF | `PACKAGE` | `completion-record.md` |
 | REVIEW | RETROSPECTIVE / SKILL UPDATE | `RETROSPECT` | durable harness change |
 
-The **complexity brake runs twice**: before PLAN (pick the smallest approach) and before
+The **right-size gate runs twice**: before PLAN (pick the smallest approach) and before
 INDEPENDENT REVIEW (confirm nothing crept in) — both inside the PLAN and REVIEW phases
-respectively.
-
-Context budgets and per-phase verification blocks (`context_budget`, `phase_verifications`
-in `assets/agent-record.schema.json`) are declared per phase, not per sub-step; see
-`assets/context-budget.md` and `assets/phase-verification.md`.
+respectively. Minimal diff is not minimal architecture.
 
 ## State Machine (machine names)
 
@@ -182,7 +178,7 @@ recurring one must never be left as a repeated chat correction.
 |---|---|
 | Bug fix | failing test reproducing the bug then green, regression test, targeted suite |
 | Feature | acceptance-criteria tests, unit/integration, typecheck/build, fresh review |
-| Refactor | behavior-preserving tests pass unchanged, diff shows no behavior change, complexity brake confirms net simplification |
+| Refactor | behavior-preserving tests pass unchanged, diff shows no behavior change, right-size gate confirms net simplification |
 | Migration | dry run / reversible plan, backfill strategy, staging or e2e evidence, rollback, human approval |
 | Security-sensitive | gates for its type plus a `security_reviewer` pass and a deterministic hard gate |
 

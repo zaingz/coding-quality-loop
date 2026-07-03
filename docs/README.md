@@ -24,8 +24,6 @@ Extended documentation for the [Coding Quality Loop](../README.md). The top-leve
 | Reviewer checklists (validator, security) | [`references/reviewer-checklists.md`](../references/reviewer-checklists.md) |
 | Tool contracts for hosts | [`references/tool-contracts.md`](../references/tool-contracts.md) |
 | Memory contract | [`references/memory.md`](../references/memory.md) |
-| Honcho backend contract | [`references/memory-honcho.md`](../references/memory-honcho.md) |
-| Graphify integration pattern | [`references/memory-graphify.md`](../references/memory-graphify.md) |
 
 ## Contributing and releasing
 

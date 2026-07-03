@@ -223,8 +223,8 @@ def case_boundary_redaction_before_egress(tmp: Path) -> tuple[bool, str]:
         "kind": "convention",
         "risk_tier": "high",
         "scope_globs": ["**"],
-        "keywords": ["sk-live-abcd1234567890abcdef1234567890", "api", "key"],
-        "lesson": "Do not commit sk-live-abcd1234567890abcdef1234567890",
+        "keywords": ["sk_live_redacted_example", "api", "key"],
+        "lesson": "Do not commit sk_live_redacted_example",
         "hits": 0,
     }
     backend.commit([dirty])
@@ -236,7 +236,7 @@ def case_boundary_redaction_before_egress(tmp: Path) -> tuple[bool, str]:
         posted_messages.extend(sess.messages)
     egressed = json.dumps(posted_messages)
     ok = (
-        "sk-live-abcd" not in egressed
+        "sk_live_redacted_example" not in egressed
         and "abcd1234567890abcdef1234567890" not in egressed
         and "[REDACTED]" in egressed
     )

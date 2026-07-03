@@ -50,12 +50,9 @@
     "memory": {
       "type": "object",
       "properties": {
-        "lessons_store": {"type": "string", "enum": ["files", "honcho"]},
-        "graph_relevance": {"type": "string", "enum": ["none", "graphify"]},
+        "lessons_store": {"type": "string", "enum": ["files"]},
         "location": {"type": "string", "enum": ["checked_in", "local"]},
-        "recall_budget_chars": {"type": "integer", "minimum": 1},
-        "honcho": {"type": "object"},
-        "graphify": {"type": "object"}
+        "recall_budget_chars": {"type": "integer", "minimum": 1}
       },
       "additionalProperties": true
     },
@@ -84,31 +81,6 @@
           "type": "object",
           "additionalProperties": {"type": "string"}
         }
-      },
-      "additionalProperties": true
-    },
-    "hosts": {
-      "type": "object",
-      "description": "Driven-mode host adapter configuration. Backward-compatible optional v2 block.",
-      "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "adapter": {"type": "string", "enum": ["fake", "manual", "claude", "codex"]},
-          "model": {"type": ["string", "null"]},
-          "available": {"type": "boolean"}
-        },
-        "additionalProperties": true
-      }
-    },
-    "execution": {
-      "type": "object",
-      "description": "Driven-mode execution defaults. Backward-compatible optional v2 block.",
-      "properties": {
-        "default_host": {"type": "string"},
-        "review_host": {"type": "string"},
-        "timeout_seconds": {"type": "integer", "minimum": 1},
-        "journal_dir": {"type": "string"},
-        "dry_run": {"type": "boolean"}
       },
       "additionalProperties": true
     }

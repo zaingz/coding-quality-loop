@@ -20,8 +20,6 @@ Cases (record↔reality verification):
  10.  scan-text --stdin catches a secret
  11.  a clean, well-mapped record passes --against-diff
  12.  run-evidence refuses a command not on the allowlist
- 13.  verify-gates --against-diff appends to local telemetry
- 14.  stats renders the metrics table
 """
 
 from __future__ import annotations
@@ -371,40 +369,102 @@ def case_run_evidence_allowlist(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
 
 
-def case_telemetry_appended(tmp: Path) -> tuple[bool, str]:
+def case_verify_umbrella_fails_when_section_fails(tmp: Path) -> tuple[bool, str]:
+    """The verify umbrella must FAIL when any constituent section fails (here:
+    verify-gates flags a missing implementer), and still emit the unified report.
+    """
     repo = make_repo(tmp)
     billing = repo / "src" / "billing"
     billing.mkdir(parents=True)
-    (billing / "invoice.py").write_text("def round_total(): pass\n")
-    (repo / "tests").mkdir(parents=True, exist_ok=True)
-    (repo / "tests" / "test_invoice.py").write_text("def test_round(): pass\n")
-    record = passing_record(repo)
+    (billing / "invoice.py").write_text("def round_total(): return round(sum([]), 2)\n")
+    tests = repo / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_invoice.py").write_text("def test_round(): assert True\n")
+    record = passing_record(
+        repo,
+        implementer=None,  # forces a verify-gates finding (named implementer required)
+        completion_record=_completion(files=["src/billing/invoice.py", "tests/test_invoice.py"]),
+    )
     path = write_record(repo, record)
-    run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
-    tel = repo / ".quality-loop" / "telemetry.jsonl"
-    ok = tel.is_file()
-    events = []
-    if ok:
-        for line in tel.read_text().splitlines():
-            try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
-        ok = any(e.get("cmd") == "verify-gates" for e in events)
-    return ok, f"telemetry_exists={tel.is_file()}; verify-gates events={sum(1 for e in events if e.get('cmd') == 'verify-gates')}"
+    code, out, err = run_cli("verify", str(path), "--base", "HEAD", cwd=str(repo))
+    combined = out + err
+    has_report = "unified gate report" in combined
+    overall_fail = "Overall: FAIL" in combined
+    flagged = "named implementer" in combined
+    ok = code == 1 and has_report and overall_fail and flagged
+    return ok, f"exit={code}; report={has_report}; overall_fail={overall_fail}; flagged={flagged}"
 
 
-def case_stats_renders(tmp: Path) -> tuple[bool, str]:
+def case_verify_in_non_git_repo(tmp: Path) -> tuple[bool, str]:
+    """In a non-git directory, verify must NOT exit 129 with no report. It should
+    emit the unified report with the diff-audit/verify-gates sections recorded as
+    failed (could-not-read-diff) and exit non-zero.
+    """
+    nongit = tmp / "nongit"
+    nongit.mkdir()
+    record = {
+        "task_id": "t-nogit",
+        "goal": "rename a local helper for clarity",
+        "risk_tier": "low",
+        "task_class": "tiny",
+        "acceptance_criteria": [],
+        "constraints": [],
+        "non_goals": [],
+        "assumptions": [],
+        "verification_plan": [],
+        "minimality_decision": {"rung": "one_liner", "reason": "rename"},
+        "plan": [],
+        "commands_run": [],
+        "open_risks": [],
+        "review_findings": [],
+        "repo_map": {"entry_points": [], "likely_files": [], "callers_checked": [], "tests": []},
+        "implementer": "agent-a",
+        "validation_contract": None,
+        "independent_review": None,
+        "completion_record": None,
+        "security_sensitive": False,
+        "status": "done",
+    }
+    path = write_record(nongit, record)
+    code, out, err = run_cli("verify", str(path), "--base", "HEAD", cwd=str(nongit))
+    combined = out + err
+    no_129 = code != 129
+    has_report = "unified gate report" in combined
+    no_traceback = "Traceback" not in combined
+    ok = no_129 and has_report and no_traceback and code != 0
+    return ok, f"exit={code}; no_129={no_129}; report={has_report}; no_traceback={no_traceback}"
+
+
+def case_verify_object_ac_coverage(tmp: Path) -> tuple[bool, str]:
+    """AC-to-command coverage must read proving_command off object acceptance
+    criteria: a matching proving_command passes; a non-matching one fails the
+    AC coverage section and the umbrella overall.
+    """
     repo = make_repo(tmp)
-    tel = repo / ".quality-loop" / "telemetry.jsonl"
-    tel.parent.mkdir(parents=True, exist_ok=True)
-    tel.write_text(json.dumps({
-        "ts": "2026-07-01T00:00:00", "cmd": "verify-gates", "task_id": "t1",
-        "risk": "medium", "findings": 0, "pass": True, "overrides": [],
-    }) + "\n")
-    code, out, err = run_cli("stats", cwd=str(repo))
-    ok = code == 0 and "Metric" in out and "not instrumented" in out and "Verification evidence rate" in out
-    return ok, f"exit={code}; has_table={'Metric' in out}; has_not_instrumented={'not instrumented' in out}"
+    billing = repo / "src" / "billing"
+    billing.mkdir(parents=True)
+    (billing / "invoice.py").write_text("def round_total(): return round(sum([]), 2)\n")
+    tests = repo / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_invoice.py").write_text("def test_round(): assert True\n")
+    write_allowlist(repo, [f"{sys.executable}*"])
+    cmd = f"{sys.executable} -c pass"
+    record = passing_record(
+        repo,
+        acceptance_criteria=[
+            {"criterion": "total rounds once", "proving_command": cmd},
+            {"criterion": "no exceptions on empty input", "proving_command": "missing-cmd"},
+        ],
+        commands_run=[{"cmd": cmd, "class": "unit", "result": "pass", "evidence": "ok"}],
+        completion_record=_completion(files=["src/billing/invoice.py", "tests/test_invoice.py"]),
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify", str(path), "--base", "HEAD", cwd=str(repo))
+    combined = out + err
+    ac_section_failed = "FAIL] AC coverage" in combined or ("AC coverage" in combined and "missing-cmd" in combined)
+    overall_fail = "Overall: FAIL" in combined
+    ok = code == 1 and ac_section_failed and overall_fail
+    return ok, f"exit={code}; ac_failed={ac_section_failed}; overall_fail={overall_fail}"
 
 
 CASES = [
@@ -421,8 +481,9 @@ CASES = [
     ("scan-text --stdin catches a secret", case_scan_text_secret),
     ("a clean, well-mapped record passes --against-diff", case_clean_record_passes_against_diff),
     ("run-evidence refuses a command not on the allowlist", case_run_evidence_allowlist),
-    ("verify-gates --against-diff appends to local telemetry", case_telemetry_appended),
-    ("stats renders the metrics table", case_stats_renders),
+    ("verify umbrella fails when a constituent section fails (verify-gates)", case_verify_umbrella_fails_when_section_fails),
+    ("verify in a non-git repo emits a report instead of exit 129", case_verify_in_non_git_repo),
+    ("verify AC coverage reads proving_command off object acceptance criteria", case_verify_object_ac_coverage),
 ]
 
 

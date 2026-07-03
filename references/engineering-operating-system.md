@@ -46,7 +46,7 @@ artifacts and durable instructions.
    long-horizon work orchestratable.
 4. **Independent verification** — implementer and validator separated for non-trivial work;
    the implementer is never the final validator.
-5. **Complexity discipline** — the complexity brake (deletion → reuse → stdlib → native →
+5. **Complexity discipline** — the right-size gate (deletion → reuse → stdlib → native →
    existing dependency → one-liner → minimal new code), applied before planning and again
    before review.
 

@@ -272,6 +272,39 @@ def case_check_config(tmp: Path) -> tuple[bool, str]:
     return ok, f"example={example_ok}; no_section={no_section_ok}; bad_host={bad_host_ok}; bad_class={bad_class_ok}; bad_think={bad_think_ok}"
 
 
+def case_check_config_same_model_class(tmp: Path) -> tuple[bool, str]:
+    """Reviewer heterogeneity must fail when IMPLEMENT_SLICE and REVIEW use the
+    same model_class on medium+ routing (with a concrete resolved model), and
+    must NOT false-positive when the resolved model is a placeholder (inherit).
+    """
+    # Same model_class + concrete model -> fail.
+    cfg_bad = load_example()
+    cfg_bad["model_routing"]["host"] = "claude-code"
+    cfg_bad["model_routing"]["host_models"]["claude-code"]["code_specialized"]["model"] = "claude-sonnet-4-5"
+    for step in cfg_bad["steps"]:
+        if step.get("step") == "REVIEW":
+            step["model_class"] = "code_specialized"  # same as IMPLEMENT_SLICE
+    p1 = tmp / "same-class.json"
+    p1.write_text(json.dumps(cfg_bad, indent=2), encoding="utf-8")
+    code1, _, err1 = run_cli("check-config", str(p1))
+    same_class_fails = code1 == 1 and "reviewer heterogeneity" in err1 and "model_class" in err1
+
+    # Same model_class + placeholder resolved model (inherit) -> no false positive.
+    cfg_ph = load_example()
+    cfg_ph["model_routing"]["host"] = "claude-code"
+    # code_specialized stays "inherit" (placeholder) in the example
+    for step in cfg_ph["steps"]:
+        if step.get("step") == "REVIEW":
+            step["model_class"] = "code_specialized"
+    p2 = tmp / "same-class-placeholder.json"
+    p2.write_text(json.dumps(cfg_ph, indent=2), encoding="utf-8")
+    code2, _, err2 = run_cli("check-config", str(p2))
+    placeholder_ok = code2 == 0 and "reviewer heterogeneity" not in err2
+
+    ok = same_class_fails and placeholder_ok
+    return ok, f"same_class(exit={code1},flagged={same_class_fails}); placeholder(exit={code2},clean={placeholder_ok})"
+
+
 def case_brief_routing(tmp: Path) -> tuple[bool, str]:
     target = make_claude_target(tmp)
     cfg = write_routing_config(tmp / "config.json", "claude-code", {
@@ -319,6 +352,7 @@ CASES = [
     ("pi print contains /model + thinking + fresh-session note", case_pi_print),
     ("unsupported thinking on codex warns and exits 1", case_unsupported_thinking),
     ("check-config: rejects unknown host/class/thinking, accepts valid", case_check_config),
+    ("check-config: same model_class on IMPLEMENT_SLICE+REVIEW fails; placeholder does not", case_check_config_same_model_class),
     ("brief: routing section, drift detection, unconfigured hint", case_brief_routing),
     ("dry-run leaves files untouched", case_dry_run),
 ]

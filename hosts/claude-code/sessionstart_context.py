@@ -53,7 +53,6 @@ def _brief_output(root: Path) -> str:
         stderr=subprocess.DEVNULL,
         cwd=str(root),
         check=False,
-        env={**os.environ, "QUALITY_LOOP_NO_TELEMETRY": "1"},
     )
     return proc.stdout.strip() if proc.returncode == 0 and proc.stdout.strip() else ""
 

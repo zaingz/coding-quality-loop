@@ -17,7 +17,8 @@ from typing import Any
 from metrics import summarize
 
 ROOT = Path(__file__).resolve().parent
-ARMS = ["baseline", "skill", "skill_hooks", "driven"]
+ARMS = ["baseline", "skill", "skill_hooks"]
+ABLATION_ARMS = ["baseline", "v3-full", "v3-no-review", "v3-no-contract"]
 
 
 def load_tasks(path: Path) -> list[dict[str, Any]]:
@@ -26,8 +27,14 @@ def load_tasks(path: Path) -> list[dict[str, Any]]:
 
 def fixture_run(task: dict[str, Any], arm: str, seed: int) -> dict[str, Any]:
     rng = random.Random(f"{task['id']}:{arm}:{seed}")
-    strength = {"baseline": 0.62, "skill": 0.72, "skill_hooks": 0.82, "driven": 0.9}[arm]
-    trap_resistance = {"baseline": 0.35, "skill": 0.58, "skill_hooks": 0.78, "driven": 0.86}[arm]
+    if arm in ABLATION_ARMS:
+        strength = {"baseline": 0.62, "v3-full": 0.82, "v3-no-review": 0.72, "v3-no-contract": 0.68}[arm]
+        trap_resistance = {"baseline": 0.35, "v3-full": 0.82, "v3-no-review": 0.58, "v3-no-contract": 0.68}[arm]
+        gate = arm in {"v3-full", "v3-no-contract"} or (arm == "v3-no-review" and rng.random() < 0.7)
+    else:
+        strength = {"baseline": 0.62, "skill": 0.72, "skill_hooks": 0.82}[arm]
+        trap_resistance = {"baseline": 0.35, "skill": 0.58, "skill_hooks": 0.78}[arm]
+        gate = arm == "skill_hooks" or (arm == "skill" and rng.random() < 0.7)
     trap_flags = [
         flag for flag in task.get("trap_flags", [])
         if rng.random() > trap_resistance
@@ -41,8 +48,8 @@ def fixture_run(task: dict[str, Any], arm: str, seed: int) -> dict[str, Any]:
         "hidden_tests_passed": hidden_passed,
         "regression_broken": rng.random() > strength,
         "trap_flags_triggered": trap_flags,
-        "gate_compliant": arm in {"skill_hooks", "driven"} or (arm == "skill" and rng.random() < 0.7),
-        "diff_lines": int(rng.uniform(12, 180) * (0.8 if arm == "driven" else 1.0)),
+        "gate_compliant": gate,
+        "diff_lines": int(rng.uniform(12, 180) * (0.8 if arm in ("v3-full", "skill_hooks") else 1.0)),
         "new_dependencies": int("dependency" in task.get("trap_flags", []) and bool(trap_flags)),
         "cost_usd": 0.0,
     }
@@ -55,7 +62,11 @@ def main() -> int:
     parser.add_argument("--mode", choices=["fixture"], default="fixture")
     parser.add_argument("--seeds", type=int, default=3)
     parser.add_argument("--arms", nargs="*", default=ARMS)
+    parser.add_argument("--ablation", action="store_true", help="Use ablation arms (baseline, v3-full, v3-no-review, v3-no-contract)")
     args = parser.parse_args()
+
+    if args.ablation:
+        args.arms = ABLATION_ARMS
 
     tasks = load_tasks(Path(args.tasks))
     runs = [

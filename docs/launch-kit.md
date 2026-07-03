@@ -27,8 +27,8 @@ Use the [banner](images/banner.png), [before-after](images/before-after.png), or
 > - 129 offline eval cases across 9 suites pin the gates so they don't drift.
 > - Reality layer reads the actual `git diff` and catches phantom completions, stale
 >   review hashes, missing bugfix tests, and self-downgraded risk tiers.
-> - Optional project memory (files backend by default; Honcho adapter with zero-config
->   local mode) so the agent stops relearning the same lesson every session.
+> - Optional project memory (files backend) so the agent stops relearning the
+>   same lesson every session.
 >
 > The README has a 60-second demo and a comparison to superpowers, addyosmani/agent-skills,
 > and ponytail. Feedback and PRs welcome.
@@ -99,7 +99,7 @@ dependencies. 129 offline eval cases across 9 suites, re-run on every push.
 
 **6/**
 Optional project memory: distilled lessons, budget-capped recall, secrets redacted at
-write. Files backend by default; runnable Honcho adapter with zero-config local mode.
+write. Files backend, stdlib-only.
 
 **7/**
 Repo: https://github.com/zaingz/coding-quality-loop

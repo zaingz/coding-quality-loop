@@ -17,34 +17,6 @@
     "task_id": {"type": "string"},
     "goal": {"type": "string", "minLength": 1},
     "phase": {"type": "string", "enum": ["plan", "execute", "review", "done", "escalated"]},
-    "context_budget": {
-      "type": ["object", "null"],
-      "additionalProperties": {
-        "type": "object",
-        "required": ["output_summary"],
-        "properties": {
-          "inputs": {"type": "array", "items": {"type": "string"}},
-          "excluded": {"type": "array", "items": {"type": "string"}},
-          "output_summary": {"type": "string", "minLength": 1},
-          "output_summary_max_tokens": {"type": "integer", "minimum": 1}
-        }
-      }
-    },
-    "phase_verifications": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["phase", "verifier", "status"],
-        "properties": {
-          "phase": {"type": "string", "enum": ["plan", "execute", "review"]},
-          "verified_by": {"type": "array", "items": {"type": "string"}},
-          "evidence": {"type": "array", "items": {"type": "string"}},
-          "verifier": {"type": "string", "enum": ["same_agent", "different_context", "different_model", "human"]},
-          "status": {"type": "string", "enum": ["verified", "failed", "skipped_with_reason"]},
-          "notes": {"type": "string"}
-        }
-      }
-    },
     "task_class": {"type": ["string", "null"], "enum": ["tiny", "small", "medium", "mission", null]},
     "implementer": {"type": ["string", "null"]},
     "security_sensitive": {"type": "boolean"},
@@ -82,7 +54,24 @@
       },
       "additionalProperties": true
     },
-    "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
+    "acceptance_criteria": {
+      "type": "array",
+      "description": "Each criterion is either a plain string or an object {criterion, proving_command}. The proving_command is the check that proves the criterion; the verify umbrella AC-coverage gate matches it against commands_run with result=pass. String criteria remain valid for backward compatibility.",
+      "items": {
+        "oneOf": [
+          {"type": "string"},
+          {
+            "type": "object",
+            "properties": {
+              "criterion": {"type": "string", "description": "The acceptance criterion text"},
+              "proving_command": {"type": "string", "description": "The command that proves this criterion; checked by the verify umbrella AC-coverage gate"}
+            },
+            "required": ["criterion", "proving_command"],
+            "additionalProperties": true
+          }
+        ]
+      }
+    },
     "constraints": {"type": "array", "items": {"type": "string"}},
     "non_goals": {"type": "array", "items": {"type": "string"}},
     "assumptions": {"type": "array", "items": {"type": "string"}},

@@ -1,6 +1,6 @@
 # Quickstart
 
-Three ways to try the Coding Quality Loop, ordered by commitment. Pick the lightest one
+Two ways to try the Coding Quality Loop, ordered by commitment. Pick the lightest one
 that fits your task.
 
 <div align="center">
@@ -104,35 +104,6 @@ droid exec "Follow the Coding Quality Loop in SKILL.md to fix the bug and summar
 ```
 </details>
 
-## C. Orchestrated — driven mode (5 minutes)
-
-For batch, mission, or CI-driven runs where the orchestrator owns the state machine,
-verification, and review isolation:
-
-```bash
-# validate your config first
-python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
-
-# run against a fake host (offline, deterministic — good for CI smoke tests)
-python3 scripts/quality_loop_run.py --goal "Fix invoice rounding" --host fake --dry-run
-
-# resume an existing agent record with a human relay
-python3 scripts/quality_loop_run.py --record agent-record.json --host manual
-
-# real host adapters
-python3 scripts/quality_loop_run.py --goal "Fix invoice rounding" --host claude
-python3 scripts/quality_loop_run.py --goal "Fix invoice rounding" --host codex
-
-# medium/mission tasks: enforce the per-phase gates (v2.4)
-python3 scripts/quality_loop.py context-check agent-record.json    # per-phase context_budget
-python3 scripts/quality_loop.py verify-phases agent-record.json    # current + prior phases passed
-python3 scripts/quality_loop.py trace-audit .quality-loop/runs/<id>/execution-log.jsonl
-```
-
-The driven runner writes a local redacted journal under `.quality-loop/runs/<id>/`. VERIFY
-is orchestrator-native; REVIEW receives only contract + diff + evidence, never the
-implementer transcript.
-
 ## Full host wiring (optional)
 
 Once you like the loop, install every host integration a repo needs in one command:
@@ -177,7 +148,7 @@ The loop scales ceremony to risk. Match your work to the smallest class that is 
 |---|---|---|
 | **Tiny** | Typo, copy, one-line config, obvious test update | Inspect, edit, smallest check. No mission artifacts. |
 | **Small** | Local bug, one module, low risk | Quick context map, mini spec, minimal fix, targeted test. |
-| **Medium** | Multiple files, a feature, a migration, auth/payment/data risk | Validation contract, plan, complexity brake, independent review, completion record. |
+| **Medium** | Multiple files, a feature, a migration, auth/payment/data risk | Validation contract, plan, right-size gate, independent review, completion record. |
 | **Mission** | Multi-day, multi-module, multi-repo, uncertain architecture | Orchestrator + workers + validators + milestones + shared artifacts. |
 
 A tiny task must **not** be forced through mission ceremony. A medium task must **not**

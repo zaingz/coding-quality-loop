@@ -6,17 +6,15 @@ gotchas, preferences), never transcripts or diffs. It is read on demand into a h
 and written when a lesson is worth keeping. It is advisory: it never replaces tests, review,
 or the runtime gates.
 
-## Two capabilities (one interface)
+## Capability
 
-| Capability | What it does | Backends | Default |
-|---|---|---|---|
-| `lessons_store` | persist + recall lessons | `files`, `honcho` | `files` |
-| `graph_relevance` | widen recall + feed CONTEXT MAP from a code graph | `none`, `graphify` | `none` |
+| Capability | What it does | Backend |
+|---|---|---|
+| `lessons_store` | persist + recall lessons | `files` |
 
-Select via `assets/quality-loop.config.example.json` -> `memory`. A missing or offline
-adapter degrades to `files` / `none`; a task never blocks on memory infrastructure.
+Select via `assets/quality-loop.config.example.json` -> `memory`.
 
-## The contract (backend-agnostic)
+## The contract
 
 - **recall(goal, files, risk, budget)** -> a budget-capped, relevance-scoped digest of prior
   lessons. Files backend: `python3 scripts/quality_loop.py memory-recall --goal "..."
@@ -41,12 +39,9 @@ adapter degrades to `files` / `none`; a task never blocks on memory infrastructu
   and preferences that apply across all projects. Recall merges project + global lessons
   under a split-capped budget (60% project, 40% global when the global store has lessons).
 - Paths resolve relative to the **current working directory** — run the CLI from the repo root, or set `memory.location: "local"` to anchor at `~/.quality-loop/<project-slug>/`.
-- `graphify-out/` is always gitignored (regenerable cache, not memory).
 
 ## Lifecycle wiring (manual, advisory)
 
-- CONTEXT MAP: if `graph_relevance="graphify"`, build/query the graph for the map (see
-  `memory-graphify.md`).
 - INTAKE / CONTEXT MAP: run `recall` and consider the digest. Recommended, not gated.
 - RETROSPECTIVE: run `commit` when a lesson is worth keeping. `verify-gates` stays advisory
   about memory — there is no new hard block.
@@ -56,5 +51,3 @@ adapter degrades to `files` / `none`; a task never blocks on memory infrastructu
 Retrieval, never stuffing. Only the <=40-line `MEMORY.md` auto-loads. Recall is
 relevance-scoped (keyword + path-glob + risk) and hard-capped by budget. Store conclusions,
 not history. Prune periodically. Hit-counts curate: recalled lessons rise, unused ones age out.
-
-See `memory-honcho.md` and `memory-graphify.md` for the optional backends.

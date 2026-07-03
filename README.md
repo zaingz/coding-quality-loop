@@ -10,10 +10,10 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-2.4.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-3.0.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-129%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-116%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-111111?style=flat-square)](#install--use-matrix)
@@ -58,7 +58,7 @@ You ask your agent to *"fix the checkout retry bug."*
 
 That is the whole idea: smaller changes, real proof, a second set of eyes, and memory that sticks. The work scales to the risk: a typo just gets fixed; a payment migration runs the full process. See a real worked example in [`examples/walkthrough/`](examples/walkthrough/README.md).
 
-- **New in 2.4.0**: the ten-stage lifecycle is now framed as three phases — **PLAN → EXECUTE → REVIEW** — with context treated as a budget and a verification gate that must pass before each phase can close. The familiar sub-steps (context map, minimality gate, implement, verify, ship, retrospective) are unchanged; they are just organized under the phase that owns them. See [`CHANGELOG.md`](CHANGELOG.md#240) for the full list of additions.
+- **New in 3.0.0**: outcome-grounded, model-adaptive, and 40% smaller. The harness now optimizes for code quality (not artifact production), adapts ceremony to model strength via a new **Calibration** principle, and uses a single `verify` command as the primary gate. The **Right-Size Gate** makes "minimal diff is not minimal architecture" part of the rule itself, the reviewer is now a **tool-using evaluator** that executes tests (recording `ran_checks`), and a **communication-bridge** rule prevents review loops. Legacy adapters and local orchestration were archived. See [`CHANGELOG.md`](CHANGELOG.md#300) for the full list of additions.
 
 <details>
 <summary><strong>What the agent produces, step by step</strong></summary>
@@ -122,23 +122,6 @@ Copying the folder into any skills-aware host is the install. There is no build 
 
 </details>
 
-<details>
-<summary><strong>C. Driven mode</strong></summary>
-
-```bash
-# C — drive the orchestrated, multi-agent config from any runtime
-python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
-```
-
-For batch or mission work, use the local orchestrator:
-
-```bash
-python3 scripts/quality_loop_run.py --goal "Fix invoice rounding" --host fake --dry-run
-python3 scripts/quality_loop_run.py --record agent-record.json --host manual
-```
-
-</details>
-
 ### 30-second demo
 
 ```text
@@ -156,7 +139,7 @@ agent: PR: summary, files changed, evidence table, risk note, rollback: revert t
 
 ## The loop, visualized
 
-Three phases, smallest-safe-first, each closed by its own verification gate before the next may start. **Context is a budget; verification is what terminates a phase.** The **complexity brake runs twice**: once in PLAN to choose the smallest approach, once in REVIEW to confirm nothing crept in.
+Three phases, smallest-safe-first, each closed by its own verification gate before the next may start. **Context is a budget; verification is what terminates a phase.** The **right-size gate runs twice**: once in PLAN to choose the smallest approach, once in REVIEW to confirm nothing crept in.
 
 ```text
 PLAN -> EXECUTE -> REVIEW
@@ -169,7 +152,7 @@ flowchart LR
   REVIEW -. durable lessons .-> PLAN
 ```
 
-- **PLAN** — turn the goal into a task contract, map the change, write the validation contract, apply the complexity brake, and produce a plan. Terminates when the plan (and, for non-trivial work, the validation contract) exist and are checkable.
+- **PLAN** — turn the goal into a task contract, map the change, write the validation contract, apply the right-size gate, and produce a plan. Terminates when the plan (and, for non-trivial work, the validation contract) exist and are checkable.
 - **EXECUTE** — implement in small slices and verify. Terminates when the smallest sufficient checks pass with recorded evidence.
 - **REVIEW** — independent review and ship/handoff. Terminates when a fresh-context reviewer has checked the diff against the validation contract and, for non-trivial work, a completion record exists.
 
@@ -214,7 +197,7 @@ A tiny task must **not** be forced through mission ceremony. A medium task must 
 |---|---|---|
 | **Tiny** | Typo, copy, one-line config, obvious test update. | Inspect, edit, smallest check. No mission artifacts. |
 | **Small** | Local bug, one module, low risk. | Quick context map, mini spec, minimal fix, targeted test. |
-| **Medium** | Multiple files, a feature, a migration, auth/payment/data risk. | Validation contract, plan, complexity brake, **independent review**, completion record. |
+| **Medium** | Multiple files, a feature, a migration, auth/payment/data risk. | Validation contract, plan, right-size gate, **independent review**, completion record. |
 | **Mission** | Multi-day, multi-module, multi-repo, uncertain architecture. | Orchestrator + worker tasks + validators, milestones, shared artifacts. |
 
 ---
@@ -229,10 +212,12 @@ The differentiator is that the gates are **executable**, not advisory, and the b
 | **Reality layer (v1.5).** `verify-gates --against-diff` reads the real git diff and catches **phantom completion**, **scope integrity**, a **diff-derived risk floor**, **bugfix-test co-presence**, and **stale review hashes**. `run-evidence` **re-executes** recorded pass commands; `--red-green` replays a red_green command in a worktree at base and HEAD. Worktree unavailable means "not proven", never a silent pass. `attest-review` embeds the recomputed diff hash. | Reviewer/implementer separation is compared as trimmed strings and fresh context is self-attested. `attest-review` plus `--against-diff` make review *freshness* checkable, but cannot prove the reviewer *read* the diff. |
 | **Detected-risk floor.** The record goal, criteria, and plan are scanned for auth/authz, secrets, crypto, payments, migrations, destructive, concurrency, data-loss, PII, and infra boundaries. Any hit forces high-risk plus security-review gates regardless of the declared tier. | The detected-risk floor is a curated heuristic. It catches honest mis-tiering, not an agent deliberately phrasing around it. **Deterministic policy hooks** remain the backstop for anything you cannot afford an agent to get wrong. |
 | **UNDERSTAND is gated.** Non-trivial work must carry a substantive context map with entry points or likely files plus callers or tests. | **`verify-gates` without `--against-diff` reads the record, not the diff.** It confirms recorded evidence is present and well-formed; `--against-diff` adds diff-grounded checks. `diff-audit` and CI remain the blocking layer. |
-| Every `pass` command carries a verifiable evidence handle and known `class`; a recorded minimality decision; and `diff-audit` flags secrets, including **untracked files** and **test-weakening**, dependency edits, migrations, and oversized diffs. `diff-audit --staged` covers the pre-commit diff; `scan-text --stdin` is a secret-scan-as-a-service for hook shims. | The helper is not a hosted agent service. Driven mode can orchestrate local host CLIs, but authentication, model cost, and production rollout remain the caller's responsibility. |
+| Every `pass` command carries a verifiable evidence handle and known `class`; a recorded minimality decision; and `diff-audit` flags secrets, including **untracked files** and **test-weakening**, dependency edits, migrations, and oversized diffs. `diff-audit --staged` covers the pre-commit diff; `scan-text --stdin` is a secret-scan-as-a-service for hook shims. | The helper is not a hosted agent service. Authentication, model cost, and production rollout remain the caller's responsibility. |
 | **Repeated failure -> durable change.** A recurring mistake must become a rule/test/hook/checklist/template, so a clean final record cannot bury a mistake corrected only in chat. | Host hooks are advisory unless the host or repo chooses to trust and enable them. Git hooks and CI are the portable backstop. |
 
-The runtime entry points are `verify-gates`, `verify-gates --against-diff`, `check-record`, `diff-audit`, `run-evidence`, `attest-review`, and `scan-text --stdin`, pinned by [evals](evals/).
+The runtime entry points are `verify` (the umbrella: record gates + diff audit + evidence re-execution + AC coverage), `verify-gates`, `verify-gates --against-diff`, `check-record`, `diff-audit`, `run-evidence`, `attest-review`, and `scan-text --stdin`, pinned by [evals](evals/).
+
+**Reviewer heterogeneity.** `check-config` now hard-fails when the implementer and fresh_reviewer resolve to the same model on medium+ tasks. **Tool-using evaluator.** The reviewer must execute tests and benchmarks when available, not just read the diff; the verdict records `ran_checks: true|false`. **Communication-bridge rule.** After the reviewer produces findings, the implementer filters them against the contract: in-scope findings become fix tasks, out-of-scope findings become follow-ups. This prevents review loops.
 
 ---
 
@@ -258,7 +243,7 @@ python3 scripts/quality_loop.py memory-commit agent-record.json
 
 The default backend is **stdlib-only and checked-in**: `.quality-loop/memory/`, git-diffable and team-shared.
 
-**[Honcho](https://honcho.dev)** reasoning-based recall is a **runnable adapter** as of v2.2 (`scripts/quality_loop_honcho.py`). It has the same recall/commit contract as the files backend, dual-writes so files remain the source of truth, and degrades transparently to files when the SDK is missing or the network fails. **Zero-config local mode** works out of the box: run `AUTH_USE_AUTH=false docker compose up` against the upstream Honcho, point the config at `http://localhost:8000`, and omit `HONCHO_API_KEY` — the adapter connects keyless to any local endpoint (`localhost`, `127.0.0.1`, `host.docker.internal`, `.local`, `::1`). Cloud URLs still require the key as a safety rail. **[Graphify](https://github.com/safishamsi/graphify)** code-graph relevance remains a documented integration pattern. See [`references/memory.md`](references/memory.md), [`references/memory-honcho.md`](references/memory-honcho.md), and [`references/memory-graphify.md`](references/memory-graphify.md).
+See [`references/memory.md`](references/memory.md) for the memory contract.
 
 ---
 
@@ -274,14 +259,12 @@ python3 evals/run_evals.py                                                      
 python3 evals/run_memory_evals.py                                              # 5. memory gates
 python3 evals/run_reality_evals.py                                             # 6. reality gates (record↔diff)
 python3 evals/run_hook_evals.py                                                # 7. host hook fixtures
-python3 evals/run_orchestrator_evals.py                                        # 8. driven mode fake-host evals
-python3 evals/run_trigger_evals.py                                             # 9. activation smoke
-python3 evals/run_honcho_evals.py                                              # 10. honcho memory adapter
-python3 evals/run_routing_evals.py                                             # 11. model routing (v2.3)
-python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json
+python3 evals/run_trigger_evals.py                                             # 8. activation smoke
+python3 evals/run_routing_evals.py                                             # 9. model routing
+python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json   # 10. bench fixture smoke
 ```
 
-Current result: **9/9 static** + **31/31 behavioral** + **27/27 memory** + **15/15 reality** + **9/9 hook** + **5/5 orchestrator** + **10/10 trigger** + **7/7 honcho** + **11/11 routing** cases pass, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
+Current result: **11/11 static** + **32/32 behavioral** + **26/26 memory** + **16/16 reality** + **12/12 routing** + **10/10 trigger** + **9/9 hook** = **116 cases** pass across 7 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -291,42 +274,27 @@ Current result: **9/9 static** + **31/31 behavioral** + **27/27 memory** + **15/
 - The **memory** suite drives `memory-recall` / `commit` / `prune` against constructed stores and asserts anti-bloat and safety invariants: the index stays <=40 lines even with multi-line lessons, recall respects budget, and secrets are redacted before they land.
 - The **reality** suite builds temp git repos where the record and the diff disagree: phantom completion, unmapped file, auth path under low tier, missing bugfix test, stale review hash, lying evidence, red-green catch, staged secret. It asserts the diff-grounded gates catch the lie.
 - The **hook** suite feeds fixture JSON into Claude/Codex-compatible shims and checks destructive Bash blocks, secret-write blocks, required edit-before-plan blocks, Stop-gate continuation, SessionStart context, and installer idempotence.
-- The **orchestrator** suite runs driven mode through the fake host and pins step order, transcript isolation for REVIEW, VERIFY-before-REVIEW blocking, tiny topology, and compatibility with the v1 record gates.
-- The **honcho** suite drives the Honcho memory adapter with a stubbed SDK and pins: transparent fallback when the SDK is missing, dual-write and recall via files + Honcho, boundary redaction of secrets and keywords before egress, zero-config local mode (keyless connection to `http://localhost:8000`), the cloud safety rail (`api.honcho.dev` without a key refuses to connect), files-only when the config omits the block, and `_client` accepting a raw config without a `KeyError`.
 
 </details>
 
-### Benchmarks and live evals
+### Benchmarks, ablation, and live evals
 
-`bench/` contains the v2.1 proof harness: 12 vendored tasks, trap tasks, objective metrics, and a judge protocol. The committed result [`bench/results/fixture-smoke-2026-07-01.json`](bench/results/fixture-smoke-2026-07-01.json) is a deterministic fixture smoke result. It proves the benchmark plumbing runs; it is not a live Claude/Codex model sweep and should not be quoted as product lift.
+`bench/` contains the proof harness: vendored tasks, trap tasks, objective metrics, and a judge protocol. The committed result [`bench/results/fixture-smoke-2026-07-01.json`](bench/results/fixture-smoke-2026-07-01.json) is a deterministic fixture smoke result. It proves the benchmark plumbing runs; it is not a live Claude/Codex model sweep and should not be quoted as product lift.
 
-### Driven mode
-
-`scripts/quality_loop_run.py` is an optional **reference orchestrator** for batch/mission
-runs. It owns the state machine, verification, review prompt isolation, package gate, and
-local redacted journal under `.quality-loop/runs/<id>/`. It uses a single host adapter for
-all steps — per-role model routing is the host's job (via the config profiles and the
-harness-agnostic role pack in `assets/prompts/` and `.claude/agents/`).
-
-```bash
-python3 scripts/quality_loop_run.py --goal "Fix invoice rounding" --host fake --dry-run
-python3 scripts/quality_loop_run.py --record agent-record.json --host manual
-```
+**Ablation eval program.** [`bench/ablation-protocol.md`](bench/ablation-protocol.md) defines a 3 tasks × 2-3 model families × 3 seeds × 4 arms (baseline, v3-full, v3-no-review, v3-no-contract) protocol. The headline metric excludes artifact production and measures code-quality lift only. A component whose ablation shows no code-quality lift across >=2 families is a v3.1 cut candidate.
 
 ```bash
 python3 bench/runner.py --mode fixture --seeds 3
-python3 bench/metrics.py bench/results/fixture-smoke-2026-07-01.json
 python3 evals/run_trigger_evals.py
 ```
 
 Live sweeps must record host, model, seed, cost, artifacts, and null results.
 
-For medium/high-risk work, create and audit a state record:
+For medium/high-risk work, create a state record and run the primary verification command — an umbrella over record-shape gates, diff-grounded reality checks, evidence re-execution, and AC-to-command coverage:
 
 ```bash
 python3 scripts/quality_loop.py init-record --goal "Fix checkout retry bug" --risk-tier medium --output agent-record.json
-python3 scripts/quality_loop.py diff-audit --base origin/main
-python3 scripts/quality_loop.py verify-gates agent-record.json
+python3 scripts/quality_loop.py verify agent-record.json --base origin/main --red-green
 ```
 
 [`examples/sudoku-agent-eval-2026-06-28/`](examples/sudoku-agent-eval-2026-06-28/README.md) is a committed before/after experiment: four coding agents built the same browser Sudoku app from identical requirements, two with the skill and two without. It is presented honestly as a **single pilot (n=1)**, not a benchmark: the sample is too small to generalize, the rubric is fixed-but-subjective, and the judges are independent but few. The skill variants showed stronger planning, more robust solvers, and better verification evidence; the full numbers, caveats, and the [consolidated report](examples/sudoku-agent-eval-2026-06-28/evaluation-report.md) are committed so you can judge for yourself. Every variant's app source, the skill variants' lifecycle artifacts, and each test suite, rerun with `npm test --prefix <variant>/app`, are in the repo. Headline numbers are intentionally omitted here; use the v2.1 `bench/` harness for repeatable benchmark protocol work instead of quoting this pilot as product lift.
@@ -466,7 +434,7 @@ coding-quality-loop/
 │                       #   config, per-role prompt cards)
 ├── references/         # deep-dive docs pulled only when needed (lifecycle, orchestration,
 │                       #   reviewer checklists, tool contracts, engineering-OS, philosophy,
-│                       #   the memory contract + Honcho/Graphify backends)
+│                       #   the memory contract, enforcement matrix)
 ├── examples/           # host-native copy-paste: claude-code, codex, cursor, pi, droid,
 │                       #   standalone, a real before/after walkthrough, + committed Sudoku live evals
 ├── evals/              # offline eval cases + harness that prove the gates fire
@@ -483,6 +451,7 @@ Medium/high-risk and long-running work maintains a compact state record. Tiny ta
 Helper script commands are advisory. They do not replace human review, tests, scanners, or CI.
 
 ```bash
+python3 scripts/quality_loop.py verify agent-record.json --base origin/main --red-green   # primary: record gates + diff audit + evidence + AC coverage
 python3 scripts/quality_loop.py init-record --goal "Fix invoice total rounding" --risk-tier medium --output agent-record.json
 python3 scripts/quality_loop.py check-record agent-record.json
 python3 scripts/quality_loop.py diff-audit --base origin/main
@@ -492,12 +461,12 @@ python3 scripts/quality_loop.py verify-gates agent-record.json --against-diff --
 python3 scripts/quality_loop.py attest-review review.json --base origin/main
 python3 scripts/quality_loop.py run-evidence agent-record.json --red-green --base origin/main
 python3 scripts/quality_loop.py scan-text --stdin < suspicious-file.txt
-python3 scripts/quality_loop.py stats
+python3 scripts/quality_loop.py brief
 python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
 python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
 ```
 
-`diff-audit` exits non-zero on warnings: possible secrets, dependency edits, migrations, large diffs/file counts. Treat it as a coarse guardrail, not a substitute for gitleaks/trufflehog on high-risk work. Telemetry is local JSONL at `.quality-loop/telemetry.jsonl`; opt out with `QUALITY_LOOP_NO_TELEMETRY=1`.
+`diff-audit` exits non-zero on warnings: possible secrets, dependency edits, migrations, large diffs/file counts. Treat it as a coarse guardrail, not a substitute for gitleaks/trufflehog on high-risk work.
 
 ---
 
@@ -511,7 +480,7 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
 
 One model grading its own work is the dominant failure mode. The skill splits the loop into role-based profiles: `orchestrator`, `context_mapper`, `implementer`, `validator`, `simplicity_reviewer`, `security_reviewer`, `policy_guard`. Map each role to the best available model or tool profile. Defaults stay simple: **one implementer + one independent validator + deterministic policy hooks.** Add specialists only when risk justifies the coordination cost; over-parallelization is an anti-pattern. ([Orchestration](references/agentic-orchestration.md))
 
-`scripts/quality_loop_run.py` is the batch/mission orchestrator. It owns the state machine, verification, review prompt isolation, package gate, and local redacted journal under `.quality-loop/runs/<id>/`. It uses `scripts/quality_loop_hosts.py` adapters: `fake` for offline tests and fixture replay, `manual` for human relay, and `claude` / `codex` for subprocess-backed host runs when available. VERIFY is orchestrator-native; REVIEW receives only contract + diff + evidence, not the implementer transcript. PACKAGE writes a completion record and re-runs `verify-gates`. High-risk work exits escalated before PACKAGE.
+**Smart Friend pattern (optional).** The implementer can consult a stronger model on defined triggers: 2 failed repair attempts, merge conflicts, or architecture uncertainty. The stronger model gets a fork of the implementer's context and responds with guidance, not code. Per-host wiring: Claude subagent, Droid Task tool, Codex subagent. See [`references/agentic-orchestration.md`](references/agentic-orchestration.md).
 
 ---
 
@@ -543,9 +512,9 @@ For a longer, per-feature comparison (with explicit non-goals and a migration pa
 
 ## Philosophy
 
-> **Bounded autonomy. Smallest correct change. Evidence over confidence.**
+> **Bounded autonomy. Smallest correct change. Evidence over confidence. Calibrate to the model.**
 
-Seven defaults the loop encodes, not slogans:
+Eight defaults the loop encodes, not slogans:
 
 1. **An engineering operating system, not a clever prompt** — durable artifacts that outlive the session.
 2. **Bounded autonomy is the product** — the boundary is what makes the output trustable.
@@ -554,6 +523,7 @@ Seven defaults the loop encodes, not slogans:
 5. **Deterministic gates over vibes** — when a rule matters, a hook or check enforces it.
 6. **Repo maps over context stuffing** — a concise map beats reading the whole tree.
 7. **Durable harness changes over repeated chat corrections** — a fix becomes a rule, not a re-explanation.
+8. **Calibrate ceremony to model strength** — the same scaffolding helps weaker models and can hurt stronger ones. Strong models skip ceremony on tiny/small; weaker models get full scaffolding; review is paid only when the task exceeds what the model does reliably solo. The harness optimizes for code quality (the outcome), not artifact production.
 
 Read the full manifesto: problem framing, trends, honestly-cited inspirations, and explicit non-goals, in [`references/philosophy.md`](references/philosophy.md).
 
@@ -574,11 +544,11 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   provenance is not hand-faked.
 - **Skills Hub publish checklist.** Before publishing to the
   [agentskills.io](https://agentskills.io) Skills Hub:
-  1. Bump `packages/npm/package.json` and tag a release (`git tag v2.4.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
+  1. Bump `packages/npm/package.json` and tag a release (`git tag v3.0.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all 9 suites green: 14 static + 31 behavioral + 27 memory + 15 reality + 11 routing + 10 trigger + 9 hook + 7 honcho + 5 orchestrator = 129 cases).
+     and the full eval suite (all 7 suites green: 11 static + 32 behavioral + 26 memory + 16 reality + 12 routing + 10 trigger + 9 hook = 116 cases).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules

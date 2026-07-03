@@ -33,9 +33,7 @@ the repo stays trustable.
       python3 evals/run_memory_evals.py
       python3 evals/run_reality_evals.py
       python3 evals/run_hook_evals.py
-      python3 evals/run_orchestrator_evals.py
       python3 evals/run_trigger_evals.py
-      python3 evals/run_honcho_evals.py
       python3 evals/run_routing_evals.py
       ```
 
@@ -58,7 +56,7 @@ the repo stays trustable.
 ## What we push back on
 
 - **New runtime dependencies.** The helper stays stdlib-only. If you need something
-  fancy, it belongs in an optional adapter (see `quality_loop_honcho.py` for the shape).
+  fancy, it belongs in an optional adapter that degrades gracefully when the dep is missing.
 - **Advisory rules without an eval.** If it is not checkable, it drifts. Prefer a gate
   and an eval over a paragraph.
 - **Feature creep into "we score the model" territory.** The loop checks the *shape* of
@@ -103,7 +101,7 @@ Please include:
 - What you tried (the exact command or the exact prompt).
 - What you expected.
 - What happened (paste the output; do not paraphrase).
-- Which host and version (`quality_loop.py stats` output helps).
+- Which host and version (the output of `python3 scripts/quality_loop.py brief` helps).
 
 Bugs that fit on one screen get looked at fastest.
 

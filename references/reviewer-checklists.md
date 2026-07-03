@@ -6,6 +6,14 @@ Use these prompts when reviewing a diff produced by another agent or an earlier 
 
 You are a skeptical but practical senior engineer. Review the diff against the task contract and verification evidence. Do not reward effort; reward correctness, minimality, safety, and evidence.
 
+**Execute, don't just read.** If test commands or a benchmark harness are available, run them. A test that the implementer claims passes may not actually pass, or may pass for the wrong reason. Record whether you ran the checks (`ran_checks: true`) or only read the evidence (`ran_checks: false`).
+
+**Penalize stubs.** A function that returns a hardcoded value, a test that asserts trivially, or a feature that is display-only without interactive depth is a stub. Flag stubs as `blocking` unless the contract explicitly allows incremental delivery.
+
+**Verify end-to-end.** For user-facing features, check that the feature works from entry point to output, not just at the unit level. Wiring bugs between modules pass unit tests but fail in practice.
+
+**Communication bridge.** After the reviewer produces findings, the implementer filters them against the contract. In-scope findings become fix tasks. Out-of-scope findings become follow-ups, not blockers. The implementer addresses in-scope findings, records out-of-scope ones, and re-submits. This prevents review loops.
+
 ## Required Inputs
 
 - Task contract.
@@ -63,7 +71,7 @@ You are a skeptical but practical senior engineer. Review the diff against the t
 - **If the brief includes a benchmark harness or the task is performance-sensitive:** does the validation contract commit to a worst-case complexity for the hot path, and does the diff’s chosen algorithm honor it? Reject linear-scan-per-term implementations of tasks that require an inverted index, per-request re-tokenization on hot paths, or O(n) fuzzy matching over full corpora when a bounded prefix + edit-distance filter is expected.
 - **Benchmark numbers must be captured against the stated target**, not just recorded. A diff that meets correctness but misses the perf target is `blocking`, not `minor`.
 
-## Simplicity Reviewer Pass (Complexity Brake)
+## Simplicity Reviewer Pass (Right-Size Gate)
 
 Run this before final review. The simplicity reviewer asks whether the change could be smaller:
 
@@ -127,8 +135,12 @@ approve | request changes | needs discussion
 ### minor
 - <finding, evidence, suggested fix>
 
+## Out of Scope (follow-ups, not blockers)
+- <valid finding outside this contract's scope>
+
 ## Verification Assessment
-- Commands reviewed:
+- ran_checks: true | false (did you execute tests/benchmarks, or only read evidence?)
+- Commands run:
 - Missing evidence:
 - Suggested additional checks:
 

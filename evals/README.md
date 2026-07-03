@@ -86,7 +86,7 @@ python3 evals/run_trigger_evals.py --judge-command './judge-trigger.sh'
 | `05-tiny-no-mission-artifacts` | Typo + obvious test update | low | `tiny` class needs no contract/review/record |
 | `06-medium-validation-contract-review` | Multi-file feature | medium | requires validation contract + independent review + completion record |
 | `07-security-hard-gate` | Authz + secrets on upload path | high | `requires_security_reviewer` + `hard_gate`, escalate |
-| `08-complexity-brake-dependency` | New dep/abstraction for a trim | medium | complexity brake flags `overengineering` |
+| `08-right-size-gate-dependency` | New dep/abstraction for a trim | medium | right-size gate flags `overengineering` |
 | `09-retrospective-harness-update` | Repeated forgotten check | medium | `harness_update` true (durable change, not a chat fix) |
 
 ## Add a case

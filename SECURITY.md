@@ -29,7 +29,6 @@ This project's security surface is small on purpose, but it is not zero:
 | `run-evidence` command execution | ✅ | Re-executes commands from the record's allowlist. Escaping the allowlist is a security bug. |
 | `scan-text --stdin` and `diff-audit` | ✅ | Secret-scan heuristics. False negatives on well-known secret formats are in scope. |
 | Redaction in `memory-commit` | ✅ | Secrets leaking into `.quality-loop/memory/` is a security bug. |
-| Honcho boundary redaction | ✅ | Anything reaching `api.honcho.dev` or a self-hosted Honcho that should have been redacted. |
 | Host hook shims under `hosts/` | ✅ | Injection or privilege escalation through hook input. |
 | Templates and examples under `assets/`, `examples/`, `docs/` | ⚠️ Advisory | Wording issues that mislead an agent are welcome as bugs, but not treated as vulns. |
 

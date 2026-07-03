@@ -45,17 +45,15 @@ Advisory text drifts across sessions; a gate either fires or it does not.
 |---|---|
 | `verify-gates` | Reads the state record. Confirms every recorded field is present, well-formed, and non-empty. Rejects bare booleans, empty strings, and nonexistent paths. |
 | `verify-gates --against-diff` | Adds diff-grounded checks against the real `git diff`: phantom completion, scope integrity, diff-derived risk floor, bugfix-test co-presence, and stale review hashes. |
-| `verify-phases` | *(v2.4)* Checks per-phase verification blocks. Requires a `passed` entry for the current phase and every prior phase (`plan → execute → review`); rejects `review` verified by `same_agent` on medium/mission. |
-| `context-check` | *(v2.4)* Validates the record's `context_budget`. Requires `output_summary` on every declared phase budget, rejects overlap between `inputs` and `excluded`, and requires medium/mission tasks to declare a budget for the active phase. |
-| `trace-audit` | *(v2.4)* Reads an `execution-log.jsonl` trace. Flags `(tool, args_hash)` repeated ≥3× consecutively as a pathological loop and aggregates per-phase step count, wall-clock, and cost. |
+| `verify` | *(v3)* Umbrella command: runs `verify-gates --against-diff`, `diff-audit`, `run-evidence`, and AC-to-command coverage in one pass. Fails if any constituent section fails; emits a single unified report. Survives a non-git repo (records the diff-dependent sections as failed instead of exiting with no report). |
 | `diff-audit` | Scans the diff (or `--staged` for pre-commit) for possible secrets, dependency edits, migrations, oversized changes, and test weakening. Flags untracked files too. |
 | `run-evidence` | Re-executes recorded pass commands from the record's allowlist. `--red-green` replays a red_green command in a worktree at base and HEAD. |
 | `attest-review` | Embeds a recomputed diff hash so a review verdict cannot silently outlast the diff it approved. |
 | `scan-text --stdin` | Secret-scan-as-a-service, for hook shims and paste boxes. |
 | `check-record` | Structural lint of a state record against `assets/agent-record.schema.json`. Validates the optional `phase` field against the `plan|execute|review|done|escalated` enum. |
 | `check-config` | Structural lint of `quality-loop.config.json` against `assets/quality-loop.config.schema.json`. |
-| `eval-cases` | Runs offline eval cases that pin task-class, risk-tier, gate, security-reviewer, completion-record, and complexity-brake logic. *(v2.4)* Cases can carry a `gate` + `record_fixture` pair; the runner actually executes the gate against the fixture. |
-| `init-record` / `stats` / `brief` / `setup-models` | Housekeeping and reporting. `init-record` accepts `--phase {plan,execute,review}` to pin the initial phase. |
+| `eval-cases` | Runs offline eval cases that pin task-class, risk-tier, gate, security-reviewer, completion-record, and right-size-gate logic. |
+| `init-record` / `brief` / `setup-models` | Housekeeping and reporting. `init-record` accepts `--phase {plan,execute,review,done,escalated}` to pin the initial phase. |
 
 These commands are **portable and stdlib-only**. They complement CI, tests, scanners, and
 human review; they do not replace them. The runtime dependency count is zero.
@@ -72,7 +70,7 @@ The canonical model since v2.4 is three phases — **PLAN → EXECUTE → REVIEW
 
 | Role | Owns | Default profile |
 |---|---|---|
-| `orchestrator` | State machine, journal, review isolation | The host CLI (Claude Code, Codex, Droid) or `scripts/quality_loop_run.py` |
+| `orchestrator` | State machine, journal, review isolation | The host CLI (Claude Code, Codex, Droid) |
 | `context_mapper` | Task-scoped repo map, entry points, callers | Cheap/fast model (e.g. haiku, GLM cheap) |
 | `implementer` | Diff, tests, execution log | Strong code model (sonnet, gpt-5-codex, glm-5.2) |
 | `validator` | Independent review against contract + diff + evidence | Strong reasoning model, **different session and identity** |
@@ -118,7 +116,7 @@ The same package drops cleanly into every major agent host:
 | **Cursor** | `.cursor/rules/*.mdc` | Rule loader |
 | **Pi** | `~/.agents/skills/` or in-repo `.agents/skills/` | Skill loader + `/model` per role |
 | **Droid (Factory)** | `.factory/droids/*.md` + skill at repo root | Custom droids per role |
-| **Standalone** | `assets/quality-loop.config.example.json` | `scripts/quality_loop_run.py` orchestrator |
+| **Standalone** | `assets/quality-loop.config.example.json` | `scripts/quality_loop.py` gates |
 
 Host wiring is idempotently installed by `python3 scripts/install.py --host all`, which
 prints exactly what is **enforced** by hooks versus **advisory** in text.
@@ -130,8 +128,8 @@ The three phases group the nine sub-steps like this:
 ```mermaid
 flowchart LR
   A[User goal] --> P{{PLAN<br/>INTAKE · EXPLORE · MINIMALITY_GATE · PLAN}}
-  P -->|context-check + verify-phases| E{{EXECUTE<br/>IMPLEMENT_SLICE · VERIFY}}
-  E -->|context-check + verify-phases| R{{REVIEW<br/>REVIEW · PACKAGE · RETROSPECT}}
+  P -->|verify| E{{EXECUTE<br/>IMPLEMENT_SLICE · VERIFY}}
+  E -->|verify| R{{REVIEW<br/>REVIEW · PACKAGE · RETROSPECT}}
   R -. lessons .-> A
   E --> G{{policy_guard<br/>hooks fire?}}
   G -- block --> E
@@ -155,11 +153,15 @@ flowchart LR
   K -. lessons .-> B
 ```
 
-The **complexity brake runs twice**: once at `MINIMALITY_GATE` to pick the smallest
+The **right-size gate runs twice**: once at `MINIMALITY_GATE` to pick the smallest
 approach, and again at `PACKAGE` (via `verify-gates --against-diff`) to confirm nothing
-crept in.
+crept in. Minimal diff is not minimal architecture: collapsing a multi-feature medium
+task into one monolithic file is under-fanned modularity, not minimality.
 
-Each phase carries its own **context budget** (`assets/context-budget.md`) declaring `inputs`, `excluded`, and an `output_summary` that is the only thing passed to the next phase. `context-check` enforces the budget; `verify-phases` enforces that the current phase and every prior phase have a `passed` verification entry before the next may start.
+The `verify` umbrella command closes each phase with the smallest sufficient check:
+record-shape gates, diff-grounded reality checks, evidence re-execution, and
+AC-to-command coverage. It fails if any constituent section fails and always emits a
+single unified report.
 
 ## Memory (optional)
 
@@ -178,7 +180,7 @@ contract; [`docs/memory.md`](memory.md) for a quick visual overview.
 | Portable | Host-specific |
 |---|---|
 | `SKILL.md`, `references/`, `assets/`, `examples/` | `.claude/settings.json`, `hosts/codex/hooks.json`, `.factory/droids/*.md` |
-| `scripts/quality_loop*.py` (stdlib only, no host imports) | `scripts/install.py --host <name>` per-host wiring |
+| `scripts/quality_loop.py` (stdlib only, no host imports) | `scripts/install.py --host <name>` per-host wiring |
 | The state-record schema and gate CLI | Native subagent invocations, host-specific model IDs |
 | Git hooks (`hosts/git/`) and CI (`action.yml`) | Host session lifecycle hooks |
 

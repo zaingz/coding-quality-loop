@@ -1,8 +1,7 @@
 # Project memory
 
 > Most coding agents relearn the same lesson every session. The loop can keep a tiny
-> per-project ledger of distilled lessons and recall them on the next task. New in v1.4.0,
-> hardened in v2.2 with the runnable Honcho adapter.
+> per-project ledger of distilled lessons and recall them on the next task. New in v1.4.0.
 
 <div align="center">
 
@@ -84,32 +83,6 @@ lessons age out; lessons that keep getting recalled stay.
 - **Why**: no dependencies, git-diffable, team-shared, works offline.
 - **When**: the default. Turn nothing on. It just works.
 
-### 2. Honcho (runnable adapter, v2.2)
-
-- **What**: reasoning-based recall via [Honcho](https://honcho.dev), driven by
-  `scripts/quality_loop_honcho.py`. Same recall/commit contract as the files backend.
-- **Why**: better semantic retrieval on large ledgers; cross-repo memory if you point
-  multiple projects at the same Honcho workspace.
-- **How**: enable the `memory.honcho` block in `quality-loop.config.json`, or run
-  `AUTH_USE_AUTH=false docker compose up` against the upstream Honcho and point the
-  config at `http://localhost:8000` for zero-config local mode (no key needed).
-- **Guarantees**: **dual-writes** so the files backend remains the source of truth;
-  **degrades transparently** to files when the SDK is missing or the network fails;
-  **cloud safety rail** refuses to send anything to `api.honcho.dev` without a key;
-  **boundary redaction** strips secrets and keywords before egress.
-
-See [`references/memory-honcho.md`](../references/memory-honcho.md) for the full contract.
-
-### 3. Graphify (documented integration pattern)
-
-- **What**: code-graph relevance for lesson recall via
-  [Graphify](https://github.com/safishamsi/graphify).
-- **Why**: for repos where "which files does this touch?" is best answered by call
-  graphs, not by grep.
-- **Status**: documented integration pattern, not a bundled adapter.
-
-See [`references/memory-graphify.md`](../references/memory-graphify.md).
-
 ## What the eval suite proves
 
 The **memory** eval suite (`python3 evals/run_memory_evals.py`, 27/27 cases) pins:
@@ -120,14 +93,6 @@ The **memory** eval suite (`python3 evals/run_memory_evals.py`, 27/27 cases) pin
 - Concurrency-safe writes (no partial files, no lost updates).
 - Prune preserves the newer of two near-identical lessons and ages out zero-hit lessons
   older than the configured window.
-
-The **honcho** eval suite (`python3 evals/run_honcho_evals.py`, 7/7 cases) pins:
-
-- Transparent fallback to files when the SDK is missing.
-- Dual-write and dual-recall.
-- Redaction at the boundary before egress.
-- Zero-config local mode: keyless connection to `http://localhost:8000` succeeds.
-- Cloud safety rail: `api.honcho.dev` without a key refuses to connect.
 
 ## Turning it off
 

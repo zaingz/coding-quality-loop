@@ -55,7 +55,7 @@ and class grow (tiny/small need none of the specialist roles).
 | `context_mapper` | `repo_mapper` | Repo layout, relevant modules, entry points, data flow, existing helpers/patterns, tests and commands. Outputs **findings, not raw dumps**. | no |
 | `implementer` | `implementer` | One bounded task: no speculative abstraction, no unrelated cleanup, smallest meaningful test, a coherent slice. | no |
 | `validator` | `fresh_reviewer` | Fresh context; does **not** implement. Checks acceptance criteria, behavior contract, regression risk, edge cases, and evidence against the validation contract. | **yes** |
-| `simplicity_reviewer` | `minimality_reviewer` | Deletion / reuse / stdlib / native / dependency / abstraction review — the complexity brake as a reviewer, run before plan and before review. | optional |
+| `simplicity_reviewer` | `minimality_reviewer` | Deletion / reuse / stdlib / native / dependency / abstraction review — the right-size gate as a reviewer, run before plan and before review. | optional |
 | `security_reviewer` | (boundary only) | Reviews changes at risk boundaries: auth, permissions, secrets, payments, PII, migrations, upload/download, network, shell, dependency changes. | **yes** |
 | `policy_guard` | `policy_guard` | Deterministic safety blocks. Never a model. | enforced |
 
@@ -92,6 +92,29 @@ machine-name step belongs to; see `references/lifecycle.md` for the full mapping
   inflates confidence and hides gaps.
 - **Policy** (`policy_guard`): never a model. Use platform hooks or command guards so the
   block is deterministic and cannot be argued away by a prompt.
+
+## Smart Friend Pattern (optional)
+
+The implementer can consult a stronger model on defined triggers, following the
+"smart friend" pattern from Cognition's multi-agent research (April 2026). The
+stronger model gets a fork of the implementer's context and responds with guidance,
+not code. The implementer decides what to ask; the smart friend suggests what to
+investigate and flags things the implementer may have missed.
+
+**Triggers:**
+- 2 failed repair attempts on the same issue.
+- Merge conflicts or ambiguous integration points.
+- Architecture uncertainty where the chosen approach may not hit the perf/correctness target.
+
+**Per-host wiring:**
+- **Claude Code**: subagent with a stronger model (e.g., Opus) invoked via the Task tool.
+- **Droid (Factory)**: Task tool with a stronger model droid.
+- **Codex**: subagent with a higher thinking level.
+
+**Key insight from Cognition:** smart-friend works best when both models are strong.
+Getting it to work with an asymmetrically weaker primary is still an open problem.
+Cross-frontier delegation (Claude + GPT together) works as a **capability router**:
+route to whichever model is best at the specific sub-task, not just to a "smarter" model.
 
 ## Defaults First
 
@@ -130,7 +153,7 @@ orchestrator
   ├─ worker (implementer)  -> slice 1   ─┐
   ├─ worker (implementer)  -> slice 2   ─┤ fresh validator per slice / milestone
   ├─ worker (implementer)  -> slice 3   ─┘
-  ├─ simplicity_reviewer   -> complexity brake before review
+  ├─ simplicity_reviewer   -> right-size gate before review
   ├─ security_reviewer     -> at risk boundaries only
   └─ collect findings -> create fix tasks -> stop if unsafe
 ```

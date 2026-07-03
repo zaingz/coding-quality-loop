@@ -13,7 +13,7 @@ Cases (safety-hardening behaviors enforced on actual records):
   2. medium work requires a validation contract and independent review
   3. security/high work requires a DISTINCT security review (a passing
      class=security command is not sufficient); an approving review satisfies it
-  4. complexity brake catches an unnecessary dependency
+  4. right-size gate catches an unnecessary dependency
   5. the implementer cannot be the final validator
   6. a repeated mistake triggers a durable retrospective harness update (docs)
   7. package status without a completion record fails (shipping gate)
@@ -218,7 +218,7 @@ def case_security_requires_distinct_review(tmp: Path) -> tuple[bool, str]:
     return ok, f"self-attested(exit={code_s},flagged={('security_review' in out_s)}); reviewed(exit={code_r}: {out_r.strip()!r})"
 
 
-def case_complexity_brake_dependency(tmp: Path) -> tuple[bool, str]:
+def case_right_size_gate_dependency(tmp: Path) -> tuple[bool, str]:
     repo = tmp / "repo"
     repo.mkdir()
 
@@ -510,6 +510,7 @@ def case_secret_guard_flags_real_keys(tmp: Path) -> tuple[bool, str]:
         "api_key = REPLACE_ME",
         "token = ${TOKEN}",
         "api_key = <your-key-here>",
+        "api_key = os.environ.get('HONCHO_API_KEY', '')",
     ]
     flagged = all(flag(s) for s in must_flag)
     skipped = all(not flag(s) for s in must_skip)
@@ -682,6 +683,30 @@ def case_brief_with_run_journal(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; out={out.strip()!r}"
 
 
+def case_schema_accepts_object_acceptance_criteria(tmp: Path) -> tuple[bool, str]:
+    """The agent-record schema must allow acceptance_criteria entries that are
+    objects carrying a proving_command (for the AC-to-command coverage gate),
+    while still accepting plain string criteria.
+    """
+    schema_path = ROOT / "assets" / "agent-record.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    items = schema["properties"]["acceptance_criteria"]["items"]
+    one_of = items.get("oneOf", [])
+    has_string = any(s.get("type") == "string" for s in one_of)
+    obj_def = next((s for s in one_of if isinstance(s, dict) and s.get("type") == "object"), None)
+    has_object = obj_def is not None
+    has_proving_command = bool(obj_def and "proving_command" in obj_def.get("properties", {}))
+    required = obj_def.get("required", []) if obj_def else []
+    criterion_required = "criterion" in required
+    proving_required = "proving_command" in required
+    ok = has_string and has_object and has_proving_command and criterion_required and proving_required
+    return ok, (
+        f"string={has_string}; object={has_object}; "
+        f"proving_command={has_proving_command}; criterion_required={criterion_required}; "
+        f"proving_required={proving_required}"
+    )
+
+
 CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
     ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
@@ -698,7 +723,7 @@ CASES = [
     ("pass-labeled command without evidence fails", case_pass_command_needs_evidence),
     ("medium work requires validation contract and independent review", case_medium_requires_contract_and_review),
     ("security/high work requires a distinct security review", case_security_requires_distinct_review),
-    ("complexity brake catches unnecessary dependency", case_complexity_brake_dependency),
+    ("right-size gate catches unnecessary dependency", case_right_size_gate_dependency),
     ("implementer cannot be the final validator", case_implementer_cannot_validate),
     ("repeated mistake triggers retrospective harness update", case_repeated_mistake_retrospective),
     ("package status without completion record fails", case_package_requires_completion_record),
@@ -714,6 +739,7 @@ CASES = [
     ("brief renders record, risks, and progress tail", case_brief_with_record_and_progress),
     ("brief --json returns valid structured output", case_brief_json_valid),
     ("brief surfaces run journal steps and suggests next step", case_brief_with_run_journal),
+    ("schema accepts object acceptance criteria with proving_command (and strings)", case_schema_accepts_object_acceptance_criteria),
 ]
 
 

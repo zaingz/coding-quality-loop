@@ -222,22 +222,20 @@ def case_cli_status(tmp: Path) -> tuple[bool, str]:
 
 def case_check_config_validates_memory_block(tmp: Path) -> tuple[bool, str]:
     good = mem.validate_memory_config(
-        {"lessons_store": "files", "graph_relevance": "none", "location": "checked_in", "recall_budget_chars": 1500}
+        {"lessons_store": "files", "location": "checked_in", "recall_budget_chars": 1500}
     )
     bad = mem.validate_memory_config(
-        {"lessons_store": "redis", "graph_relevance": "neo4j", "location": "cloud", "recall_budget_chars": 0}
+        {"lessons_store": "redis", "location": "cloud", "recall_budget_chars": 0}
     )
     # the shipped example config must validate via the CLI
     code, out, err = run_cli("check-config", str(ROOT / "assets" / "quality-loop.config.example.json"))
-    ok = good == [] and len(bad) == 4 and code == 0
+    ok = good == [] and len(bad) == 3 and code == 0
     return ok, f"good={good}; bad={bad}; check_config_exit={code}; err={err.strip()!r}"
 
 
 def case_reference_modules_present(tmp: Path) -> tuple[bool, str]:
     docs = {
-        "memory.md": ["recall", "commit", "prune", "lessons_store", "graph_relevance", "anti-bloat"],
-        "memory-honcho.md": ["workspace", "peer", "add_messages_to_session", "query_conclusions", "privacy"],
-        "memory-graphify.md": ["graphify", "graph-relevance", "token_budget", "context map"],
+        "memory.md": ["recall", "commit", "prune", "lessons_store", "anti-bloat"],
     }
     missing: list[str] = []
     for fname, terms in docs.items():
@@ -254,22 +252,6 @@ def case_skill_documents_memory(tmp: Path) -> tuple[bool, str]:
     must_have = ["persistent project memory", "memory-recall", "memory-commit", "references/memory.md"]
     missing = [m for m in must_have if m not in text]
     return (not missing), (f"missing={missing}" if missing else "SKILL.md documents memory")
-
-
-def case_status_reports_backends(tmp: Path) -> tuple[bool, str]:
-    mem_dir = tmp / ".quality-loop" / "memory"
-    mem.append_lesson(mem_dir, mem.normalize_lesson({"lesson": "x lesson here", "kind": "gotcha"}, "2026-06-27"))
-    cfg = tmp / "ql.json"
-    cfg.write_text(json.dumps({"memory": {"lessons_store": "honcho", "graph_relevance": "graphify", "location": "checked_in"}}))
-    code, out, err = run_cli("memory-status", "--config", str(cfg), cwd=str(tmp))
-    data = json.loads(out) if code == 0 else {}
-    ok = (
-        code == 0
-        and data.get("lessons_store") == "honcho"
-        and data.get("graph_relevance") == "graphify"
-        and data.get("lesson_count") == 1
-    )
-    return ok, f"code={code}; out={out.strip()!r}; err={err.strip()!r}"
 
 
 def case_index_caps_multiline_lessons(tmp: Path) -> tuple[bool, str]:
@@ -510,7 +492,6 @@ CASES = [
     ("validate_memory_config + check-config accept/reject the memory block", case_check_config_validates_memory_block),
     ("memory reference modules exist with required content", case_reference_modules_present),
     ("SKILL.md documents the persistent memory step", case_skill_documents_memory),
-    ("memory-status --config reports the configured backends", case_status_reports_backends),
     ("MEMORY.md stays <=40 lines even with multi-line lesson text", case_index_caps_multiline_lessons),
     ("secrets in a committed record are redacted before persistence", case_secrets_redacted_on_commit),
     ("recall fires on path-only and keyword-only matches (OR contract)", case_recall_path_only_and_keyword_only),

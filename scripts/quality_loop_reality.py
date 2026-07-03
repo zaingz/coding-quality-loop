@@ -15,8 +15,7 @@ Closes the three "free lies" in v1.4.0 by grounding the record in git:
 
 Stdlib-only, portable, no network. Mirrors ``quality_loop_memory.py`` and reuses
 ``run_git`` / ``redact`` / ``SECRET_PATTERNS`` / ``has_evidence`` / ``load_json``
-from ``quality_loop``. Telemetry is local JSONL only; opt out with
-``QUALITY_LOOP_NO_TELEMETRY=1``.
+from ``quality_loop``.
 
 Record schema gains **optional** fields only (``diff_sha256``, ``files_changed``,
 ``red_green``) — no adopter break.
@@ -499,104 +498,6 @@ def scan_text(text: str) -> list[dict[str, Any]]:
     return findings
 
 
-# --- Telemetry (local JSONL, opt-out, no network) ---------------------------
-
-_TELEMETRY_ENV = "QUALITY_LOOP_NO_TELEMETRY"
-
-
-def telemetry_disabled() -> bool:
-    return bool(os.environ.get(_TELEMETRY_ENV))
-
-
-def append_telemetry(event: dict[str, Any], cwd: Path | None = None) -> None:
-    if telemetry_disabled():
-        return
-    cwd = cwd or Path.cwd()
-    path = cwd / ".quality-loop" / "telemetry.jsonl"
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(event, sort_keys=True) + "\n")
-    except OSError:
-        pass  # telemetry must never break a gate.
-
-
-def record_telemetry(
-    cmd: str,
-    task_id: Any,
-    risk: Any,
-    findings_count: int,
-    passed: bool,
-    overrides: list[str] | None = None,
-    cwd: Path | None = None,
-) -> None:
-    append_telemetry(
-        {
-            "ts": datetime.now().isoformat(timespec="seconds"),
-            "cmd": cmd,
-            "task_id": task_id,
-            "risk": risk,
-            "findings": findings_count,
-            "pass": passed,
-            "overrides": overrides or [],
-        },
-        cwd=cwd,
-    )
-
-
-def load_telemetry(cwd: Path | None = None) -> list[dict[str, Any]]:
-    cwd = cwd or Path.cwd()
-    path = cwd / ".quality-loop" / "telemetry.jsonl"
-    if not path.is_file():
-        return []
-    events: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return events
-
-
-def render_stats(cwd: Path | None = None) -> str:
-    """Render SKILL.md's metrics table; print 'not instrumented' for rows we can't compute."""
-    events = load_telemetry(cwd)
-    vg = [e for e in events if e.get("cmd") == "verify-gates"]
-    da = [e for e in events if e.get("cmd") == "diff-audit"]
-    re_ev = [e for e in events if e.get("cmd") == "run-evidence"]
-
-    vg_pass = sum(1 for e in vg if e.get("pass"))
-    vg_total = len(vg)
-    evidence_rate = f"{round(100 * vg_pass / vg_total)}% ({vg_pass}/{vg_total})" if vg_total else "no runs yet"
-    validator_defects = str(sum(int(e.get("findings", 0)) for e in vg)) or "0"
-    diff_sizes = [int(e.get("findings", 0)) for e in da if isinstance(e.get("findings"), int)]
-    diff_size = f"avg {round(sum(diff_sizes) / len(diff_sizes), 1)} warnings ({len(da)} audits)" if diff_sizes else "no audits yet"
-    re_pass = sum(1 for e in re_ev if e.get("pass"))
-    re_total = len(re_ev)
-    re_rate = f"{round(100 * re_pass / re_total)}% ({re_pass}/{re_total})" if re_total else "no runs yet"
-
-    rows = [
-        ("Acceptance pass rate", "not instrumented"),
-        ("Validator-found defects", validator_defects),
-        ("Escaped defects", "not instrumented"),
-        ("Diff size per accepted change", diff_size),
-        ("Review turnaround", "not instrumented"),
-        ("Verification evidence rate", evidence_rate),
-        ("Run-evidence re-execution rate", re_rate),
-        ("Dependencies avoided", "not instrumented"),
-        ("Repeated mistakes converted to harness changes", "not instrumented"),
-    ]
-    width = max(len(name) for name, _ in rows)
-    lines = [f"{'Metric'.ljust(width)}  Value", f"{'-' * width}  -----"]
-    for name, value in rows:
-        lines.append(f"{name.ljust(width)}  {value}")
-    lines.append(f"\nSource: .quality-loop/telemetry.jsonl ({len(events)} event(s)). Opt out: { _TELEMETRY_ENV }=1")
-    return "\n".join(lines)
-
-
 # --- Subcommand handlers ----------------------------------------------------
 
 
@@ -645,10 +546,6 @@ def cmd_run_evidence(args: Any) -> int:
         "sidecar": str(Path.cwd() / ".quality-loop" / f"rerun-{result['task_id']}.json"),
     }
     print(json.dumps(summary, indent=2))
-    record_telemetry(
-        "run-evidence", record.get("task_id"), record.get("risk_tier"),
-        len(findings), not findings, cwd=Path.cwd(),
-    )
     return 1 if findings else 0
 
 
@@ -657,8 +554,3 @@ def cmd_scan_text(args: Any) -> int:
     findings = scan_text(text)
     print(json.dumps({"findings": findings, "clean": not findings}, indent=2))
     return 1 if findings else 0
-
-
-def cmd_stats(args: Any) -> int:
-    print(render_stats(Path.cwd()))
-    return 0
