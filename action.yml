@@ -1,5 +1,5 @@
 name: "Coding Quality Loop"
-description: "Dependency-free record, diff, and optional evidence gates for coding agents."
+description: "Dependency-free outcome gates for coding agents."
 inputs:
   record:
     description: "Path to the agent record JSON."
@@ -10,7 +10,11 @@ inputs:
     required: false
     default: "HEAD"
   run-evidence:
-    description: "Set to true to rerun allowlisted recorded pass commands."
+    description: "Deprecated in v3; kept for workflow compatibility. The verify umbrella always re-executes recorded pass commands."
+    required: false
+    default: "true"
+  red-green:
+    description: "Set to true to replay commands marked red_green at base and HEAD."
     required: false
     default: "false"
 runs:
@@ -19,18 +23,16 @@ runs:
     - name: Compile Quality Loop scripts
       shell: bash
       run: python3 -m py_compile scripts/*.py
-    - name: Verify record against diff
+    - name: Verify outcome gates
       shell: bash
       run: |
         if [ -f "${{ inputs.record }}" ]; then
-          python3 scripts/quality_loop.py verify-gates "${{ inputs.record }}" --against-diff --base "${{ inputs.base }}"
+          cmd=(python3 scripts/quality_loop.py verify "${{ inputs.record }}" --base "${{ inputs.base }}")
+          if [ "${{ inputs.red-green }}" = "true" ]; then
+            cmd+=(--red-green)
+          fi
+          "${cmd[@]}"
         else
-          echo "No record found at ${{ inputs.record }}; skipping record gate"
+          echo "No record found at ${{ inputs.record }}; running diff-audit only"
+          python3 scripts/quality_loop.py diff-audit --base "${{ inputs.base }}"
         fi
-    - name: Audit diff
-      shell: bash
-      run: python3 scripts/quality_loop.py diff-audit --base "${{ inputs.base }}"
-    - name: Run evidence
-      if: ${{ inputs.run-evidence == 'true' }}
-      shell: bash
-      run: python3 scripts/quality_loop.py run-evidence "${{ inputs.record }}" --base "${{ inputs.base }}"

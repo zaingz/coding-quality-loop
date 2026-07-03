@@ -219,10 +219,7 @@ def case_security_requires_distinct_review(tmp: Path) -> tuple[bool, str]:
 
 
 def case_right_size_gate_dependency(tmp: Path) -> tuple[bool, str]:
-    repo = tmp / "repo"
-    repo.mkdir()
-
-    def git(*args: str) -> None:
+    def git(repo: Path, *args: str) -> None:
         subprocess.run(
             ["git", "-C", str(repo), *args],
             check=True,
@@ -230,19 +227,43 @@ def case_right_size_gate_dependency(tmp: Path) -> tuple[bool, str]:
             stderr=subprocess.DEVNULL,
         )
 
-    git("init")
-    git("config", "user.email", "eval@example.com")
-    git("config", "user.name", "eval")
-    (repo / "main.py").write_text("print('hi')\n")
-    git("add", "main.py")
-    git("commit", "-m", "base")
+    def init_repo(name: str) -> Path:
+        repo = tmp / name
+        repo.mkdir()
+        git(repo, "init")
+        git(repo, "config", "user.email", "eval@example.com")
+        git(repo, "config", "user.name", "eval")
+        (repo / "main.py").write_text("print('hi')\n")
+        git(repo, "add", "main.py")
+        git(repo, "commit", "-m", "base")
+        return repo
 
-    (repo / "requirements.txt").write_text("leftpad==1.0.0\n")
-    git("add", "requirements.txt")
+    dep_repo = init_repo("dep")
+    (dep_repo / "requirements.txt").write_text("leftpad==1.0.0\n")
+    git(dep_repo, "add", "requirements.txt")
+    dep_code, dep_out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(dep_repo))
+    dep_ok = dep_code == 1 and "dependency files changed" in dep_out
 
-    code, out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(repo))
-    ok = code == 1 and "dependency files changed" in out
-    return ok, f"exit={code}; output={out.strip()!r}"
+    changelog_repo = init_repo("changelog")
+    (changelog_repo / "CHANGELOG.md").write_text("## Changed\n\n- Document migration guidance.\n")
+    git(changelog_repo, "add", "CHANGELOG.md")
+    changelog_code, changelog_out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(changelog_repo))
+    changelog_ok = changelog_code == 0 and "migration/schema-related" not in changelog_out
+
+    migration_repo = init_repo("migration")
+    migration_file = migration_repo / "db" / "migrate" / "001_add_users.sql"
+    migration_file.parent.mkdir(parents=True)
+    migration_file.write_text("alter table users add column nickname text;\n")
+    git(migration_repo, "add", str(migration_file.relative_to(migration_repo)))
+    migration_code, migration_out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(migration_repo))
+    migration_ok = migration_code == 1 and "migration/schema-related files changed" in migration_out
+
+    ok = dep_ok and changelog_ok and migration_ok
+    return ok, (
+        f"dependency(exit={dep_code},flagged={dep_ok}); "
+        f"changelog(exit={changelog_code},clean={changelog_ok}); "
+        f"migration(exit={migration_code},flagged={migration_ok})"
+    )
 
 
 def case_implementer_cannot_validate(tmp: Path) -> tuple[bool, str]:

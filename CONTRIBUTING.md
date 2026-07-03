@@ -23,7 +23,7 @@ the repo stays trustable.
       body.
 - [ ] You added or updated an eval case for anything gate-related. Advisory changes to
       instructions do not need evals, but changes to `scripts/quality_loop*.py` do.
-- [ ] All eight eval suites pass locally:
+- [ ] The full local verification suite passes:
 
       ```bash
       python3 -m py_compile scripts/*.py evals/*.py
@@ -79,6 +79,11 @@ That is it. There is no `pip install`, no lockfile, no venv, no build step.
 
 For host-specific work, see `hosts/<host>/README.md` where present, or the example
 folder for your host under `examples/`.
+
+Running `python3 scripts/install.py --host all` inside this source repo is useful for
+local hook testing, but the generated host copies are intentionally ignored here. Commit
+the source templates under `hosts/`, `examples/`, `scripts/`, and `.claude/agents/`
+instead.
 
 ## Reviewer independence
 

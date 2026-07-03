@@ -24,7 +24,7 @@ Use the [banner](images/banner.png), [before-after](images/before-after.png), or
 >
 > - Drops into Claude Code, Codex, Cursor, Pi, and Droid via copy-to-folder.
 > - Zero runtime dependencies; the gate CLI is stdlib-only Python you can read in one sitting.
-> - 129 offline eval cases across 9 suites pin the gates so they don't drift.
+> - 116 offline eval cases across 7 suites pin the gates so they don't drift.
 > - Reality layer reads the actual `git diff` and catches phantom completions, stale
 >   review hashes, missing bugfix tests, and self-downgraded risk tiers.
 > - Optional project memory (files backend) so the agent stops relearning the
@@ -95,7 +95,7 @@ around auth, payments, migrations, or PII.
 
 **5/**
 Drops into Claude Code, Codex, Cursor, Pi, and Droid via copy-to-folder. Zero runtime
-dependencies. 129 offline eval cases across 9 suites, re-run on every push.
+dependencies. 116 offline eval cases across 7 suites, re-run on every push.
 
 **6/**
 Optional project memory: distilled lessons, budget-capped recall, secrets redacted at
@@ -115,7 +115,7 @@ ponytail, and an honest table of what it enforces and what it doesn't.
 > I've been shipping the same lesson to every coding agent I use: fix one thing, prove it,
 > let a second agent check the diff. I packaged that as an open-source Agent Skill —
 > stdlib-only, portable across Claude Code, Codex, Cursor, Pi, and Droid — with
-> executable gates that reject "looks right to me" instead of taking its word. 129
+> executable gates that reject "looks right to me" instead of taking its word. 116
 > offline eval cases keep the gates from drifting. The repo has a 60-second demo, an
 > honest comparison to the other strong skills in this space, and an "enforced vs not
 > enforced" table so you can decide before you install:

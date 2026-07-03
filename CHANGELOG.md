@@ -15,8 +15,8 @@ gate. Built on evidence from three live cross-agent evals and external research
   v2.4 ceremony subcommands (`context-check`, `verify-phases`, `trace-audit`),
   telemetry/stats, Honcho and Graphify eval suites, memory reference docs for
   those backends, and v2.4 eval cases (12-14).
-- **Scripts**: 4,600 → 3,300 lines. **Eval suites**: 9 → 6 (in CI). **Eval
-  cases**: 129 → 111. **CLI subcommands**: 20 → 16. **SKILL.md**: 477 → 172 lines.
+- **Scripts**: 4,600 → 3,300 lines. **Eval suites**: 9 → 7 (in CI). **Eval
+  cases**: 129 → 116. **CLI subcommands**: 20 → 16. **SKILL.md**: 477 → 172 lines.
 - **Config/schema**: removed `memory.honcho`, `memory.graphify`, `hosts`,
   `execution` blocks; removed `context_budget` and `phase_verifications` from
   the record schema (kept `phase` for backward compat).
@@ -78,9 +78,10 @@ gate. Built on evidence from three live cross-agent evals and external research
 
 - **ROADMAP.md** updated for v3.0.
 - **npm package** bumped to 3.0.0.
-- **CI workflow** updated to remove archived eval suites.
-- All 111 eval cases pass (11 static + 31 behavioral + 26 memory + 13 reality +
-  9 hook + 10 trigger + 11 routing).
+- **CI workflow** updated to remove archived eval suites and keep the v3 routing,
+  trigger, hook, and ablation smoke checks.
+- All 116 eval cases pass (11 static + 32 behavioral + 26 memory + 16 reality +
+  12 routing + 10 trigger + 9 hook).
 
 ## 2.4.0
 

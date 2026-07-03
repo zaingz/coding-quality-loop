@@ -182,7 +182,7 @@ contract; [`docs/memory.md`](memory.md) for a quick visual overview.
 | `SKILL.md`, `references/`, `assets/`, `examples/` | `.claude/settings.json`, `hosts/codex/hooks.json`, `.factory/droids/*.md` |
 | `scripts/quality_loop.py` (stdlib only, no host imports) | `scripts/install.py --host <name>` per-host wiring |
 | The state-record schema and gate CLI | Native subagent invocations, host-specific model IDs |
-| Git hooks (`hosts/git/`) and CI (`action.yml`) | Host session lifecycle hooks |
+| Git hooks (`hosts/git/`) and CI (`action.yml`, via the v3 `verify` umbrella) | Host session lifecycle hooks |
 
 The design goal is that the same skill works everywhere; the gates work the same way
 everywhere; and if a host disappears tomorrow, the loop still ships changes.

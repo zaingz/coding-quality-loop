@@ -156,17 +156,8 @@ DEPENDENCY_FILES = {
     "Gemfile",
     "Gemfile.lock",
 }
-MIGRATION_MARKERS = (
-    "migration",
-    "migrations",
-    "db/migrate",
-    "schema.sql",
-    "alembic",
-    "prisma",
-    "flyway",
-    "liquibase",
-    "changelog",
-)
+MIGRATION_DIR_MARKERS = {"migration", "migrations", "alembic", "prisma", "flyway", "liquibase"}
+MIGRATION_FILE_MARKERS = {"schema.sql", "schema.prisma", "changelog.xml", "db.changelog.xml"}
 # Test-weakening markers: an agent that fixes "green" by skipping/deleting tests
 # is gaming the gate. These flag added skip/xfail/.only lines in test files.
 TEST_PATH_MARKERS = ("test", "spec", "__tests__")
@@ -661,6 +652,19 @@ def run_git(args: list[str]) -> str:
     return proc.stdout
 
 
+def is_migration_path(path: str) -> bool:
+    normalized = path.replace("\\", "/").lower()
+    parts = [part for part in normalized.split("/") if part]
+    if not parts:
+        return False
+    basename = parts[-1]
+    if basename in MIGRATION_FILE_MARKERS or basename.endswith(".changelog.xml"):
+        return True
+    if any(part in MIGRATION_DIR_MARKERS for part in parts):
+        return True
+    return any(left == "db" and right == "migrate" for left, right in zip(parts, parts[1:]))
+
+
 def diff_audit(args: argparse.Namespace) -> int:
     staged = bool(getattr(args, "staged", False))
     if staged:
@@ -725,7 +729,7 @@ def diff_audit(args: argparse.Namespace) -> int:
     if dependency_edits:
         warnings.append("dependency files changed: " + ", ".join(dependency_edits))
 
-    migration_edits = [f for f in files if any(marker in f.lower() for marker in MIGRATION_MARKERS)]
+    migration_edits = [f for f in files if is_migration_path(f)]
     if migration_edits:
         warnings.append("migration/schema-related files changed: " + ", ".join(migration_edits))
 
