@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.1.0
+
+Capability-aware, cost-disciplined routing. Adds the model vocabulary and effort
+guardrail the step-routing layer was missing.
+
+### Added
+
+- **Reasoning-effort ceiling.** `check-config` now rejects `xhigh`/`max` in
+  `model_routing.host_models` unless the specific model-class block sets
+  `"allow_overthink": true`. Effort is per-step, not per-task endurance —
+  `xhigh`/`max` overthink and overspend each step and make reviews noisier. `high`
+  is the routine ceiling; `allow_overthink` is an explicit, greppable escape hatch
+  for a genuinely ambiguous, architecture-sensitive one-off. `setup-models` also
+  surfaces an advisory warning when a block exceeds the ceiling. Schema gains an
+  `allow_overthink` boolean on each model-class block.
+- **Model capability glossary** in `references/agentic-orchestration.md`: defines
+  *intelligence*, *taste*, and *cost*, plus a reasoning-effort-ceiling section and an
+  escalation policy (explore cheap, escalate without asking when output misses the
+  bar, judge output not price). Turns step-shape routing into capability-aware
+  routing.
+
+### Changed
+
+- **Example config `codex` routing** bumped `strong_reasoning` and
+  `code_specialized` from `medium` → `high` (plan/minimality/implement reward
+  reasoning; `high` is the sweet spot, not `medium`). `cheap_fast` stays `low`.
+  Config version 2.2.0 → 2.3.0.
+
 ## 3.0.0
 
 Outcome-grounded, model-adaptive, 40% smaller. The biggest refactor since v1.0:

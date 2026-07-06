@@ -93,6 +93,50 @@ machine-name step belongs to; see `references/lifecycle.md` for the full mapping
 - **Policy** (`policy_guard`): never a model. Use platform hooks or command guards so the
   block is deterministic and cannot be argued away by a prompt.
 
+## Model capability glossary
+
+The step heuristics above route by *task shape*. To route by *model*, an orchestrator also
+needs a shared vocabulary for what separates models. Define these terms once so routing
+decisions are explicit rather than folklore:
+
+- **Intelligence** — the hardest problem a model can carry unsupervised. Governs planning,
+  the minimality gate, debugging, and risk assessment, where a wrong call costs the most
+  downstream.
+- **Taste** — judgment on the things a test cannot catch: public API/SDK surface, UX, naming,
+  copy, and whether a diff reads the way a senior engineer on this codebase would write it.
+  A model can be highly intelligent and still have weak taste (e.g. solve any problem but
+  write your TypeScript like a Python dev).
+- **Cost** — price/latency per unit of work. A **tiebreaker only**, never a gate.
+
+Routing rule of thumb: the orchestrator and the independent reviewer want the highest
+intelligence **and** taste (they decide and they judge shipped surface); the implementer
+wants a code-specialized model that matches conventions; deterministic map/verify/package
+steps want the cheap, fast tier. Never route real reasoning or implementation to a
+minimal-capability tier — cheap-fast is for schema-following steps, not for problems that
+reward thought.
+
+## Reasoning effort ceiling
+
+Route reasoning effort at **`high`**. Effort is *per step*, not per-task endurance: a higher
+setting does not let a model take more steps or work longer on a 500-step task — it makes the
+model think harder on *every individual step*. Above `high` (`xhigh`, `max`, and equivalents),
+models tend to second-guess themselves, over-produce, and ship larger diffs than the task
+warranted, at materially higher cost, and their reviews get noisier rather than sharper.
+
+`high` is the ceiling for routine routing. `check-config` rejects `xhigh`/`max` in
+`model_routing` unless the specific model-class block sets `"allow_overthink": true` — an
+explicit, greppable escape hatch reserved for a genuinely ambiguous, architecture-sensitive
+one-off, never a default and never bulk work.
+
+## Escalation policy
+
+Model classes are defaults, not ceilings. Use the cheap, fast tier to *explore, draft, and
+gather information*; when its output does not clear the bar, escalate to a more capable model
+and redo the work — without asking. Judge the output, not the price tag: escalating a single
+task costs far less than shipping mediocre work and reworking it later. This is why cost is a
+tiebreaker rather than a gate — it should never prevent using the right model for a step that
+ships.
+
 ## Smart Friend Pattern (optional)
 
 The implementer can consult a stronger model on defined triggers, following the

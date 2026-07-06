@@ -70,7 +70,8 @@
               "type": "object",
               "properties": {
                 "model": {"type": ["string", "null"]},
-                "thinking": {"type": ["string", "null"], "enum": ["minimal", "low", "medium", "high", "xhigh", "max", null]},
+                "thinking": {"type": ["string", "null"], "enum": ["minimal", "low", "medium", "high", "xhigh", "max", null], "description": "Reasoning effort. 'high' is the routine ceiling; effort is per-step, not per-task endurance, so xhigh/max only overthink and overspend each step. check-config rejects xhigh/max unless allow_overthink is true on this block."},
+                "allow_overthink": {"type": "boolean", "description": "Set true to permit xhigh/max on this model_class for a genuinely ambiguous, architecture-sensitive case. Without it, check-config fails on xhigh/max."},
                 "note": {"type": "string"}
               },
               "additionalProperties": false

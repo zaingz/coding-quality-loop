@@ -305,6 +305,42 @@ def case_check_config_same_model_class(tmp: Path) -> tuple[bool, str]:
     return ok, f"same_class(exit={code1},flagged={same_class_fails}); placeholder(exit={code2},clean={placeholder_ok})"
 
 
+def case_effort_ceiling(tmp: Path) -> tuple[bool, str]:
+    """xhigh/max exceed the 'high' ceiling: check-config rejects them unless the
+    block sets allow_overthink; setup-models surfaces an advisory warning."""
+    # xhigh without allow_overthink -> check-config fails with a ceiling message.
+    cfg_over = load_example()
+    cfg_over["model_routing"]["host_models"]["codex"]["strong_reasoning"]["thinking"] = "xhigh"
+    p1 = tmp / "over.json"
+    p1.write_text(json.dumps(cfg_over, indent=2), encoding="utf-8")
+    code1, _, err1 = run_cli("check-config", str(p1))
+    over_fails = code1 == 1 and "ceiling" in err1 and "allow_overthink" in err1
+
+    # xhigh WITH allow_overthink -> check-config passes (explicit escape hatch).
+    cfg_ok = load_example()
+    block = cfg_ok["model_routing"]["host_models"]["codex"]["strong_reasoning"]
+    block["thinking"] = "xhigh"
+    block["allow_overthink"] = True
+    p2 = tmp / "over-ok.json"
+    p2.write_text(json.dumps(cfg_ok, indent=2), encoding="utf-8")
+    code2, _, err2 = run_cli("check-config", str(p2))
+    escape_ok = code2 == 0
+
+    # setup-models surfaces an advisory ceiling warning (codex supports xhigh).
+    target = tmp / "project"
+    target.mkdir()
+    cfg3 = write_routing_config(tmp / "warn.json", "codex", {
+        "cheap_fast": {"model": "gpt-5.5", "thinking": "low"},
+        "strong_reasoning": {"model": "gpt-5.5", "thinking": "xhigh"},
+        "code_specialized": {"model": "gpt-5.5", "thinking": "high"},
+    })
+    code3, _, err3 = run_cli("setup-models", "--config", str(cfg3), "--host", "codex", "--target", str(target))
+    warns = code3 == 1 and "ceiling" in err3
+
+    ok = over_fails and escape_ok and warns
+    return ok, f"over_fails(exit={code1})={over_fails}; escape_ok(exit={code2})={escape_ok}; setup_warn(exit={code3})={warns}"
+
+
 def case_brief_routing(tmp: Path) -> tuple[bool, str]:
     target = make_claude_target(tmp)
     cfg = write_routing_config(tmp / "config.json", "claude-code", {
@@ -353,6 +389,7 @@ CASES = [
     ("unsupported thinking on codex warns and exits 1", case_unsupported_thinking),
     ("check-config: rejects unknown host/class/thinking, accepts valid", case_check_config),
     ("check-config: same model_class on IMPLEMENT_SLICE+REVIEW fails; placeholder does not", case_check_config_same_model_class),
+    ("effort ceiling: xhigh/max rejected without allow_overthink, warned in setup", case_effort_ceiling),
     ("brief: routing section, drift detection, unconfigured hint", case_brief_routing),
     ("dry-run leaves files untouched", case_dry_run),
 ]

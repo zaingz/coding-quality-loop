@@ -20,6 +20,14 @@ SUPPORTED_HOSTS = ("claude-code", "droid", "codex", "pi")
 MODEL_CLASSES = ("cheap_fast", "strong_reasoning", "code_specialized")
 THINKING_VALUES = ("minimal", "low", "medium", "high", "xhigh", "max")
 
+# Reasoning effort is per-step, not per-task endurance. xhigh/max don't let a model
+# work longer -- they make it overthink and overspend on every single step, and they
+# make reviews noisier. `high` is the ceiling for routine routing; reserve xhigh/max
+# for a genuinely ambiguous, architecture-sensitive one-off by setting
+# "allow_overthink": true on that specific model_class block.
+ROUTINE_EFFORT_CEILING = "high"
+OVERTHINK_LEVELS = ("xhigh", "max")
+
 HOSTS: dict[str, dict[str, Any]] = {
     "claude-code": {
         "kind": "files",
@@ -107,6 +115,20 @@ def validate_model_routing(section: Any) -> list[str]:
                     errors.append(
                         f"model_routing.host_models.{hname}.{cname}.thinking must be one of "
                         f"{list(THINKING_VALUES)} or null, got {thinking!r}"
+                    )
+                allow_overthink = cblock.get("allow_overthink")
+                if allow_overthink is not None and not isinstance(allow_overthink, bool):
+                    errors.append(
+                        f"model_routing.host_models.{hname}.{cname}.allow_overthink must be a boolean"
+                    )
+                if thinking in OVERTHINK_LEVELS and allow_overthink is not True:
+                    errors.append(
+                        f"model_routing.host_models.{hname}.{cname}.thinking={thinking!r} exceeds the "
+                        f"'{ROUTINE_EFFORT_CEILING}' effort ceiling. Reasoning effort is per-step, not "
+                        f"per-task endurance: xhigh/max overthink and overspend on every step and make "
+                        f"reviews noisier without solving harder problems. Route at '{ROUTINE_EFFORT_CEILING}', "
+                        f"or set \"allow_overthink\": true on this block for a genuinely ambiguous, "
+                        f"architecture-sensitive case."
                     )
     agents = section.get("agents", {})
     if not isinstance(agents, dict):
@@ -239,10 +261,17 @@ def _thinking_warnings(host: str, class_settings: dict[str, dict[str, Any]]) -> 
     warnings: list[str] = []
     for cname, cblock in class_settings.items():
         thinking = cblock.get("thinking") if isinstance(cblock, dict) else None
+        allow_overthink = cblock.get("allow_overthink") if isinstance(cblock, dict) else None
         if thinking and thinking not in supported:
             warnings.append(
                 f"thinking {thinking!r} for {cname} is not supported by {host} "
                 f"(supports: {sorted(supported)}); omitting it"
+            )
+        if thinking in OVERTHINK_LEVELS and allow_overthink is not True:
+            warnings.append(
+                f"thinking {thinking!r} for {cname} exceeds the '{ROUTINE_EFFORT_CEILING}' ceiling; "
+                f"xhigh/max overthink and overspend per step. Route at '{ROUTINE_EFFORT_CEILING}' or set "
+                f"\"allow_overthink\": true on this block. (run check-config to enforce)"
             )
     return warnings
 
