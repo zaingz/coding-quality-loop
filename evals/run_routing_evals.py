@@ -316,6 +316,14 @@ def case_effort_ceiling(tmp: Path) -> tuple[bool, str]:
     code1, _, err1 = run_cli("check-config", str(p1))
     over_fails = code1 == 1 and "ceiling" in err1 and "allow_overthink" in err1
 
+    # max (the other over-ceiling level) without allow_overthink -> also rejected.
+    cfg_max = load_example()
+    cfg_max["model_routing"]["host_models"]["codex"]["code_specialized"]["thinking"] = "max"
+    pmax = tmp / "max.json"
+    pmax.write_text(json.dumps(cfg_max, indent=2), encoding="utf-8")
+    code_max, _, err_max = run_cli("check-config", str(pmax))
+    max_fails = code_max == 1 and "ceiling" in err_max and "allow_overthink" in err_max
+
     # xhigh WITH allow_overthink -> check-config passes (explicit escape hatch).
     cfg_ok = load_example()
     block = cfg_ok["model_routing"]["host_models"]["codex"]["strong_reasoning"]
@@ -337,8 +345,8 @@ def case_effort_ceiling(tmp: Path) -> tuple[bool, str]:
     code3, _, err3 = run_cli("setup-models", "--config", str(cfg3), "--host", "codex", "--target", str(target))
     warns = code3 == 1 and "ceiling" in err3
 
-    ok = over_fails and escape_ok and warns
-    return ok, f"over_fails(exit={code1})={over_fails}; escape_ok(exit={code2})={escape_ok}; setup_warn(exit={code3})={warns}"
+    ok = over_fails and max_fails and escape_ok and warns
+    return ok, f"xhigh_fails(exit={code1})={over_fails}; max_fails(exit={code_max})={max_fails}; escape_ok(exit={code2})={escape_ok}; setup_warn(exit={code3})={warns}"
 
 
 def case_brief_routing(tmp: Path) -> tuple[bool, str]:
