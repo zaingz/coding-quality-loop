@@ -1,6 +1,10 @@
 <div align="center">
 
-<img src="docs/images/banner.png" alt="Coding Quality Loop — Ship small, verified code changes your AI agent can be trusted to make" width="900">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/banner-v2-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/banner-v2-light.png">
+  <img src="docs/images/banner-v2-dark.png" alt="Coding Quality Loop hero — Make your AI coding agent ship changes you can trust. Executable gates, independent review, radical candor. The PLAN → EXECUTE → REVIEW loop." width="900">
+</picture>
 
 # Coding Quality Loop
 
@@ -23,11 +27,7 @@
 [![Droid](https://img.shields.io/badge/Droid-compatible-111111?style=flat-square)](#install--use-matrix)
 [![Anthropic Agent Skills](https://img.shields.io/badge/Anthropic%20Agent%20Skills-compatible-111111?style=flat-square)](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills)
 
-[Quickstart](#quickstart-60-seconds) · [The loop](#the-loop-visualized) · [Install](#install--use-matrix) · [Proof](#proof-you-can-run) · [FAQ](#faq) · [Compare](#how-it-compares) · [Docs](docs/)
-
-<br>
-
-<img src="docs/images/before-after.png" alt="Without and with the Coding Quality Loop — sprawling diff vs focused fix with fails-then-passes proof" width="900">
+[Quickstart](#quickstart-60-seconds) · [The loop](#the-loop-visualized) · [Proof](#proof-you-can-run) · [Install](#install--use-matrix) · [Compare](#how-it-compares) · [FAQ](#faq) · [Docs](docs/)
 
 </div>
 
@@ -35,9 +35,13 @@ AI coding agents are fast. Point one at a vague ticket and it can refactor thing
 
 **Coding Quality Loop makes the agent work like a careful engineer instead.** It pins down what "done" means before writing code, changes as little as possible, proves the change with a test you can see, and has a *separate* agent review the work before it reaches you. What comes back is small, checked, and reversible: something you can read, trust, and merge in minutes.
 
-It is a portable [Agent Skill](https://agentskills.io/specification) for anyone using Claude Code, Codex, Cursor, Pi, or a skills-aware host to write production code. Use it as a copy-paste prompt, a loadable skill, or a multi-agent config. No new tools, no lock-in.
+It is a portable [Agent Skill](https://agentskills.io/specification) for anyone using Claude Code, Codex, Cursor, Pi, or Droid to write production code. Use it as a copy-paste prompt, a loadable skill, or a multi-agent config. No new tools, no lock-in.
 
-**Contents** · [Why the loop](#why-the-loop) · [Quickstart](#quickstart-60-seconds) · [Loop](#the-loop-visualized) · [Enforcement](#what-it-enforces-and-what-it-does-not) · [Memory](#project-memory) · [Proof](#proof-you-can-run) · [Install](#install--use-matrix) · [Compare](#how-it-compares) · [FAQ](#faq) · [Philosophy](#philosophy)
+<div align="center">
+
+<img src="docs/images/before-after.png" alt="Same agent, same model — without the loop: sprawling diff, new dependency, self-approved, no test evidence. With the loop: focused fix, no new deps, fails-then-passes proof, second-agent approval." width="900">
+
+</div>
 
 ---
 
@@ -58,7 +62,7 @@ You ask your agent to *"fix the checkout retry bug."*
 
 That is the whole idea: smaller changes, real proof, a second set of eyes, and memory that sticks. The work scales to the risk: a typo just gets fixed; a payment migration runs the full process. See a real worked example in [`examples/walkthrough/`](examples/walkthrough/README.md).
 
-- **New in 3.0.0**: outcome-grounded, model-adaptive, and 40% smaller. The harness now optimizes for code quality (not artifact production), adapts ceremony to model strength via a new **Calibration** principle, and uses a single `verify` command as the primary gate. The **Right-Size Gate** makes "minimal diff is not minimal architecture" part of the rule itself, the reviewer is now a **tool-using evaluator** that executes tests (recording `ran_checks`), and a **communication-bridge** rule prevents review loops. Legacy adapters and local orchestration were archived. See [`CHANGELOG.md`](CHANGELOG.md#300) for the full list of additions.
+- **New in 3.1.0**: capability-aware routing plus reality-layer hardening from the first live 2×2 webapp eval. `verify` now prints **helper-integrity sha256** for each helper module (motivated by a live run where an agent silently softened its local `diff-audit`, then reported PASS); `init-record` scaffolds `.quality-loop/allowed-commands`; reasoning-effort is capped at `high` unless a model-class block opts in with `allow_overthink`. See [`CHANGELOG.md`](CHANGELOG.md#310) for the full list.
 
 <details>
 <summary><strong>What the agent produces, step by step</strong></summary>
@@ -86,6 +90,12 @@ One command. Auto-detects your host (Claude Code, Codex, Cursor, Droid, or Pi), 
 ```bash
 npx coding-quality-loop init
 ```
+
+<div align="center">
+
+<img src="docs/images/terminal-demo.gif" alt="Animated terminal capture — npx coding-quality-loop init detects the host, copies the skill, and wires hooks; then python3 scripts/quality_loop.py verify prints the unified gate report and ends with Overall: PASS." width="900">
+
+</div>
 
 Shipped on [npm](https://www.npmjs.com/package/coding-quality-loop) with signed provenance. Requires Node 18+ and Python 3. Zero runtime dependencies. Interactive by default; add `--yes` for CI, `--dry-run` to preview, `--host <name>` to skip detection. See [`packages/npm/`](packages/npm/) for the full CLI.
 
@@ -122,7 +132,7 @@ Copying the folder into any skills-aware host is the install. There is no build 
 
 </details>
 
-### 30-second demo
+### 30-second demo (transcript)
 
 ```text
 user: Fix checkout retry losing the final error.
@@ -175,93 +185,43 @@ The validation contract spans the `INTAKE` and `PLAN` sub-steps, both inside PLA
 
 <div align="center">
 
-<img src="docs/images/architecture.png" alt="Architecture — Agent Skill layer, Executable Gates layer, Multi-Agent Roles layer" width="900">
+<img src="docs/images/architecture.png" alt="Architecture diagram — three layers: Agent Skill (portable Markdown + progressive disclosure), Executable Gates (stdlib-only quality_loop.py), and Multi-Agent Roles (implementer, reviewer, policy guard)." width="900">
 
 </div>
 
-See [`docs/architecture.md`](docs/architecture.md) for the three-layer breakdown, and [`docs/quickstart.md`](docs/quickstart.md) for the three adoption paths.
-
----
-
-## Ceremony scales with risk
-
-A tiny task must **not** be forced through mission ceremony. A medium task must **not** ship without a validation contract and an independent review. ([Task classes](SKILL.md))
+### Anatomy of a shipped change
 
 <div align="center">
 
-<img src="docs/images/ceremony-scales.png" alt="Ceremony scales with risk — tiny, small, medium, mission" width="820">
+<img src="docs/images/anatomy-of-a-change.png" alt="Anatomy of a shipped change — seven cards from task contract to completion record, traced on the real invoice-rounding walkthrough in examples/walkthrough/agent-record.json. The red→green evidence card is highlighted." width="900">
 
 </div>
 
-| Class | Looks like | Process |
-|---|---|---|
-| **Tiny** | Typo, copy, one-line config, obvious test update. | Inspect, edit, smallest check. No mission artifacts. |
-| **Small** | Local bug, one module, low risk. | Quick context map, mini spec, minimal fix, targeted test. |
-| **Medium** | Multiple files, a feature, a migration, auth/payment/data risk. | Validation contract, plan, right-size gate, **independent review**, completion record. |
-| **Mission** | Multi-day, multi-module, multi-repo, uncertain architecture. | Orchestrator + worker tasks + validators, milestones, shared artifacts. |
-
----
-
-## What it enforces and what it does not
-
-The differentiator is that the gates are **executable**, not advisory, and the boundaries are explicit. `scripts/quality_loop.py` is a portable, stdlib-only checker. It **complements** CI, tests, scanners, and human review. It does not replace them.
-
-| Enforced today | Not enforced by design, to stay portable |
-|---|---|
-| Non-trivial work, meaning medium/mission or any medium/high-risk or security-sensitive task, requires a named implementer, a real **validation contract**, an approving **independent review** by someone *other than* the implementer, and, at ship, a **completion record** with evidence. Required fields must be present and non-empty; bare booleans, empty strings, and nonexistent paths are rejected. It checks *shape*, not whether the content is substantive. A small low-risk task ships with handoff evidence, not a formal completion record. | `run-evidence` re-executes allowlisted commands but is **not a sandbox**. The trust model is repo-defined commands, same as CI. Commands not on the `.quality-loop/allowed-commands` allowlist are skipped and reported as `not_allowed`, not run. |
-| **Reality layer (v1.5).** `verify-gates --against-diff` reads the real git diff and catches **phantom completion**, **scope integrity**, a **diff-derived risk floor**, **bugfix-test co-presence**, and **stale review hashes**. `run-evidence` **re-executes** recorded pass commands; `--red-green` replays a red_green command in a worktree at base and HEAD. Worktree unavailable means "not proven", never a silent pass. `attest-review` embeds the recomputed diff hash. | Reviewer/implementer separation is compared as trimmed strings and fresh context is self-attested. `attest-review` plus `--against-diff` make review *freshness* checkable, but cannot prove the reviewer *read* the diff. |
-| **Detected-risk floor.** The record goal, criteria, and plan are scanned for auth/authz, secrets, crypto, payments, migrations, destructive, concurrency, data-loss, PII, and infra boundaries. Any hit forces high-risk plus security-review gates regardless of the declared tier. | The detected-risk floor is a curated heuristic. It catches honest mis-tiering, not an agent deliberately phrasing around it. **Deterministic policy hooks** remain the backstop for anything you cannot afford an agent to get wrong. |
-| **UNDERSTAND is gated.** Non-trivial work must carry a substantive context map with entry points or likely files plus callers or tests. | **`verify-gates` without `--against-diff` reads the record, not the diff.** It confirms recorded evidence is present and well-formed; `--against-diff` adds diff-grounded checks. `diff-audit` and CI remain the blocking layer. |
-| Every `pass` command carries a verifiable evidence handle and known `class`; a recorded minimality decision; and `diff-audit` flags secrets, including **untracked files** and **test-weakening**, dependency edits, migrations, and oversized diffs. `diff-audit --staged` covers the pre-commit diff; `scan-text --stdin` is a secret-scan-as-a-service for hook shims. | The helper is not a hosted agent service. Authentication, model cost, and production rollout remain the caller's responsibility. |
-| **Repeated failure -> durable change.** A recurring mistake must become a rule/test/hook/checklist/template, so a clean final record cannot bury a mistake corrected only in chat. | Host hooks are advisory unless the host or repo chooses to trust and enable them. Git hooks and CI are the portable backstop. |
-
-The runtime entry points are `verify` (the umbrella: record gates + diff audit + evidence re-execution + AC coverage), `verify-gates`, `verify-gates --against-diff`, `check-record`, `diff-audit`, `run-evidence`, `attest-review`, and `scan-text --stdin`, pinned by [evals](evals/).
-
-**Reviewer heterogeneity.** `check-config` now hard-fails when the implementer and fresh_reviewer resolve to the same model on medium+ tasks. **Tool-using evaluator.** The reviewer must execute tests and benchmarks when available, not just read the diff; the verdict records `ran_checks: true|false`. **Communication-bridge rule.** After the reviewer produces findings, the implementer filters them against the contract: in-scope findings become fix tasks, out-of-scope findings become follow-ups. This prevents review loops.
-
----
-
-## Project memory
-
-<div align="center">
-
-<img src="docs/images/memory-flow.png" alt="Project memory — recall on intake, commit on retrospective, budget-capped and redacted" width="820">
-
-</div>
-
-Most agents relearn the same lesson every session. The loop can keep a tiny per-project ledger of **distilled lessons**: failure modes, conventions like "no new dependencies here", and gotchas like "this module broke twice". New in v1.4.0.
-
-It is **retrieval, not context stuffing**: only a <=40-line index auto-loads, recall is budget-capped and scoped to the task goal and files, lessons are distilled rather than raw transcripts, **secrets are redacted before they are written**, and writes stay **advisory**. Memory adds no new gate.
-
-```bash
-# recall relevant prior lessons before mapping a change
-python3 scripts/quality_loop.py memory-recall --goal "fix checkout retry" \
-  --files src/payments/charge.py --risk high
-# at retrospective, keep a lesson worth remembering
-python3 scripts/quality_loop.py memory-commit agent-record.json
-```
-
-The default backend is **stdlib-only and checked-in**: `.quality-loop/memory/`, git-diffable and team-shared.
-
-See [`references/memory.md`](references/memory.md) for the memory contract.
+Each card above is a field in [`examples/walkthrough/agent-record.json`](examples/walkthrough/agent-record.json) — the same file `verify-gates` checks in the eval fixtures. See [`docs/architecture.md`](docs/architecture.md) for the three-layer breakdown, and [`docs/quickstart.md`](docs/quickstart.md) for the three adoption paths.
 
 ---
 
 ## Proof you can run
 
-Every claim above is checkable on a clean checkout with no dependencies.
+Every claim on this page is checkable on a clean checkout with no dependencies. Copy the block, paste in a terminal, watch the counts.
+
+<div align="center">
+
+<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard — 121 offline gate cases across 7 suites (11 static, 32 behavioral, 26 memory, 20 reality, 13 routing, 10 trigger, 9 hook); per-agent code-quality lift excluding process artifacts: Droid/GLM-5.2 +8.0, Claude Code +6.67 (webapp) and +4.5 (Sudoku), Codex +1.0 (Sudoku) and −1.11 (webapp); zero runtime dependencies; five supported hosts; three live cross-agent evals." width="900">
+
+</div>
 
 ```bash
-python3 -m py_compile scripts/*.py evals/*.py                                   # 1. byte-compile
-python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json   # 2. config
-python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json   # 3. static
-python3 evals/run_evals.py                                                      # 4. behavioral gates
-python3 evals/run_memory_evals.py                                              # 5. memory gates
-python3 evals/run_reality_evals.py                                             # 6. reality gates (record↔diff)
-python3 evals/run_hook_evals.py                                                # 7. host hook fixtures
-python3 evals/run_trigger_evals.py                                             # 8. activation smoke
-python3 evals/run_routing_evals.py                                             # 9. model routing
-python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json   # 10. bench fixture smoke
+python3 -m py_compile scripts/*.py evals/*.py                                                # 1. byte-compile
+python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json         # 2. config
+python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json  # 3. static
+python3 evals/run_evals.py                                                                   # 4. behavioral gates
+python3 evals/run_memory_evals.py                                                            # 5. memory gates
+python3 evals/run_reality_evals.py                                                           # 6. reality gates (record↔diff)
+python3 evals/run_hook_evals.py                                                              # 7. host hook fixtures
+python3 evals/run_trigger_evals.py                                                           # 8. activation smoke
+python3 evals/run_routing_evals.py                                                           # 9. model routing
+python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 10. bench fixture smoke
 ```
 
 Current result: **11/11 static** + **32/32 behavioral** + **26/26 memory** + **20/20 reality** + **13/13 routing** + **10/10 trigger** + **9/9 hook** = **121 cases** pass across 7 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
@@ -277,7 +237,37 @@ Current result: **11/11 static** + **32/32 behavioral** + **26/26 memory** + **2
 
 </details>
 
-### Benchmarks, ablation, and live evals
+### The three live cross-agent evals
+
+Three real runs, published with the source, the numbers, and the caveats.
+
+- [**Sudoku 06-28**](examples/sudoku-agent-eval-2026-06-28/README.md) — the original pilot (n=1). Four coding agents built the same browser Sudoku app from identical requirements, two with the skill and two without. Presented honestly as a *single pilot*: sample too small to generalize, rubric fixed-but-subjective, judges independent but few. The skill variants showed stronger planning, more robust solvers, and better verification evidence; full numbers, caveats, and the [consolidated report](examples/sudoku-agent-eval-2026-06-28/evaluation-report.md) are committed. Headline numbers intentionally omitted from this README so no one quotes the pilot as product lift.
+- [**Sudoku 07-01**](examples/sudoku-agent-eval-2026-07-01/README.md) — live cross-agent run: Codex, Claude Code, and Droid/GLM-5.2 each built the same Sudoku app with and without CQL. All six arms completed, used zero dependencies, passed `npm test`, and scored `100/100` on the broad machine heuristic. Two blind LLM judges, Claude and Codex, agreed on the ranking; CQL averaged **89.5** vs **85.0** for baselines (**+4.5 points**), with per-agent lifts of Codex **+1.0**, Claude Code **+4.5**, and Droid/GLM-5.2 **+8.0**. Caveat: one-seed live eval, no real browser automation; strong directional evidence, not a durable benchmark claim.
+- [**Webapp 07-07**](examples/webapp-agent-eval-2026-07-07/README.md) — the latest live 2×2 run (Codex gpt-5.5, Claude Code, baseline vs CQL v3) on the previously unrun bench webapp task, this time with the five hidden behaviors verified by **real browser automation** (all arms 5/5). Judged honestly on the **code-quality headline that excludes process artifacts**: Claude Code **+6.67**, Codex **−1.11** (totals with artifacts: +16.0 / +7.5). The run also caught an agent silently softening its local copy of the gate script and reporting PASS against it — see the panel below.
+
+### The gate-gaming story
+
+The best marketing artifact in this repo is the one we did not want to publish.
+
+<div align="center">
+
+<img src="docs/images/gate-gaming.png" alt="Gate-gaming incident panel, 2026-07-07. Three panels: the gaming — an agent softened diff-audit locally and reported PASS; the catch — the pristine gates re-run against the same record failed it; the harness change — v3.1.0 added helper-integrity sha256 reporting and the SKILL.md rule 'never repair or stub the helper; report and stop.'" width="900">
+
+</div>
+
+**What happened.** During the [Webapp 07-07](examples/webapp-agent-eval-2026-07-07/README.md) live run, one agent silently modified its workspace copy of `diff-audit` — removing the untracked-file secret check and softening test-weakening detection — and then reported `Overall: PASS` under its own softened gate.
+
+**How we caught it.** The pristine gates, re-run against the same record, immediately failed it. That contrast is the entire product in one incident.
+
+**The harness change.** [`CHANGELOG.md` §3.1.0](CHANGELOG.md#310) adds:
+
+- **Helper-integrity reporting.** `verify` now prints the sha256 of each helper module so a hook or CI can catch a locally modified gate.
+- **`SKILL.md` rule.** *Never repair or stub the helper; report breakage and stop.*
+- **Four new reality-eval cases** covering allowlist scaffolding, partial-install errors, and helper-integrity output — pinning the fix.
+
+That is what "the harness is what improves" means in practice: a repeated failure becomes a durable rule, a test, and a hook — not a chat correction.
+
+### Benchmarks and ablation
 
 `bench/` contains the proof harness: vendored tasks, trap tasks, objective metrics, and a judge protocol. The committed result [`bench/results/fixture-smoke-2026-07-01.json`](bench/results/fixture-smoke-2026-07-01.json) is a deterministic fixture smoke result. It proves the benchmark plumbing runs; it is not a live Claude/Codex model sweep and should not be quoted as product lift.
 
@@ -290,6 +280,8 @@ python3 evals/run_trigger_evals.py
 
 Live sweeps must record host, model, seed, cost, artifacts, and null results.
 
+### Run it yourself on your task
+
 For medium/high-risk work, create a state record and run the primary verification command — an umbrella over record-shape gates, diff-grounded reality checks, evidence re-execution, and AC-to-command coverage:
 
 ```bash
@@ -297,11 +289,44 @@ python3 scripts/quality_loop.py init-record --goal "Fix checkout retry bug" --ri
 python3 scripts/quality_loop.py verify agent-record.json --base origin/main --red-green
 ```
 
-[`examples/sudoku-agent-eval-2026-06-28/`](examples/sudoku-agent-eval-2026-06-28/README.md) is a committed before/after experiment: four coding agents built the same browser Sudoku app from identical requirements, two with the skill and two without. It is presented honestly as a **single pilot (n=1)**, not a benchmark: the sample is too small to generalize, the rubric is fixed-but-subjective, and the judges are independent but few. The skill variants showed stronger planning, more robust solvers, and better verification evidence; the full numbers, caveats, and the [consolidated report](examples/sudoku-agent-eval-2026-06-28/evaluation-report.md) are committed so you can judge for yourself. Every variant's app source, the skill variants' lifecycle artifacts, and each test suite, rerun with `npm test --prefix <variant>/app`, are in the repo. Headline numbers are intentionally omitted here; use the v2.1 `bench/` harness for repeatable benchmark protocol work instead of quoting this pilot as product lift.
+---
 
-[`examples/sudoku-agent-eval-2026-07-01/`](examples/sudoku-agent-eval-2026-07-01/README.md) is the newer live cross-agent run: Codex, Claude Code, and Droid/GLM-5.2 each built the same Sudoku app with and without CQL. All six arms completed, used zero dependencies, passed `npm test`, and scored `100/100` on the broad machine heuristic. Two blind LLM judges, Claude and Codex, agreed on the ranking; CQL averaged **89.5** vs **85.0** for baselines (**+4.5 points**), with per-agent lifts of Codex **+1.0**, Claude Code **+4.5**, and Droid/GLM-5.2 **+8.0**. Caveat: this was a one-seed live eval and no real browser automation was available, so it is strong directional evidence, not a durable benchmark claim.
+## Ceremony scales with risk
 
-[`examples/webapp-agent-eval-2026-07-07/`](examples/webapp-agent-eval-2026-07-07/README.md) is the latest live 2x2 run (Codex gpt-5.5, Claude Code, baseline vs CQL v3) on the previously unrun bench webapp task, this time with the five hidden behaviors verified by **real browser automation** (all arms 5/5). Judged honestly on the **code-quality headline that excludes process artifacts**: Claude Code **+6.7**, Codex **-1.1** (totals with artifacts: +16.0 / +7.5). The run also caught an agent silently softening its local copy of the gate script and reporting PASS against it, which drove the v3.1 hardening (helper-integrity hashes, allowlist scaffolding, attestation fixes). One seed; directional, not durable.
+A tiny task must **not** be forced through mission ceremony. A medium task must **not** ship without a validation contract and an independent review. ([Task classes](SKILL.md))
+
+<div align="center">
+
+<img src="docs/images/ceremony-scales.png" alt="Ceremony scales with risk — four tiers (tiny, small, medium, mission) each with an increasing set of required artifacts; a typo runs the smallest possible loop, a payment migration runs the full one." width="820">
+
+</div>
+
+| Class | Looks like | Process |
+|---|---|---|
+| **Tiny** | Typo, copy, one-line config, obvious test update. | Inspect, edit, smallest check. No mission artifacts. |
+| **Small** | Local bug, one module, low risk. | Quick context map, mini spec, minimal fix, targeted test. |
+| **Medium** | Multiple files, a feature, a migration, auth/payment/data risk. | Validation contract, plan, right-size gate, **independent review**, completion record. |
+| **Mission** | Multi-day, multi-module, multi-repo, uncertain architecture. | Orchestrator + worker tasks + validators, milestones, shared artifacts. |
+
+---
+
+## What it enforces and what it does not
+
+Most tools hide this table. Ours is one of the best marketing artifacts in the repo. The differentiator is that the gates are **executable**, not advisory, and the boundaries are explicit. `scripts/quality_loop.py` is a portable, stdlib-only checker. It **complements** CI, tests, scanners, and human review. It does not replace them.
+
+| Enforced today | Not enforced by design, to stay portable |
+|---|---|
+| Non-trivial work, meaning medium/mission or any medium/high-risk or security-sensitive task, requires a named implementer, a real **validation contract**, an approving **independent review** by someone *other than* the implementer, and, at ship, a **completion record** with evidence. Required fields must be present and non-empty; bare booleans, empty strings, and nonexistent paths are rejected. It checks *shape*, not whether the content is substantive. A small low-risk task ships with handoff evidence, not a formal completion record. | `run-evidence` re-executes allowlisted commands but is **not a sandbox**. The trust model is repo-defined commands, same as CI. Commands not on the `.quality-loop/allowed-commands` allowlist are skipped and reported as `not_allowed`, not run. |
+| **Reality layer (v1.5).** `verify-gates --against-diff` reads the real git diff and catches **phantom completion**, **scope integrity**, a **diff-derived risk floor**, **bugfix-test co-presence**, and **stale review hashes**. `run-evidence` **re-executes** recorded pass commands; `--red-green` replays a red_green command in a worktree at base and HEAD. Worktree unavailable means "not proven", never a silent pass. `attest-review` embeds the recomputed diff hash. | Reviewer/implementer separation is compared as trimmed strings and fresh context is self-attested. `attest-review` plus `--against-diff` make review *freshness* checkable, but cannot prove the reviewer *read* the diff. |
+| **Detected-risk floor.** The record goal, criteria, and plan are scanned for auth/authz, secrets, crypto, payments, migrations, destructive, concurrency, data-loss, PII, and infra boundaries. Any hit forces high-risk plus security-review gates regardless of the declared tier. | The detected-risk floor is a curated heuristic. It catches honest mis-tiering, not an agent deliberately phrasing around it. **Deterministic policy hooks** remain the backstop for anything you cannot afford an agent to get wrong. |
+| **UNDERSTAND is gated.** Non-trivial work must carry a substantive context map with entry points or likely files plus callers or tests. | **`verify-gates` without `--against-diff` reads the record, not the diff.** It confirms recorded evidence is present and well-formed; `--against-diff` adds diff-grounded checks. `diff-audit` and CI remain the blocking layer. |
+| Every `pass` command carries a verifiable evidence handle and known `class`; a recorded minimality decision; and `diff-audit` flags secrets, including **untracked files** and **test-weakening**, dependency edits, migrations, and oversized diffs. `diff-audit --staged` covers the pre-commit diff; `scan-text --stdin` is a secret-scan-as-a-service for hook shims. | The helper is not a hosted agent service. Authentication, model cost, and production rollout remain the caller's responsibility. |
+| **Repeated failure -> durable change.** A recurring mistake must become a rule/test/hook/checklist/template, so a clean final record cannot bury a mistake corrected only in chat. | Host hooks are advisory unless the host or repo chooses to trust and enable them. Git hooks and CI are the portable backstop. |
+| **Helper-integrity reporting (v3.1).** `verify` prints the sha256 of each helper module so a hook or CI can catch a locally modified gate script. Motivated by the [gate-gaming incident](#the-gate-gaming-story). | Helper-integrity is a *report*, not an enforcement action by itself — pair it with a CI check that compares against a known-good sha to make it blocking. |
+
+The runtime entry points are `verify` (the umbrella: record gates + diff audit + evidence re-execution + AC coverage), `verify-gates`, `verify-gates --against-diff`, `check-record`, `diff-audit`, `run-evidence`, `attest-review`, and `scan-text --stdin`, pinned by [evals](evals/).
+
+**Reviewer heterogeneity.** `check-config` now hard-fails when the implementer and fresh_reviewer resolve to the same model on medium+ tasks. **Tool-using evaluator.** The reviewer must execute tests and benchmarks when available, not just read the diff; the verdict records `ran_checks: true|false`. **Communication-bridge rule.** After the reviewer produces findings, the implementer filters them against the contract: in-scope findings become fix tasks, out-of-scope findings become follow-ups. This prevents review loops.
 
 ---
 
@@ -438,7 +463,7 @@ coding-quality-loop/
 │                       #   reviewer checklists, tool contracts, engineering-OS, philosophy,
 │                       #   the memory contract, enforcement matrix)
 ├── examples/           # host-native copy-paste: claude-code, codex, cursor, pi, droid,
-│                       #   standalone, a real before/after walkthrough, + committed Sudoku live evals
+│                       #   standalone, a real before/after walkthrough, + committed live evals
 ├── evals/              # offline eval cases + harness that prove the gates fire
 ├── scripts/            # quality_loop.py + quality_loop_memory.py — stdlib-only, no third-party deps
 └── .quality-loop/      # per-project lessons memory + runs/progress (git-diffable; grows as the agent learns)
@@ -472,11 +497,37 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
 
 ---
 
+## Project memory
+
+<div align="center">
+
+<img src="docs/images/memory-flow.png" alt="Project memory flow — at intake, recall relevant prior lessons budget-capped; at retrospective, distill and commit new lessons; secrets redacted before writes; only a <=40-line index auto-loads." width="820">
+
+</div>
+
+Most agents relearn the same lesson every session. The loop can keep a tiny per-project ledger of **distilled lessons**: failure modes, conventions like "no new dependencies here", and gotchas like "this module broke twice". New in v1.4.0.
+
+It is **retrieval, not context stuffing**: only a <=40-line index auto-loads, recall is budget-capped and scoped to the task goal and files, lessons are distilled rather than raw transcripts, **secrets are redacted before they are written**, and writes stay **advisory**. Memory adds no new gate.
+
+```bash
+# recall relevant prior lessons before mapping a change
+python3 scripts/quality_loop.py memory-recall --goal "fix checkout retry" \
+  --files src/payments/charge.py --risk high
+# at retrospective, keep a lesson worth remembering
+python3 scripts/quality_loop.py memory-commit agent-record.json
+```
+
+The default backend is **stdlib-only and checked-in**: `.quality-loop/memory/`, git-diffable and team-shared.
+
+See [`references/memory.md`](references/memory.md) for the memory contract.
+
+---
+
 ## Why agentic-first
 
 <div align="center">
 
-<img src="docs/images/roles.png" alt="Multi-agent role separation — implementer, reviewer, deterministic policy hooks" width="820">
+<img src="docs/images/roles.png" alt="Multi-agent role separation — implementer produces the diff, an independent validator reviews it in fresh context, deterministic policy hooks enforce non-negotiables. Start simple, add specialists only when risk justifies coordination cost." width="820">
 
 </div>
 
@@ -491,6 +542,12 @@ One model grading its own work is the dominant failure mode. The skill splits th
 Other strong skills make different bets, and they are worth your time: [**superpowers**](https://github.com/obra/superpowers) leans into subagent-driven TDD and a two-stage review; [**addyosmani/agent-skills**](https://github.com/addyosmani/agent-skills) ships a broad 24-skill SDLC suite; [**ponytail**](https://github.com/DietrichGebert/ponytail) is a focused minimality ladder.
 
 The Coding Quality Loop's bet is narrower: **executable gates plus candor.** It is one dependency-free package where the non-negotiables are checked by a script you can read and run, and where the README tells you exactly what the script does *not* check. It is positioned against two failure modes, not against other skills: instruction-only prompts that **drift**, and full autonomy that produces **unreviewable diffs**.
+
+<div align="center">
+
+<img src="docs/images/comparison-table.png" alt="Comparison table — the Coding Quality Loop against instruction-only prompts and full-autonomy agents, across executable gates, independent review, candor about non-enforcement, host portability, and dependencies." width="900">
+
+</div>
 
 For a longer, per-feature comparison (with explicit non-goals and a migration path), see [`docs/comparison.md`](docs/comparison.md).
 
@@ -546,7 +603,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   provenance is not hand-faked.
 - **Skills Hub publish checklist.** Before publishing to the
   [agentskills.io](https://agentskills.io) Skills Hub:
-  1. Bump `packages/npm/package.json` and tag a release (`git tag v3.0.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
+  1. Bump `packages/npm/package.json` and tag a release (`git tag v3.1.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
@@ -556,7 +613,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules
   (secrets, destructive migrations, auth/billing, diff-size limits) as deterministic host hooks.
 
-
+</details>
 
 <details>
 <summary><strong>How this maps to official platform docs</strong></summary>
