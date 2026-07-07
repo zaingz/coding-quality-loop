@@ -5,8 +5,6 @@
 
 <div align="center">
 
-<img src="images/memory-flow.png" alt="Project memory: recall on intake, commit on retrospective, budget-capped and redacted" width="900">
-
 </div>
 
 ## What it is

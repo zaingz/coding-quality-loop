@@ -5,8 +5,6 @@
 
 <div align="center">
 
-<img src="images/architecture.png" alt="Architecture: three layers — Agent Skill (SKILL.md + references + assets + examples), Executable Gates (a representative subset of the stdlib CLI; the full catalogue is in the table below), and Multi-Agent Roles (context-mapper, implementer, validator, security-reviewer, package, orchestrated across the three canonical phases)." width="900">
-
 </div>
 
 The Coding Quality Loop is deliberately boring under the hood: three layers, no runtime
@@ -63,8 +61,6 @@ human review; they do not replace them. The runtime dependency count is zero.
 The canonical model since v2.4 is three phases — **PLAN → EXECUTE → REVIEW** — each closed by its own verification gate before the next may start. The nine sub-steps (`INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN`, `IMPLEMENT_SLICE`, `VERIFY`, `REVIEW`, `PACKAGE`, `RETROSPECT`) map onto the three phases and stay valid as machine names in every record and config. Each step can run as a different agent, model, or tool profile, mapped by **role** rather than vendor:
 
 <div align="center">
-
-<img src="images/roles.png" alt="Multi-agent role separation: implementer, reviewer, deterministic policy hooks" width="800">
 
 </div>
 
@@ -170,8 +166,6 @@ committed at `RETROSPECT`. See [`references/memory.md`](../references/memory.md)
 contract; [`docs/memory.md`](memory.md) for a quick visual overview.
 
 <div align="center">
-
-<img src="images/memory-flow.png" alt="Project memory: recall at task start, commit at retrospective, budget-capped and redacted" width="800">
 
 </div>
 

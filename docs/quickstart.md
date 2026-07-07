@@ -5,8 +5,6 @@ that fits your task.
 
 <div align="center">
 
-<img src="images/ceremony-scales.png" alt="Ceremony scales with risk — tiny, small, medium, mission" width="800">
-
 </div>
 
 ## A. No install — drop-in prompt (30 seconds)

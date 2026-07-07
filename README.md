@@ -37,12 +37,6 @@ AI coding agents are fast. Point one at a vague ticket and it can refactor thing
 
 It is a portable [Agent Skill](https://agentskills.io/specification) for anyone using Claude Code, Codex, Cursor, Pi, or Droid to write production code. Use it as a copy-paste prompt, a loadable skill, or a multi-agent config. No new tools, no lock-in.
 
-<div align="center">
-
-<img src="docs/images/before-after.png" alt="Same agent, same model — without the loop: sprawling diff, new dependency, self-approved, no test evidence. With the loop: focused fix, no new deps, fails-then-passes proof, second-agent approval." width="900">
-
-</div>
-
 ---
 
 ## Why the loop
@@ -183,12 +177,6 @@ Every older sub-step inherits one of these three phases; nothing is unlabeled. T
 
 The validation contract spans the `INTAKE` and `PLAN` sub-steps, both inside PLAN. Across tasks, durable lessons can persist in optional [per-project memory](#project-memory). See [`SKILL.md`](SKILL.md#lifecycle) for the canonical version of this mapping.
 
-<div align="center">
-
-<img src="docs/images/architecture.png" alt="Architecture diagram — three layers: Agent Skill (portable Markdown + progressive disclosure), Executable Gates (stdlib-only quality_loop.py), and Multi-Agent Roles (implementer, reviewer, policy guard)." width="900">
-
-</div>
-
 ### Anatomy of a shipped change
 
 <div align="center">
@@ -294,12 +282,6 @@ python3 scripts/quality_loop.py verify agent-record.json --base origin/main --re
 ## Ceremony scales with risk
 
 A tiny task must **not** be forced through mission ceremony. A medium task must **not** ship without a validation contract and an independent review. ([Task classes](SKILL.md))
-
-<div align="center">
-
-<img src="docs/images/ceremony-scales.png" alt="Ceremony scales with risk — four tiers (tiny, small, medium, mission) each with an increasing set of required artifacts; a typo runs the smallest possible loop, a payment migration runs the full one." width="820">
-
-</div>
 
 | Class | Looks like | Process |
 |---|---|---|
@@ -499,12 +481,6 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
 
 ## Project memory
 
-<div align="center">
-
-<img src="docs/images/memory-flow.png" alt="Project memory flow — at intake, recall relevant prior lessons budget-capped; at retrospective, distill and commit new lessons; secrets redacted before writes; only a <=40-line index auto-loads." width="820">
-
-</div>
-
 Most agents relearn the same lesson every session. The loop can keep a tiny per-project ledger of **distilled lessons**: failure modes, conventions like "no new dependencies here", and gotchas like "this module broke twice". New in v1.4.0.
 
 It is **retrieval, not context stuffing**: only a <=40-line index auto-loads, recall is budget-capped and scoped to the task goal and files, lessons are distilled rather than raw transcripts, **secrets are redacted before they are written**, and writes stay **advisory**. Memory adds no new gate.
@@ -525,12 +501,6 @@ See [`references/memory.md`](references/memory.md) for the memory contract.
 
 ## Why agentic-first
 
-<div align="center">
-
-<img src="docs/images/roles.png" alt="Multi-agent role separation — implementer produces the diff, an independent validator reviews it in fresh context, deterministic policy hooks enforce non-negotiables. Start simple, add specialists only when risk justifies coordination cost." width="820">
-
-</div>
-
 One model grading its own work is the dominant failure mode. The skill splits the loop into role-based profiles: `orchestrator`, `context_mapper`, `implementer`, `validator`, `simplicity_reviewer`, `security_reviewer`, `policy_guard`. Map each role to the best available model or tool profile. Defaults stay simple: **one implementer + one independent validator + deterministic policy hooks.** Add specialists only when risk justifies the coordination cost; over-parallelization is an anti-pattern. ([Orchestration](references/agentic-orchestration.md))
 
 **Smart Friend pattern (optional).** The implementer can consult a stronger model on defined triggers: 2 failed repair attempts, merge conflicts, or architecture uncertainty. The stronger model gets a fork of the implementer's context and responds with guidance, not code. Per-host wiring: Claude subagent, Droid Task tool, Codex subagent. See [`references/agentic-orchestration.md`](references/agentic-orchestration.md).
@@ -542,12 +512,6 @@ One model grading its own work is the dominant failure mode. The skill splits th
 Other strong skills make different bets, and they are worth your time: [**superpowers**](https://github.com/obra/superpowers) leans into subagent-driven TDD and a two-stage review; [**addyosmani/agent-skills**](https://github.com/addyosmani/agent-skills) ships a broad 24-skill SDLC suite; [**ponytail**](https://github.com/DietrichGebert/ponytail) is a focused minimality ladder.
 
 The Coding Quality Loop's bet is narrower: **executable gates plus candor.** It is one dependency-free package where the non-negotiables are checked by a script you can read and run, and where the README tells you exactly what the script does *not* check. It is positioned against two failure modes, not against other skills: instruction-only prompts that **drift**, and full autonomy that produces **unreviewable diffs**.
-
-<div align="center">
-
-<img src="docs/images/comparison-table.png" alt="Comparison table — the Coding Quality Loop against instruction-only prompts and full-autonomy agents, across executable gates, independent review, candor about non-enforcement, host portability, and dependencies." width="900">
-
-</div>
 
 For a longer, per-feature comparison (with explicit non-goals and a migration path), see [`docs/comparison.md`](docs/comparison.md).
 

@@ -3,8 +3,8 @@
 Short-form assets for sharing the Coding Quality Loop on Hacker News, Reddit, X, and
 LinkedIn. Nothing here is exclusive — copy, edit, ship.
 
-Use the [banner](images/banner.png), [before-after](images/before-after.png), or
-[architecture](images/architecture.png) image as the visual.
+Use the [banner](images/banner-v2-dark.png), [evidence dashboard](images/evidence-dashboard.png), or
+[gate-gaming panel](images/gate-gaming.png) image as the visual.
 
 ---
 

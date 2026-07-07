@@ -36,13 +36,11 @@ Extended documentation for the [Coding Quality Loop](../README.md). The top-leve
 
 ## Images used across the docs
 
-All images live under `docs/images/`. Every diagram is generated with the same visual
-language: off-white cream background, thin black borders, teal-green accents.
+All images live under `docs/images/`. The README currently ships five dark-themed
+diagrams; regenerable sources are in [`images/src/`](images/src/README.md).
 
-- `banner.png` — README hero. Depicts the seven customer-facing sub-steps of the loop (INTAKE, PLAN, IMPLEMENT, VERIFY, REVIEW, SHIP, LEARN); these map onto the three canonical phases as PLAN = INTAKE + PLAN, EXECUTE = IMPLEMENT + VERIFY, REVIEW = REVIEW + SHIP + LEARN.
-- `before-after.png` — README "without vs with the loop"
-- `architecture.png` — three-layer architecture. The gate-command lineup shows a representative subset; the full CLI catalogue is in [`architecture.md`](architecture.md).
-- `roles.png` — multi-agent role separation
-- `memory-flow.png` — project memory recall/commit
-- `ceremony-scales.png` — ceremony scaling with risk
-- `comparison-table.png` — how it compares to other skills
+- `banner-v2-dark.png` + `banner-v2-light.png` — README hero (wired via `<picture>` + `prefers-color-scheme`).
+- `terminal-demo.gif` (+ `terminal-demo-poster.png` fallback) — 60-second quickstart demo.
+- `anatomy-of-a-change.png` — seven-card walkthrough traced on `examples/walkthrough/agent-record.json`.
+- `evidence-dashboard.png` — 121 offline gate cases + honest per-agent lift, with the Codex webapp regression published in red.
+- `gate-gaming.png` — three-panel comic of the 2026-07-07 gate-gaming incident and its harness fix.

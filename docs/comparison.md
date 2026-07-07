@@ -6,8 +6,6 @@
 
 <div align="center">
 
-<img src="images/comparison-table.png" alt="Comparison summary — Coding Quality Loop vs Superpowers vs addyosmani/agent-skills vs ponytail" width="900">
-
 </div>
 
 > **Read this before the table:** the summary graphic is our characterization. We linked
