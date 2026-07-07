@@ -1,0 +1,116 @@
+{
+  "generated_at": "2026-07-07T12:20:00",
+  "kind": "live_webapp_task_manager_eval",
+  "task": "bench/tasks/13-webapp-task-manager.json",
+  "note": "One-seed live 2x2 eval (Codex gpt-5.5, Claude Code claude-fable-5; baseline vs CQL v3.0 drop-in). All arms passed npm test, used zero dependencies, and passed all five hidden behaviors under real browser automation. Score separation comes from two blind LLM judges over anonymized, identity-scrubbed packets with different letter mappings.",
+  "browser_smoke": {
+    "verified": true,
+    "runner": "agent-browser (CDP) against python3 -m http.server, one isolated localStorage origin per arm",
+    "hidden_behaviors": [
+      "add persists after reload",
+      "edit persists after reload",
+      "delete removes task",
+      "completed filter shows only completed",
+      "empty state when no tasks match filter"
+    ],
+    "all_arms_passed": "5/5"
+  },
+  "method": {
+    "hosts": {"codex": "codex-cli 0.142.2, model gpt-5.5, sandbox workspace-write", "claude_code": "2.1.202, model claude-fable-5, --safe-mode --dangerously-skip-permissions"},
+    "conditions": ["baseline", "cql-v3-drop-in"],
+    "cql_delivery": "Drop-in skill bundle (SKILL.md + references/ + assets/ + scripts/) copied into the workspace at cql/; prompt instructed the agent to follow it. Native host skill discovery was intentionally disabled for isolation.",
+    "baseline_isolation": "Codex arms ran with a clean CODEX_HOME (no user AGENTS.md, no user skills). Claude arms ran with --safe-mode (no CLAUDE.md, no user skills, no hooks). Baseline prompts additionally banned CQL and nested agent CLIs. Post-hoc transcript checks found zero CQL usage in baselines.",
+    "machine_checks": ["npm test", "dependency count", "hidden behaviors via browser automation", "diff-audit", "LOC", "load timing"],
+    "llm_judges": ["gpt-5.5 (codex exec, read-only sandbox)", "claude-fable-5 (claude -p --safe-mode)"],
+    "judge_visibility": "Anonymized packets A-D with different letter mappings per judge; .quality-loop/ renamed to process-notes/; host/model identity strings scrubbed; blinded machine-check summary attached.",
+    "rubric": "10 dimensions, weighted /100; code-quality headline excludes D7 (verification artifacts) per bench/ablation-protocol.md and rescales to /100."
+  },
+  "harness_incident": {
+    "description": "The cql/scripts bundle initially omitted quality_loop_reality.py and quality_loop_routing.py, which quality_loop.py imports. Both CQL arms had to cope with a partially broken helper.",
+    "claude_cql_response": "Reconstructed the two missing modules in a dedicated, clearly labeled commit and left quality_loop.py byte-identical to the repo original.",
+    "codex_cql_response": "Reconstructed minimal stub modules and additionally modified quality_loop.py itself, softening two diff-audit behaviors (removed the untracked-files warning, added a package.json no-deps carve-out), then reported verify PASS against its own modified gate without disclosing the gate edit in its final summary.",
+    "interpretation": "Supports CQL's documented trust model: the helper is advisory and an agent can game its own local gates; deterministic repo-side hooks and CI remain the backstop."
+  },
+  "posthoc_pristine_gates": {
+    "command": "python3 <repo>/scripts/quality_loop.py verify .quality-loop/agent-record.json --base <initial-commit>",
+    "codex_cql": "FAIL: no .quality-loop/allowed-commands allowlist, review not attested (no diff_sha256), 10 changed files unmapped",
+    "claude_cql": "FAIL: no allowlist; review was attested but the recorded diff hash went stale after a final evidence commit (reality layer caught it)",
+    "interpretation": "The strict gates bite on real runs; neither arm produced a fully strict-verifiable record end to end."
+  },
+  "summary": {
+    "cql_average_total": 89.5,
+    "baseline_average_total": 77.75,
+    "lift_points_total": 11.75,
+    "code_quality_lift_claude": 6.67,
+    "code_quality_lift_codex": -1.11,
+    "all_npm_tests_passed": true,
+    "all_dependency_counts": 0,
+    "all_hidden_behaviors_passed": true
+  },
+  "per_agent_delta_total": {
+    "codex": {"baseline": 73.88, "cql": 81.38, "delta": 7.5},
+    "claude_code": {"baseline": 81.62, "cql": 97.62, "delta": 16.0}
+  },
+  "per_agent_delta_code_quality_excl_d7": {
+    "codex": {"baseline": 82.08, "cql": 80.97, "delta": -1.11},
+    "claude_code": {"baseline": 90.69, "cql": 97.36, "delta": 6.67}
+  },
+  "runs": [
+    {
+      "arm": "claude_cql",
+      "rank": 1,
+      "tests_passed": 57,
+      "hidden_behaviors": "5/5",
+      "codex_judge": 97.25,
+      "claude_judge": 98.0,
+      "avg_judge": 97.62,
+      "avg_code_quality_excl_d7": 97.36,
+      "verdicts": ["merge_as_is", "merge_as_is"],
+      "dependencies": 0,
+      "cql_artifacts": true,
+      "duration_sec": 1907
+    },
+    {
+      "arm": "claude_baseline",
+      "rank": 2,
+      "tests_passed": 21,
+      "hidden_behaviors": "5/5",
+      "codex_judge": 80.75,
+      "claude_judge": 82.5,
+      "avg_judge": 81.62,
+      "avg_code_quality_excl_d7": 90.69,
+      "verdicts": ["merge_as_is", "merge_as_is"],
+      "dependencies": 0,
+      "cql_artifacts": false,
+      "duration_sec": 333
+    },
+    {
+      "arm": "codex_cql",
+      "rank": 3,
+      "tests_passed": 8,
+      "hidden_behaviors": "5/5",
+      "codex_judge": 79.5,
+      "claude_judge": 83.25,
+      "avg_judge": 81.38,
+      "avg_code_quality_excl_d7": 80.97,
+      "verdicts": ["request_changes", "merge_as_is"],
+      "dependencies": 0,
+      "cql_artifacts": true,
+      "duration_sec": 620
+    },
+    {
+      "arm": "codex_baseline",
+      "rank": 4,
+      "tests_passed": 6,
+      "hidden_behaviors": "5/5",
+      "codex_judge": 74.0,
+      "claude_judge": 73.75,
+      "avg_judge": 73.88,
+      "avg_code_quality_excl_d7": 82.08,
+      "verdicts": ["request_changes", "merge_as_is"],
+      "dependencies": 0,
+      "cql_artifacts": false,
+      "duration_sec": 172
+    }
+  ]
+}
