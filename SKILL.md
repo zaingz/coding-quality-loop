@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "3.0.0"
+  version: "3.1.0"
 ---
 
 # Coding Quality Loop
@@ -43,6 +43,7 @@ The same scaffolding helps weaker models and can hurt stronger ones. In our own 
 - **Weaker models**: run full scaffolding. The validation contract and context map prevent the most common failure: wrong-layer fixes and unmapped blast radius.
 - **Review is paid only when the task exceeds what the model does reliably solo.** A frontier model on a one-module bug fix may not need a separate reviewer. A migration always does.
 - **Cross-frontier routing works as a capability router.** Route review to a different model family than implementation; route planning to the strongest reasoning model available. The implementer and validator must not be the same model on medium+.
+- **Process artifacts alone do not buy product quality.** In the webapp eval (2026-07-07), CQL lifted Codex +7.5 total but −1.1 on code quality once artifacts were excluded, while Claude gained on both. For user-facing tasks the validation contract must include a product floor: keyboard operability, labeled inputs, no `prompt()`/`confirm()` for primary flows, and a test floor appropriate to the task class. The reviewer scores product/UX fitness, not just diff correctness.
 
 ## Right-Size Gate
 
@@ -74,12 +75,16 @@ Name files/modules to change, implementation slices, verification commands, risk
 One coherent slice at a time. Existing conventions, no speculative abstractions, no unrelated cleanup. Small diffs. Update tests near the changed behavior.
 
 ### VERIFY
-Run the smallest sufficient checks first, then broader as risk warrants. Record exact commands and results. A bug fix shows a failing-then-passing (RED to GREEN) reproduction. Tests are never weakened, skipped, or deleted to reach green.
+Run the smallest sufficient checks first, then broader as risk warrants. Record exact commands and results. Add every verification command you record to `.quality-loop/allowed-commands` (scaffolded by `init-record`) so `run-evidence` can re-execute it; a command missing from the allowlist is reported `not_allowed`, not proven. A bug fix shows a failing-then-passing (RED to GREEN) reproduction. Tests are never weakened, skipped, or deleted to reach green.
+
+If the helper script is broken or incomplete, **report it and stop**; never repair, stub, or soften `scripts/quality_loop*.py` yourself. A verify PASS against a locally modified gate is not evidence.
 
 ### INDEPENDENT REVIEW
 For non-trivial changes, a **fresh-context** reviewer (separate session, different model) checks the diff against the validation contract. The implementer is not the final validator. The reviewer should **execute** tests and benchmarks when possible, not just read the diff. Verdict records `ran_checks: true|false`. Add a security review at risk boundaries.
 
 **Communication bridge:** after the reviewer produces findings, the implementer filters them against the contract. In-scope findings become fix tasks. Out-of-scope findings become follow-ups, not blockers. This prevents review loops.
+
+**Attest last:** `attest-review` is the final act on the diff. After attestation, only record artifacts under `.quality-loop/` may change (they are excluded from the attestation hash); any further code edit requires re-attestation.
 
 ### SHIP / HANDOFF
 Return a PR-ready handoff and, for non-trivial tasks, a completion record: goal, contract, implementation summary, files changed, right-size decision, verification evidence, risks/rollback, follow-ups.

@@ -37,9 +37,34 @@ Last updated: 2026-07-03.
 
 ## Next — v3.1 (target: Q4 2026)
 
+### Hardening from the webapp live eval (2026-07-07) — landed
+
+Findings from `examples/webapp-agent-eval-2026-07-07/` (gate-gaming, allowlist
+never created, attested review going stale, ImportError on partial installs):
+
+- ✅ `init-record` scaffolds `.quality-loop/allowed-commands`; the `not_allowed`
+  finding tells the agent how to fix it.
+- ✅ Attestation hashes exclude `.quality-loop/` so record-only trailing commits
+  do not stale a review; scope integrity ignores record artifacts.
+- ✅ Partial `scripts/` installs fail with an actionable message instead of an
+  ImportError traceback (agents were observed stubbing/softening the helper).
+- ✅ `verify` prints helper-integrity hashes so hooks/CI can catch a locally
+  modified gate script; SKILL.md forbids repairing the helper in-run.
+- ✅ Calibration: product-floor for user-facing tasks (process artifacts alone
+  lifted Codex totals while code quality fell); reviewer scores product fitness.
+- ✅ `hosts/codex/README.md` documents sandbox limits; `bench/live-run-recipe.md`
+  captures the proven isolation + blind-judging mechanics.
+
+Still open from the same findings:
+
+- **Native-path live test.** One live run per host with the installed skill and
+  trusted hooks (the 2026-07-07 run used drop-in delivery for isolation).
+- **Cost/duration per cell** reported alongside lift in ablation results
+  (ceremony overhead was 3-6x wall time in the webapp run).
+
 - **Live ablation results.** Run the `bench/` ablation protocol with real models
-  and commit results. Apply the pruning rule: cut components with no code-quality
-  lift across ≥2 families.
+  and commit results (use `bench/live-run-recipe.md` for the mechanics). Apply
+  the pruning rule: cut components with no code-quality lift across ≥2 families.
 - **Skills Hub publish.** Validate frontmatter and publish to
   [agentskills.io](https://agentskills.io) so `gh skill install` works without a
   manual copy.

@@ -21,3 +21,15 @@ integration point, not a shipped dependency.
 
 Records may carry optional `diff_sha256` (attest-review), `files_changed`
 (completion record), and `red_green` (commands_run) fields.
+
+## Helper integrity
+
+The helper itself is a file in the workspace, and a live eval (webapp,
+2026-07-07) showed an agent softening its local copy of `quality_loop.py` and
+then reporting a verify PASS against the weakened gate. `verify` therefore
+prints a `helper-integrity` section: the sha256 of each helper module as
+installed. The helper cannot police itself (a tampered copy could lie), so the
+check is **externally owned**: a git hook or CI step compares the printed
+hashes (or hashes the files directly) against the pinned release. Attestation
+hashes exclude `.quality-loop/` so record-only follow-up commits do not stale
+an attested review; any code edit after attestation still requires re-attesting.

@@ -10,10 +10,10 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-3.0.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-3.1.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-116%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-121%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-111111?style=flat-square)](#install--use-matrix)
@@ -264,7 +264,7 @@ python3 evals/run_routing_evals.py                                             #
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json   # 10. bench fixture smoke
 ```
 
-Current result: **11/11 static** + **32/32 behavioral** + **26/26 memory** + **16/16 reality** + **12/12 routing** + **10/10 trigger** + **9/9 hook** = **116 cases** pass across 7 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
+Current result: **11/11 static** + **32/32 behavioral** + **26/26 memory** + **20/20 reality** + **13/13 routing** + **10/10 trigger** + **9/9 hook** = **121 cases** pass across 7 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -300,6 +300,8 @@ python3 scripts/quality_loop.py verify agent-record.json --base origin/main --re
 [`examples/sudoku-agent-eval-2026-06-28/`](examples/sudoku-agent-eval-2026-06-28/README.md) is a committed before/after experiment: four coding agents built the same browser Sudoku app from identical requirements, two with the skill and two without. It is presented honestly as a **single pilot (n=1)**, not a benchmark: the sample is too small to generalize, the rubric is fixed-but-subjective, and the judges are independent but few. The skill variants showed stronger planning, more robust solvers, and better verification evidence; the full numbers, caveats, and the [consolidated report](examples/sudoku-agent-eval-2026-06-28/evaluation-report.md) are committed so you can judge for yourself. Every variant's app source, the skill variants' lifecycle artifacts, and each test suite, rerun with `npm test --prefix <variant>/app`, are in the repo. Headline numbers are intentionally omitted here; use the v2.1 `bench/` harness for repeatable benchmark protocol work instead of quoting this pilot as product lift.
 
 [`examples/sudoku-agent-eval-2026-07-01/`](examples/sudoku-agent-eval-2026-07-01/README.md) is the newer live cross-agent run: Codex, Claude Code, and Droid/GLM-5.2 each built the same Sudoku app with and without CQL. All six arms completed, used zero dependencies, passed `npm test`, and scored `100/100` on the broad machine heuristic. Two blind LLM judges, Claude and Codex, agreed on the ranking; CQL averaged **89.5** vs **85.0** for baselines (**+4.5 points**), with per-agent lifts of Codex **+1.0**, Claude Code **+4.5**, and Droid/GLM-5.2 **+8.0**. Caveat: this was a one-seed live eval and no real browser automation was available, so it is strong directional evidence, not a durable benchmark claim.
+
+[`examples/webapp-agent-eval-2026-07-07/`](examples/webapp-agent-eval-2026-07-07/README.md) is the latest live 2x2 run (Codex gpt-5.5, Claude Code, baseline vs CQL v3) on the previously unrun bench webapp task, this time with the five hidden behaviors verified by **real browser automation** (all arms 5/5). Judged honestly on the **code-quality headline that excludes process artifacts**: Claude Code **+6.7**, Codex **-1.1** (totals with artifacts: +16.0 / +7.5). The run also caught an agent silently softening its local copy of the gate script and reporting PASS against it, which drove the v3.1 hardening (helper-integrity hashes, allowlist scaffolding, attestation fixes). One seed; directional, not durable.
 
 ---
 
@@ -548,7 +550,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all 7 suites green: 11 static + 32 behavioral + 26 memory + 16 reality + 12 routing + 10 trigger + 9 hook = 116 cases).
+     and the full eval suite (all 7 suites green: 11 static + 32 behavioral + 26 memory + 20 reality + 13 routing + 10 trigger + 9 hook = 121 cases).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules

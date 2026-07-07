@@ -25,6 +25,7 @@ Cases (record↔reality verification):
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -467,6 +468,100 @@ def case_verify_object_ac_coverage(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; ac_failed={ac_section_failed}; overall_fail={overall_fail}"
 
 
+def case_record_only_trailing_change_stays_fresh(tmp: Path) -> tuple[bool, str]:
+    """A review attested before a .quality-loop/-only change must NOT go stale:
+    attestation hashes exclude the record dir."""
+    repo = make_repo(tmp)
+    billing = repo / "src" / "billing"
+    billing.mkdir(parents=True)
+    (billing / "invoice.py").write_text("def round_total(): return round(sum([]), 2)\n")
+    tests = repo / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_invoice.py").write_text("def test_round(): assert True\n")
+    # Track a record artifact at base so a later edit shows up in git diff.
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    (qdir / "progress.md").write_text("start\n")
+    _git(repo, "add", ".quality-loop/progress.md")
+    _git(repo, "commit", "-m", "track progress")
+    attested_hash = qlreal.diff_sha256("HEAD", cwd=repo, exclude_record_dir=True)
+    # Record-only trailing change AFTER attestation.
+    (qdir / "progress.md").write_text("start\nfinal verify evidence recorded\n")
+    record = passing_record(
+        repo,
+        independent_review={
+            "reviewer": "agent-b",
+            "verdict": "approve",
+            "fresh_context": True,
+            "patched": False,
+            "findings": [],
+            "diff_sha256": attested_hash,
+        },
+        completion_record=_completion(files=["src/billing/invoice.py", "tests/test_invoice.py"]),
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    combined = (out + err).lower()
+    ok = code == 0 and "review freshness" not in combined
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_init_record_scaffolds_allowlist(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    code, out, err = run_cli(
+        "init-record", "--goal", "Fix invoice rounding", "--risk-tier", "medium",
+        "--output", "agent-record.json", cwd=str(repo),
+    )
+    allowlist = repo / ".quality-loop" / "allowed-commands"
+    ok = code == 0 and allowlist.is_file() and "allowed-commands" in out
+    return ok, f"exit={code}; allowlist_exists={allowlist.is_file()}"
+
+
+def case_partial_install_fails_actionably(tmp: Path) -> tuple[bool, str]:
+    """A scripts/ copy missing a sibling module must fail with an actionable
+    message, not a raw ImportError traceback (agents have been observed
+    stubbing/softening the helper instead of reporting the breakage)."""
+    partial = tmp / "partial"
+    partial.mkdir()
+    src = Path(__file__).resolve().parent.parent / "scripts"
+    for name in ("quality_loop.py", "quality_loop_memory.py"):
+        (partial / name).write_text((src / name).read_text(encoding="utf-8"), encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, str(partial / "quality_loop.py"), "brief"],
+        capture_output=True, text=True, cwd=str(tmp),
+    )
+    combined = proc.stdout + proc.stderr
+    ok = (
+        proc.returncode == 2
+        and "incomplete install" in combined
+        and "Traceback" not in combined
+    )
+    return ok, f"exit={proc.returncode}; output={combined.strip()[:200]!r}"
+
+
+def case_verify_reports_helper_integrity(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    billing = repo / "src" / "billing"
+    billing.mkdir(parents=True)
+    (billing / "invoice.py").write_text("def round_total(): return round(sum([]), 2)\n")
+    tests = repo / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_invoice.py").write_text("def test_round(): assert True\n")
+    write_allowlist(repo, ["pytest*"])
+    record = passing_record(
+        repo,
+        commands_run=[],
+        completion_record=_completion(files=["src/billing/invoice.py", "tests/test_invoice.py"]),
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify", str(path), "--base", "HEAD", cwd=str(repo))
+    combined = out + err
+    has_section = "helper-integrity" in combined
+    hashes = re.findall(r"quality_loop[a-z_]*\.py: [0-9a-f]{64}", combined)
+    ok = has_section and len(hashes) == 4
+    return ok, f"exit={code}; section={has_section}; hashes={len(hashes)}"
+
+
 CASES = [
     ("phantom completion (done + empty diff) is caught", case_phantom_completion),
     ("unmapped changed file is caught (scope integrity)", case_unmapped_file),
@@ -484,6 +579,10 @@ CASES = [
     ("verify umbrella fails when a constituent section fails (verify-gates)", case_verify_umbrella_fails_when_section_fails),
     ("verify in a non-git repo emits a report instead of exit 129", case_verify_in_non_git_repo),
     ("verify AC coverage reads proving_command off object acceptance criteria", case_verify_object_ac_coverage),
+    ("record-only trailing change does not stale an attested review", case_record_only_trailing_change_stays_fresh),
+    ("init-record scaffolds the run-evidence allowlist", case_init_record_scaffolds_allowlist),
+    ("partial scripts/ install fails with an actionable message", case_partial_install_fails_actionably),
+    ("verify reports helper-integrity hashes for all four modules", case_verify_reports_helper_integrity),
 ]
 
 

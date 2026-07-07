@@ -8,6 +8,7 @@ not replace, CI, tests, security scanners, or human review.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math as _math
 import os
@@ -19,9 +20,23 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-import quality_loop_memory as qlmem
-import quality_loop_reality as qlreal
-import quality_loop_routing as qlroute
+try:
+    import quality_loop_memory as qlmem
+    import quality_loop_reality as qlreal
+    import quality_loop_routing as qlroute
+except ImportError as _exc:  # pragma: no cover - exercised via subprocess eval
+    # A partial copy of scripts/ produces a confusing ImportError; agents have
+    # been observed "repairing" the helper (and weakening gates) instead of
+    # reporting it. Fail loud and actionable instead.
+    sys.stderr.write(
+        "coding-quality-loop: incomplete install — %s.\n"
+        "The helper needs all sibling modules in the same directory: "
+        "quality_loop.py, quality_loop_memory.py, quality_loop_reality.py, "
+        "quality_loop_routing.py.\n"
+        "Copy the full scripts/ directory or re-run scripts/install.py. "
+        "Do not hand-edit or stub the helper.\n" % _exc
+    )
+    raise SystemExit(2)
 
 
 RISK_TIERS = {"low", "medium", "high"}
@@ -427,6 +442,23 @@ def init_record(args: argparse.Namespace) -> int:
     }
     write_json(Path(args.output), record)
     print(args.output)
+    # Scaffold the run-evidence allowlist next to the record so verification
+    # commands can be re-executed later. Live runs showed agents never create
+    # this file on their own, which turns run-evidence into a guaranteed FAIL.
+    allowlist = Path(args.output).resolve().parent / ".quality-loop" / "allowed-commands"
+    if not allowlist.exists():
+        try:
+            allowlist.parent.mkdir(parents=True, exist_ok=True)
+            allowlist.write_text(
+                "# Commands run-evidence may re-execute (one per line, globs ok).\n"
+                "# Add every verification command you record in commands_run, e.g.:\n"
+                "# npm test\n"
+                "# pytest tests/*\n",
+                encoding="utf-8",
+            )
+            print(f"scaffolded {allowlist} — add your verification commands to it")
+        except OSError:
+            pass
     return 0
 
 
@@ -1457,6 +1489,28 @@ def _check_ac_coverage(record: dict[str, Any]) -> list[str]:
     return findings
 
 
+HELPER_MODULES = (
+    "quality_loop.py",
+    "quality_loop_memory.py",
+    "quality_loop_reality.py",
+    "quality_loop_routing.py",
+)
+
+
+def helper_integrity() -> dict[str, str]:
+    """sha256 of each helper module as installed, so hooks/CI can detect a
+    locally modified gate script by comparing against the pinned release."""
+    here = Path(__file__).resolve().parent
+    out: dict[str, str] = {}
+    for name in HELPER_MODULES:
+        path = here / name
+        try:
+            out[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            out[name] = "missing"
+    return out
+
+
 def verify(args: argparse.Namespace) -> int:
     """Umbrella verification: record-shape gates + diff-grounded checks + evidence re-execution + AC coverage."""
     import contextlib
@@ -1535,6 +1589,17 @@ def verify(args: argparse.Namespace) -> int:
         all_findings.extend(ac_findings)
     else:
         sections.append(("AC coverage", 0, "ok"))
+
+    # 5. Helper integrity (informational): sha256 of the helper modules so a
+    #    hook/CI can compare against the pinned release and catch a locally
+    #    modified (softened) gate script. verify cannot block on this itself —
+    #    a tampered copy would lie — the value is the externally checkable hash.
+    integrity = helper_integrity()
+    sections.append((
+        "helper-integrity (informational)",
+        0,
+        "\n".join(f"{name}: {digest}" for name, digest in sorted(integrity.items())),
+    ))
 
     # Unified report
     print("=" * 60)

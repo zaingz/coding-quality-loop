@@ -96,14 +96,20 @@ def changed_files(base: str = "HEAD", cwd: Path | None = None) -> list[str]:
     return files
 
 
-def diff_patch(base: str = "HEAD", cwd: Path | None = None) -> str:
+def diff_patch(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir: bool = False) -> str:
     cwd = cwd or Path.cwd()
-    return _git_or_fail(["diff", base], cwd)
+    args = ["diff", base]
+    if exclude_record_dir:
+        # Record artifacts under .quality-loop/ (progress, rerun sidecars, the
+        # record itself) legitimately change after a review is attested; they
+        # must not invalidate the attestation.
+        args += ["--", ".", ":(exclude).quality-loop"]
+    return _git_or_fail(args, cwd)
 
 
-def diff_sha256(base: str = "HEAD", cwd: Path | None = None) -> str:
+def diff_sha256(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir: bool = False) -> str:
     """sha256 of the current diff (the normalization is the git diff itself)."""
-    return hashlib.sha256(diff_patch(base, cwd).encode("utf-8")).hexdigest()
+    return hashlib.sha256(diff_patch(base, cwd, exclude_record_dir).encode("utf-8")).hexdigest()
 
 
 def _path_matches_high_tier(path: str) -> bool:
@@ -203,6 +209,9 @@ def verify_gates_against_diff(
         except ValueError:
             record_rel = record_path.name
         files = [f for f in files if f != record_rel]
+    # Record artifacts are process output, not the change under review: they
+    # must not trip scope integrity or mask phantom completion as real work.
+    files = [f for f in files if not f.startswith(".quality-loop/")]
     status = record.get("status")
     non_trivial = risk in {"medium", "high"} or bool(record.get("security_sensitive"))
 
@@ -253,18 +262,22 @@ def verify_gates_against_diff(
     if non_trivial and isinstance(review, dict):
         recorded_hash = review.get("diff_sha256")
         try:
-            actual_hash = diff_sha256(base, cwd)
+            # Attestation hashes exclude .quality-loop/ so record-only trailing
+            # commits (evidence, progress) do not go stale. Records attested by
+            # older versions carry the full-diff hash; accept either.
+            valid_hashes = {diff_sha256(base, cwd, exclude_record_dir=True), diff_sha256(base, cwd)}
         except SystemExit:
-            actual_hash = None
+            valid_hashes = set()
         if not recorded_hash:
             findings.append(
                 "review freshness: independent_review has no diff_sha256 at medium+ risk "
                 "(attest the review with `attest-review`)"
             )
-        elif actual_hash and recorded_hash != actual_hash:
+        elif valid_hashes and recorded_hash not in valid_hashes:
             findings.append(
                 "review freshness: independent_review.diff_sha256 does not match the "
-                "current diff (stale review — re-attest after the last edit)"
+                "current diff (stale review — re-attest after the last non-record edit; "
+                "changes under .quality-loop/ are excluded)"
             )
 
     # 6. Promote diff-audit secret/test-weakening warnings to blocking at medium+.
@@ -282,10 +295,14 @@ def attest_review(
     base: str = "HEAD",
     cwd: Path | None = None,
 ) -> dict[str, Any]:
-    """Embed a recomputed diff sha256 into a review object (the reviewer's last act)."""
+    """Embed a recomputed diff sha256 into a review object (the reviewer's last act).
+
+    The hash excludes .quality-loop/ so that record-only follow-up commits
+    (completion record, progress, rerun sidecars) do not invalidate the review.
+    """
     cwd = cwd or Path.cwd()
     out = dict(review)
-    out["diff_sha256"] = diff_sha256(base, cwd)
+    out["diff_sha256"] = diff_sha256(base, cwd, exclude_record_dir=True)
     out["attested_at"] = datetime.now().isoformat(timespec="seconds")
     return out
 
@@ -370,7 +387,8 @@ def run_evidence(
             continue
         if not _command_allowed(cmd, allowlist):
             findings.append(
-                "run-evidence: command not on allowlist (.quality-loop/allowed-commands): %s"
+                "run-evidence: command not on allowlist (.quality-loop/allowed-commands): %s "
+                "— to allow it, add a matching line (globs ok) to .quality-loop/allowed-commands"
                 % ql.redact(cmd)
             )
             reruns.append({

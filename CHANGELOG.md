@@ -2,10 +2,46 @@
 
 ## 3.1.0
 
-Capability-aware, cost-disciplined routing. Adds the model vocabulary and effort
-guardrail the step-routing layer was missing.
+Capability-aware, cost-disciplined routing, plus reality-layer hardening from
+the first live 2x2 webapp eval (`examples/webapp-agent-eval-2026-07-07/`).
 
 ### Added
+
+- **Allowlist scaffolding.** `init-record` now creates
+  `.quality-loop/allowed-commands` with usage guidance; both live CQL arms
+  failed `run-evidence` solely because the file never existed. The
+  `not_allowed` finding now says how to fix it.
+- **Helper-integrity reporting.** `verify` prints the sha256 of each helper
+  module so a hook or CI can catch a locally modified gate script. Motivated by
+  a live run where the agent silently softened `diff-audit` in its workspace
+  copy and reported PASS against it. SKILL.md adds the rule: never repair or
+  stub the helper; report breakage and stop.
+- **Actionable partial-install failure.** A `scripts/` copy missing a sibling
+  module exits 2 with a clear "incomplete install" message instead of an
+  ImportError traceback.
+- **Product floor in Calibration.** For user-facing tasks the validation
+  contract must include keyboard/labeled/a11y basics, no `prompt()`/`confirm()`
+  primary flows, and a class-appropriate test floor; the reviewer checklist
+  scores product fitness (live data: Codex +7.5 total but −1.1 code-quality).
+- **`hosts/codex/README.md`** documenting `workspace-write` sandbox limits
+  (`.git` writes and port binding blocked) and the candor rule for blocked steps.
+- **`bench/live-run-recipe.md`** capturing the proven live-eval mechanics:
+  clean-home isolation, drop-in delivery, browser-verified hidden behaviors,
+  scrubbed two-judge blind protocol, pristine-gate re-runs.
+- **4 new reality eval cases** (20 total): record-only trailing change stays
+  fresh, allowlist scaffolding, partial-install error, helper-integrity output.
+
+### Fixed
+
+- **Attestation staleness chicken-and-egg.** `attest-review` hashes the diff
+  excluding `.quality-loop/`, so recording final verify evidence after
+  attestation no longer stales the review. Freshness checks accept legacy
+  full-diff hashes. Any code edit after attestation still requires re-attesting.
+- **Scope integrity vs record artifacts.** Changed files under `.quality-loop/`
+  no longer count as unmapped code changes (and no longer mask phantom
+  completion as real work).
+
+### Added (routing)
 
 - **Reasoning-effort ceiling.** `check-config` now rejects `xhigh`/`max` in
   `model_routing.host_models` unless the specific model-class block sets
