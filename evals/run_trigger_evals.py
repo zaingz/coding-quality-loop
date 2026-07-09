@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Opt-in trigger evals for SKILL.md activation."""
+"""Opt-in trigger smoke fixture for SKILL.md activation.
+
+The default grader (`heuristic` below) is a keyword-overlap check whose word lists
+were reverse-engineered from these same prompts, so it structurally cannot fail —
+it is a smoke fixture, not a gate. A real activation check requires `--judge-command`
+with an LLM judge. These cases are therefore EXCLUDED from the offline gate-case
+count (see evals/README.md and evals/run_evals.py:CANONICAL_GATE_CASES).
+"""
 
 from __future__ import annotations
 
@@ -46,7 +53,8 @@ def main() -> int:
             failures += 0 if ok else 1
             print(f"[{'PASS' if ok else 'FAIL'}] {label}: {prompt} -> {actual}")
     total = len(data["should_trigger"]) + len(data["should_not_trigger"])
-    print(f"\n{total - failures}/{total} trigger eval cases passed")
+    grader = "LLM judge" if args.judge_command else "keyword-overlap smoke grader"
+    print(f"\n{total - failures}/{total} trigger smoke cases passed ({grader})")
     return 1 if failures else 0
 
 

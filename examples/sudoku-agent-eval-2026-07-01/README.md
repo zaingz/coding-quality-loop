@@ -61,3 +61,15 @@ Important caveats:
   run artifacts, not committed.
 
 The sanitized result data is in [`results.json`](results.json).
+
+## Methodology note (appended 2026-07-09)
+
+This run's arms were built through **model-proxy subagents**, not the real Codex / Claude Code /
+Droid CLIs. The evidence is a cross-reference from a later eval:
+[`rust-procmon-eval-2026-07-03`](../rust-procmon-eval-2026-07-03/README.md) caveat #2 records that
+its arms used "a Perplexity subagent whose underlying model matched the target … **same pattern as
+the existing `examples/sudoku-agent-eval-2026-07-01/` in this repo**." So the "live agent arms"
+wording above means model-family-matched proxies, not tool-identical CLI sessions — a real CLI run
+would differ in tool defaults, session state, and prompts. This note is appended for accuracy and
+does not change the numbers above. The only unambiguously real-CLI eval in the repo is
+[`webapp-agent-eval-2026-07-07`](../webapp-agent-eval-2026-07-07/README.md).

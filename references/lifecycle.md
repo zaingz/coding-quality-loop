@@ -2,31 +2,33 @@
 
 ## Canonical Operating Model: Three Phases
 
-An LM runs a plan-execute-review loop. Context is a budget. Verification terminates each
-phase. The canonical operating model is three phases, each closed by its own verification
-gate before the next may start:
+An LM runs a plan-execute-review loop, and context is a budget. **PLAN → EXECUTE → REVIEW** is
+the narrative grouping the loop is organized around — it is *not* a field in the record and
+nothing enforces it directly. The mechanism underneath is the record's `status` field and the
+gates that read it (see the state machine below). Phases are how we talk about the work; the
+`status` value is how the checker reasons about it. Each phase is conventionally closed by a
+verification gate before the next begins:
 
 ```text
 PLAN -> EXECUTE -> REVIEW
 ```
 
 - **PLAN** — turn the goal into a task contract, map the change, write the validation
-  contract, apply the right-size gate, and produce a plan. Terminates when the plan and
-  (for non-trivial work) the validation contract exist and are checkable.
-- **EXECUTE** — implement in small slices and verify. Terminates when the smallest
-  sufficient checks pass with recorded evidence.
-- **REVIEW** — independent review and ship/handoff. Terminates when a fresh-context
-  reviewer has checked the diff against the validation contract and, for non-trivial work,
-  a completion record exists.
+  contract, apply the right-size gate, and produce a plan. Closes when the plan and (for
+  non-trivial work) the validation contract exist and are checkable.
+- **EXECUTE** — implement in small slices and verify. Closes when the smallest sufficient
+  checks pass with recorded evidence.
+- **REVIEW** — independent review and ship/handoff. Closes when a fresh-context reviewer has
+  checked the diff against the validation contract and, for non-trivial work, a completion
+  record exists.
 
 ## Sub-Steps and Machine Aliases
 
-Every earlier sub-step inherits one of the three phases above; nothing is unlabeled. The
-helper script, config, and state record use stable short machine names for these sub-steps,
-unchanged from prior versions, so existing records, configs, and automation keep working.
-The pre-2.4.0 nine-step chain (retained below only as a historical cross-reference; see
-`CHANGELOG.md` for the full v2.3.x lineage) mapped one-to-one onto these sub-steps and now
-maps onto the three phases as shown in the table:
+Every sub-step inherits one of the three phases above; nothing is unlabeled. The sub-step
+machine names below correspond to the record's `status` values (lowercased) — and `status`,
+not any phase field, is what the gates key off. The names are stable across the v3.x line, so
+existing records, configs, and automation keep working. Each sub-step maps onto a phase as
+shown:
 
 | Phase | Canonical sub-step | Machine name | Primary artifact |
 |---|---|---|---|
@@ -61,14 +63,9 @@ INTAKE
 
 ## Task Classes
 
-Default to the smallest class that safely satisfies the goal.
-
-| Class | Looks like | Process |
-|---|---|---|
-| Tiny | typo, copy, one-line config, obvious test update | inspect, edit, smallest check; no mission artifacts |
-| Small | local bug, one module, low risk | light context map, mini spec, minimal fix, targeted test |
-| Medium | multiple files, feature, migration, auth/payment/data risk | full spec + validation contract, plan, independent review, completion record |
-| Mission | multi-day, multi-module, multi-repo, uncertain architecture | orchestrator + workers + validators, milestones, shared mission artifacts |
+Default to the smallest class that safely satisfies the goal. The canonical class table
+(Tiny / Small / Medium / Mission and the process each requires) is **SKILL.md §Task Classes**;
+the per-state exit criteria below apply within whichever class you pick.
 
 ## State Exit Criteria
 
@@ -121,7 +118,8 @@ Good plans name files or modules, but they do not pretend to know every edit bef
 
 ### MINIMALITY_GATE
 
-Exit when the agent has chosen and justified one rung:
+Exit when the agent has chosen and justified one rung (canonical ladder and its rationale:
+SKILL.md §Right-Size Gate). Machine values for the record:
 
 `skip | delete | reuse | stdlib | native | existing_dependency | one_liner | minimal_new_code`
 

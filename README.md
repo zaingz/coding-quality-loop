@@ -14,10 +14,10 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-4.0.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-4.1.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-121%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-130%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-111111?style=flat-square)](#install--use-matrix)
@@ -56,7 +56,7 @@ You ask your agent to *"fix the checkout retry bug."*
 
 That is the whole idea: smaller changes, real proof, a second set of eyes, and memory that sticks. The work scales to the risk: a typo just gets fixed; a payment migration runs the full process. See a real worked example in [`examples/walkthrough/`](examples/walkthrough/README.md).
 
-- **New in 4.0.0**: trust-the-gates hardening from a two-reviewer audit. `diff-audit` now separates **blocking** findings (secrets, test-weakening) from **advisory** ones (dependency bump, migration touch, large diff, notes) so a benign lockfile change no longer forces `Overall: FAIL`; `verify --base` falls back cleanly on a fresh detached checkout; the lifecycle models a `RETROSPECT` step; an `advisor` role (cheap executor consults a strong model at reasoning walls) is the default below high-risk; and version is now a single source of truth that `check-config` enforces. The dead classifier path and the `archive/` tree are gone. See [`CHANGELOG.md`](CHANGELOG.md#400) for the full list.
+- **New in 4.1.0**: the trust chain closes end-to-end on top of the 4.0.0 gate-hardening base. The GitHub Action executes its **own pinned copy** of the gate scripts (the documented soften-and-commit attack now fails in CI, pinned by a red-team eval case); the stop gate fires at verify/review with a dirty tree and fails **closed** on an unreadable record; `verify --require-terminal` blocks work shipped without closing the loop; live bench runs must record **cost/tokens/duration** or fail validation; and the eval table publishes all five runs with methodology labels — negatives included. The 4.0.0 base itself added the blocking/advisory `diff-audit` split, the `RETROSPECT` lifecycle step, and the `advisor` role. See [`CHANGELOG.md`](CHANGELOG.md) for the full list.
 
 <details>
 <summary><strong>What the agent produces, step by step</strong></summary>
@@ -195,7 +195,7 @@ Every claim on this page is checkable on a clean checkout with no dependencies. 
 
 <div align="center">
 
-<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard — 121 offline gate cases across 7 suites (11 static, 32 behavioral, 26 memory, 20 reality, 13 routing, 10 trigger, 9 hook); per-agent code-quality lift excluding process artifacts: Droid/GLM-5.2 +8.0, Claude Code +6.67 (webapp) and +4.5 (Sudoku), Codex +1.0 (Sudoku) and −1.11 (webapp); zero runtime dependencies; five supported hosts; three live cross-agent evals." width="900">
+<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard — 130 offline gate cases across 6 suites (11 static, 39 behavioral, 26 memory, 23 reality, 15 routing, 16 hook), plus a 10-case trigger smoke fixture; per-agent code-quality lift excluding process artifacts: Droid/GLM-5.2 +8.0, Claude Code +6.67 (webapp) and +4.5 (Sudoku), Codex +1.0 (Sudoku) and −1.11 (webapp); zero runtime dependencies; five supported hosts; five published eval runs." width="900">
 
 </div>
 
@@ -212,7 +212,7 @@ python3 evals/run_routing_evals.py                                              
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 10. bench fixture smoke
 ```
 
-Current result: **11/11 static** + **32/32 behavioral** + **26/26 memory** + **20/20 reality** + **13/13 routing** + **10/10 trigger** + **9/9 hook** = **121 cases** pass across 7 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
+Current result: **11/11 static** + **39/39 behavioral** + **26/26 memory** + **23/23 reality** + **15/15 routing** + **16/16 hook** = **130 gate cases** across 6 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). A separate **10-case trigger smoke** fixture runs locally (step 8 above): its default grader is keyword-overlap and structurally cannot fail, so it is excluded from the gate count — a real activation check needs `--judge-command` with an LLM judge.
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -225,9 +225,19 @@ Current result: **11/11 static** + **32/32 behavioral** + **26/26 memory** + **2
 
 </details>
 
-### Live cross-agent evals
+### The published eval runs
 
-Three real runs are published with source, numbers, and caveats: the [Sudoku 06-28 pilot](examples/sudoku-agent-eval-2026-06-28/README.md) (n=1, headline numbers withheld), the [Sudoku 07-01](examples/sudoku-agent-eval-2026-07-01/README.md) six-arm run (CQL **+4.5** avg; per-agent Codex +1.0 / Claude +4.5 / GLM-5.2 +8.0), and the [Webapp 07-07](examples/webapp-agent-eval-2026-07-07/README.md) 2×2 run judged on code-quality excluding process artifacts (Claude **+6.67**, Codex **−1.11**). All directional, not durable benchmark claims. The benchmark harness, fixture-smoke result, and ablation protocol live in [`bench/`](bench/ablation-protocol.md).
+Five eval directories are committed with source, numbers, and caveats. Read them honestly: **every cell is n=1** (single seed), judges are same-family LLMs, and only the **webapp** run is unambiguously real-CLI — the others are model-proxy or have no recorded invocation method. We publish the negatives (ts-search Codex **−9.0**, webapp Codex **−1.11**) next to the positives on purpose; the omitted negative was the most credible asset we were hiding.
+
+| Eval | Date | Task | Agents | Methodology | Headline result (incl. negatives) |
+|---|---|---|---|---|---|
+| [Sudoku 06-28](examples/sudoku-agent-eval-2026-06-28/README.md) | 2026-06-28 | Browser Sudoku app | "Claude-style" + "OpenAI-style", skill vs baseline | Methodology not recorded (build invocation undocumented) | Skill avg 90.8 vs 83.3 baseline (~+7.5); original pilot |
+| [Sudoku 07-01](examples/sudoku-agent-eval-2026-07-01/README.md) | 2026-07-01 | Browser Sudoku app | Codex, Claude Code, Droid/GLM-5.2 | Model-proxy (Perplexity subagents, per procmon cross-ref); no browser automation | CQL +4.5 avg (Codex +1.0, Claude Code +4.5, Droid/GLM-5.2 +8.0) |
+| [ts-search 07-03](examples/ts-search-eval-2026-07-03/README.md) | 2026-07-03 | TS in-memory search library | Codex (GPT-5), Claude Code (Sonnet 5) | Subagent proxy (not the real CLIs) | Claude Code **+15.0**; Codex **−9.0** (a 60× slower single-term strategy crushed the perf dimension) |
+| [procmon 07-03](examples/rust-procmon-eval-2026-07-03/README.md) | 2026-07-03 | Rust process manager | Codex (GPT-5), Claude Code (Sonnet 4.6) | Model-proxy (Perplexity subagents) | Overall +5.75 (Codex +4.0, Claude +7.5) — almost all from D7 artifacts; code-quality dims flat-to-worse |
+| [Webapp 07-07](examples/webapp-agent-eval-2026-07-07/README.md) | 2026-07-07 | Browser task manager | Codex (gpt-5.5), Claude Code (claude-fable-5) | Live CLI + real browser verification (drop-in delivery) | Code-quality **excl. D7**: Claude Code **+6.67**, Codex **−1.11** (totals with D7: +16.0 / +7.5) |
+
+All directional, not durable benchmark claims. The webapp run also caught an agent silently softening its local copy of the gate script and reporting PASS against it — see the panel below. The benchmark harness, fixture-smoke result, and ablation protocol live in [`bench/`](bench/ablation-protocol.md).
 
 ### The gate-gaming story
 
@@ -260,6 +270,10 @@ A tiny task must **not** be forced through mission ceremony. A medium task must 
 | **Small** | Local bug, one module, low risk. | Quick context map, mini spec, minimal fix, targeted test. |
 | **Medium** | Multiple files, a feature, a migration, auth/payment/data risk. | Validation contract, plan, right-size gate, **independent review**, completion record. |
 | **Mission** | Multi-day, multi-module, multi-repo, uncertain architecture. | Orchestrator + worker tasks + validators, milestones, shared artifacts. |
+
+### What the loop costs
+
+Process is not free, and we measure it like everything else. A full **medium** loop adds roughly **15,000–22,000 tokens** of process scaffolding (skill text, pulled references, role prompts, subcommand output) before the agent reads a line of your code, and the live webapp run measured **3–6× wall time** versus baseline. That is the bill for the contract, the evidence, and the second set of eyes. Two controls keep the bill honest: ceremony scales with risk (a tiny task pays almost none of it), and **every gate must earn its tokens** — gates are added or kept only on measured eval lift, and deletions are wins ([policy](references/philosophy.md)). Live sweeps must record per-arm cost, and `python3 bench/runner.py --validate` fails any that don't.
 
 ---
 
@@ -422,6 +436,8 @@ Other strong skills make different bets, and they are worth your time: [**superp
 
 The Coding Quality Loop's bet is narrower: **executable gates plus candor.** It is one dependency-free package where the non-negotiables are checked by a script you can read and run, and where the README tells you exactly what the script does *not* check. It is positioned against two failure modes, not against other skills: instruction-only prompts that **drift**, and full autonomy that produces **unreviewable diffs**.
 
+That bet matters more in 2026, not less, because the hosts have absorbed orchestration itself: Claude Code ships subagents, agent teams, and dynamic workflows natively, and the advisor pattern is an API primitive. Orchestration is now the host's job. What no host ships is the layer this package is: a **harness-neutral evidence record** with diff-grounded gates, **enforced cross-vendor reviewer heterogeneity** (the implementer and validator cannot resolve to the same model on medium+ — checked by `check-config`, not by trust), and an **offline eval suite of the harness itself**, so the process is regression-tested like code instead of drifting with each model release.
+
 For a longer, per-feature comparison (with explicit non-goals and a migration path), see [`docs/comparison.md`](docs/comparison.md).
 
 ---
@@ -455,7 +471,7 @@ Eight defaults the loop encodes, not slogans:
 5. **Deterministic gates over vibes** — when a rule matters, a hook or check enforces it.
 6. **Repo maps over context stuffing** — a concise map beats reading the whole tree.
 7. **Durable harness changes over repeated chat corrections** — a fix becomes a rule, not a re-explanation.
-8. **Calibrate ceremony to model strength** — the same scaffolding helps weaker models and can hurt stronger ones. Strong models skip ceremony on tiny/small; weaker models get full scaffolding; review is paid only when the task exceeds what the model does reliably solo. The harness optimizes for code quality (the outcome), not artifact production.
+8. **Calibrate to the model, not to a strength gradient** — the scaffold–model interaction is model-specific: the same loop helps some models and hurts others, and the sign of the effect does not track raw model strength. Calibrate per model — skip ceremony where a given model is reliable solo on tiny/small, run full scaffolding where it is not, and pay for review only when the task exceeds what that model does reliably alone. The harness optimizes for code quality (the outcome), not artifact production.
 
 Read the full manifesto: problem framing, trends, honestly-cited inspirations, and explicit non-goals, in [`references/philosophy.md`](references/philosophy.md).
 
@@ -476,11 +492,11 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   provenance is not hand-faked.
 - **Skills Hub publish checklist.** Before publishing to the
   [agentskills.io](https://agentskills.io) Skills Hub:
-  1. Bump `packages/npm/package.json` and tag a release (`git tag v4.0.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
+  1. Bump `packages/npm/package.json` and tag a release (`git tag v4.1.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all 7 suites green: 11 static + 32 behavioral + 26 memory + 20 reality + 13 routing + 10 trigger + 9 hook = 121 cases).
+     and the full eval suite (all 6 gate suites green: 11 static + 39 behavioral + 26 memory + 23 reality + 15 routing + 16 hook = 130 gate cases, plus the 10-case trigger smoke fixture).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules

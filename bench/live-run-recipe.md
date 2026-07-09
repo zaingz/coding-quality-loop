@@ -41,6 +41,30 @@ every run is isolated, contamination-checked, and blind-judged the same way.
 
 ## Record for every cell
 
-Host + version, model, seed, prompt file, wall time, cost, artifacts location,
-and null results. Commit sanitized results only; keep raw workspaces and
-transcripts local.
+Host + version, model, seed, prompt file, artifacts location, and null results,
+plus the per-arm process-tax fields the bench runner now enforces for every live
+(non-fixture) run:
+
+- `cost_usd` — USD spend for the arm (record `0` under a flat-rate subscription
+  and note it; the value must still be present).
+- `tokens_in` — input/prompt tokens consumed.
+- `tokens_out` — output/completion tokens produced.
+- `duration_sec` — wall time for the arm.
+
+The runner rejects any live run that omits these keys or reports zero tokens or
+zero duration (a run that consumed nothing was not instrumented):
+
+```bash
+python3 bench/runner.py --validate bench/results/<live-results>.json
+```
+
+Fixture runs carry explicit zero placeholders and are exempt (they set
+`mode: "fixture"`); a run with no `mode` is treated as live and must be
+instrumented.
+
+Token counts come from the host CLI's own end-of-run usage summary (`claude` and
+`codex` both print a usage/token summary at the end of a run — see the host CLI
+usage output; do not invent flags). Convert those token counts to `cost_usd`
+with the model's published rate.
+
+Commit sanitized results only; keep raw workspaces and transcripts local.

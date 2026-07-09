@@ -48,17 +48,17 @@ Advisory text drifts across sessions; a gate either fires or it does not.
 | `run-evidence` | Re-executes recorded pass commands from the record's allowlist. `--red-green` replays a red_green command in a worktree at base and HEAD. |
 | `attest-review` | Embeds a recomputed diff hash so a review verdict cannot silently outlast the diff it approved. |
 | `scan-text --stdin` | Secret-scan-as-a-service, for hook shims and paste boxes. |
-| `check-record` | Structural lint of a state record against `assets/agent-record.schema.json`. Validates the optional `phase` field against the `plan|execute|review|done|escalated` enum. |
+| `check-record` | Structural lint of a state record against `assets/agent-record.schema.json`. The record's state machine is the `status` field; a legacy `phase` field is tolerated and ignored (removed in v3.2). |
 | `check-config` | Structural lint of `quality-loop.config.json` against `assets/quality-loop.config.schema.json`. |
 | `eval-cases` | Runs offline eval cases that pin task-class, risk-tier, gate, security-reviewer, completion-record, and right-size-gate logic. |
-| `init-record` / `brief` / `setup-models` | Housekeeping and reporting. `init-record` accepts `--phase {plan,execute,review,done,escalated}` to pin the initial phase. |
+| `init-record` / `brief` / `setup-models` | Housekeeping and reporting. `init-record` scaffolds the record and the run-evidence allowlist. |
 
 These commands are **portable and stdlib-only**. They complement CI, tests, scanners, and
 human review; they do not replace them. The runtime dependency count is zero.
 
 ### 3. Multi-agent roles (the loop)
 
-The canonical model since v2.4 is three phases — **PLAN → EXECUTE → REVIEW** — each closed by its own verification gate before the next may start. The nine sub-steps (`INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN`, `IMPLEMENT_SLICE`, `VERIFY`, `REVIEW`, `PACKAGE`, `RETROSPECT`) map onto the three phases and stay valid as machine names in every record and config. Each step can run as a different agent, model, or tool profile, mapped by **role** rather than vendor:
+The loop narrative groups work into three phases — **PLAN → EXECUTE → REVIEW** — each closed by its own verification gate before the next may start. The phases are presentation; the enforced state machine is the record's `status` field walking the nine sub-steps (`INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN`, `IMPLEMENT_SLICE`, `VERIFY`, `REVIEW`, `PACKAGE`, `RETROSPECT`), which stay valid as machine names in every record and config. Each step can run as a different agent, model, or tool profile, mapped by **role** rather than vendor:
 
 <div align="center">
 

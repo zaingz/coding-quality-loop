@@ -27,22 +27,15 @@ citations behind each move live in [`philosophy.md`](philosophy.md) (§ Trends w
    long-horizon work orchestratable.
 4. **Independent verification** — implementer and validator separated for non-trivial work;
    the implementer is never the final validator.
-5. **Complexity discipline** — the right-size gate (deletion → reuse → stdlib → native →
-   existing dependency → one-liner → minimal new code), applied before planning and again
-   before review.
+5. **Complexity discipline** — the right-size gate, applied before planning and again before
+   review. Canonical rung ladder: SKILL.md §Right-Size Gate.
 
 ## Task Classes
 
-Default to the smallest class that safely satisfies the goal.
-
-| Class | Triggers | Artifacts | Roles |
-|---|---|---|---|
-| **Tiny** | typo, copy, one-line config, obvious test update | none beyond the handoff | one agent |
-| **Small** | local bug, one module, low risk | context map (light), mini spec, targeted test | one agent |
-| **Medium** | multiple files, feature, migration, auth/payment/data risk | validation contract, plan, completion record | implementer + independent validator (+ security reviewer at boundaries) |
-| **Mission** | multi-day, multi-module, multi-repo, uncertain architecture | all mission artifacts + milestones | orchestrator + context mapper + workers + validators + simplicity/security reviewers |
-
-Scaling rules:
+Default to the smallest class that safely satisfies the goal. The canonical class definitions
+(Tiny / Small / Medium / Mission) and the process each requires live in **SKILL.md §Task
+Classes**; per-class role mapping is in `agentic-orchestration.md`. This document adds only the
+scaling rules:
 
 - A tiny task must not be forced through mission ceremony.
 - A medium task must not ship without a validation contract and an independent review.
@@ -68,7 +61,8 @@ Adopt the lightest mode that fits; combine as risk grows.
 
 ## Tool Surface
 
-The minimum tool set, useful extensions, and the "MCP only when" rule are defined once in
+The minimum tool set, useful extensions, and the "MCP only when it removes a real manual loop"
+rule are defined once in
 [`tool-contracts.md` § Tool Surface Guidance](tool-contracts.md#tool-surface-guidance).
 
 ## The Improvement Loop
@@ -83,4 +77,5 @@ validation checks ([OpenAI Agent Improvement Loop](https://developers.openai.com
    review-checklist item, a repo-map entry, or a validation-contract template.
 4. Pin a regression eval so the fix sticks.
 
-Every repeated failure becomes a durable harness change, not a repeated chat correction.
+Every repeated failure becomes a durable harness change (canonical: SKILL.md §RETROSPECTIVE) —
+not a repeated chat correction.

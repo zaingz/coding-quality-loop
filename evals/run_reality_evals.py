@@ -20,6 +20,8 @@ Cases (record↔reality verification):
  10.  scan-text --stdin catches a secret
  11.  a clean, well-mapped record passes --against-diff
  12.  run-evidence refuses a command not on the allowlist
+ 13.  a softened local gate script passes locally but the pinned CI copy still
+      blocks the same phantom-completion record (F1 CI trust anchor)
 """
 
 from __future__ import annotations
@@ -558,6 +560,51 @@ def case_partial_install_fails_actionably(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={proc.returncode}; output={combined.strip()[:200]!r}"
 
 
+def case_ci_anchor_defeats_softened_local_script(tmp: Path) -> tuple[bool, str]:
+    """Red-team replay of the documented gate-softening attack (F1).
+
+    An agent can soften the gate script inside the repo under review and make
+    the LOCAL invocation pass. CI must still catch the lie because it runs the
+    action's OWN pinned copy (simulated here by the real repo's absolute-path
+    script) instead of the checkout copy. This pins the VERIFY half of the
+    trust-anchor property: a pristine copy catches the lie a softened copy
+    hides. The ACTION half — that action.yml actually invokes the pinned copy —
+    is pinned separately by case_action_invocations_are_pinned.
+    """
+    repo = make_repo(tmp)
+
+    # 1. Attacker softens the LOCAL gate script AND commits it — the exact
+    #    attack the README documents. Committing keeps the working tree clean,
+    #    so the record's "done" claim is a genuine phantom completion.
+    local_scripts = repo / "scripts"
+    local_scripts.mkdir(parents=True, exist_ok=True)
+    softened = local_scripts / "quality_loop.py"
+    softened.write_text("import sys\nprint('PASS')\nsys.exit(0)\n", encoding="utf-8")
+    _git(repo, "add", "scripts/quality_loop.py")
+    _git(repo, "commit", "-m", "soften gate")
+
+    # A garbage record claiming done with no real diff and fabricated evidence
+    # (passing_record's evidence strings are self-declared; the tree is clean).
+    record = passing_record(repo)
+    path = write_record(repo, record)
+
+    # 2. The softened LOCAL copy passes — the local attack "succeeds".
+    local = subprocess.run(
+        [sys.executable, str(softened), "verify", str(path), "--base", "HEAD"],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(repo), check=False,
+    )
+    local_attack_succeeds = local.returncode == 0
+
+    # 3. The REAL pinned copy (absolute path == GITHUB_ACTION_PATH copy) still
+    #    catches the phantom completion against the same repo/record.
+    code, out, err = run_cli("verify", str(path), "--base", "HEAD", cwd=str(repo))
+    combined = (out + err).lower()
+    ci_blocks = code != 0 and "phantom completion" in combined
+
+    ok = local_attack_succeeds and ci_blocks
+    return ok, f"local_exit={local.returncode}; ci_exit={code}; ci_flagged_phantom={'phantom completion' in combined}"
+
+
 def case_verify_reports_helper_integrity(tmp: Path) -> tuple[bool, str]:
     repo = make_repo(tmp)
     billing = repo / "src" / "billing"
@@ -577,11 +624,29 @@ def case_verify_reports_helper_integrity(tmp: Path) -> tuple[bool, str]:
     combined = out + err
     has_section = "helper-integrity" in combined
     hashes = re.findall(r"quality_loop[a-z_]*\.py: [0-9a-f]{64}", combined)
-    ok = has_section and len(hashes) == 4
+    ok = has_section and len(hashes) == 5
     return ok, f"exit={code}; section={has_section}; hashes={len(hashes)}"
 
 
+def case_action_invocations_are_pinned(tmp: Path) -> tuple[bool, str]:
+    """Pin the ACTION half of the trust anchor: every python invocation in
+    action.yml must run the action's own copy via GITHUB_ACTION_PATH. If a
+    revert reintroduces `python3 scripts/quality_loop.py` (the checkout copy),
+    the documented soften-and-commit attack works end-to-end again."""
+    text = (ROOT / "action.yml").read_text(encoding="utf-8")
+    offenders = [
+        line.strip()
+        for line in text.splitlines()
+        if ("python3" in line or "python " in line)
+        and "GITHUB_ACTION_PATH" not in line
+        and not line.strip().startswith("#")
+    ]
+    ok = not offenders and "GITHUB_ACTION_PATH" in text
+    return ok, f"python_lines_unpinned={offenders!r}"
+
+
 CASES = [
+    ("action.yml python invocations all run the pinned copy", case_action_invocations_are_pinned),
     ("phantom completion (done + empty diff) is caught", case_phantom_completion),
     ("unmapped changed file is caught (scope integrity)", case_unmapped_file),
     ("auth path under a low tier is caught (diff-derived risk floor)", case_auth_path_low_tier),
@@ -602,7 +667,8 @@ CASES = [
     ("record-only trailing change does not stale an attested review", case_record_only_trailing_change_stays_fresh),
     ("init-record scaffolds the run-evidence allowlist", case_init_record_scaffolds_allowlist),
     ("partial scripts/ install fails with an actionable message", case_partial_install_fails_actionably),
-    ("verify reports helper-integrity hashes for all four modules", case_verify_reports_helper_integrity),
+    ("softened local gate script passes locally but CI pinned copy still blocks (F1 trust anchor)", case_ci_anchor_defeats_softened_local_script),
+    ("verify reports helper-integrity hashes for all five modules", case_verify_reports_helper_integrity),
 ]
 
 

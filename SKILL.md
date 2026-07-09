@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "4.0.0"
+  version: "4.1.0"
 ---
 
 # Coding Quality Loop
@@ -33,11 +33,11 @@ PLAN -> EXECUTE -> REVIEW
 - **EXECUTE** — implement in small slices, verify with evidence. Gate: smallest sufficient checks pass with recorded evidence.
 - **REVIEW** — independent review, ship/handoff, retrospective. Gate: fresh-context reviewer checked the diff against the contract; completion record exists for non-trivial work.
 
-Sub-step machine names (for records/configs): `INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN` (PLAN); `IMPLEMENT_SLICE`, `VERIFY` (EXECUTE); `REVIEW`, `PACKAGE`, `RETROSPECT` (REVIEW). The helper script maps `status` to `phase` via `resolve_phase()`.
+Sub-step machine names (for records/configs): `INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN` (PLAN); `IMPLEMENT_SLICE`, `VERIFY` (EXECUTE); `REVIEW`, `PACKAGE`, `RETROSPECT` (REVIEW). The record's `status` field is the state machine the gates read; the three phases are narrative grouping, not a record-level field anything enforces.
 
 ## Calibration (model-adaptive ceremony)
 
-The same scaffolding helps weaker models and can hurt stronger ones. In our own evals, CQL lifted GLM-5.2 +8.0, Claude +4.5, Codex +1.0 on a Sudoku task, but **hurt** GPT-5 by −9.0 on a search-library task where the right-size gate pushed it into a 60x-slower monolith. Calibrate:
+The scaffold–model interaction is **model-specific, not a strength gradient**. The same loop helps some models and hurts others, and the sign of the effect does not track model strength — it must be calibrated per model. Our own evals show this: CQL's largest lifts landed on Claude, a frontier model (+4.5 Sudoku, +6.67 webapp, +15.0 ts-search), while GLM-5.2 also gained (+8.0 Sudoku) and Codex/GPT-5 was flat-to-negative in every eval with an identified mechanism (+1.0 Sudoku, −1.1 webapp code quality, −9.0 ts-search, where the right-size gate pushed it into a 60x-slower monolith). Strength did not predict who was helped. Calibrate to the model in front of you, using the notes below:
 
 - **Strong models** (frontier-class): skip ceremony on tiny/small. For medium+, write the validation contract and run independent review, but do not over-constrain the plan. Add an explicit anti-compression rule: the right-size gate is about diff size and dependency minimality, not about collapsing architecture into fewer files. Do not monolith.
 - **Weaker models**: run full scaffolding. The validation contract and context map prevent the most common failure: wrong-layer fixes and unmapped blast radius.
@@ -90,7 +90,7 @@ For non-trivial changes, a **fresh-context** reviewer (separate session, differe
 Return a PR-ready handoff and, for non-trivial tasks, a completion record: goal, contract, implementation summary, files changed, right-size decision, verification evidence, risks/rollback, follow-ups.
 
 ### RETROSPECTIVE
-Every **repeated** mistake becomes a durable harness change: a rule, a test, a hook, a checklist item, an eval case. Not a repeated chat correction. When a verification failure recurs, record `repeated_failure: true` and capture the durable fix in `harness_update`.
+Every repeated mistake becomes a durable harness change: a rule, a test, a hook, a checklist item, an eval case — never a repeated chat correction. When a verification failure recurs, record `repeated_failure: true` and capture the durable fix in `harness_update`.
 
 ## Roles
 
@@ -108,6 +108,8 @@ Every **repeated** mistake becomes a durable harness change: a rule, a test, a h
 Start simple: one implementer + one independent validator + deterministic hooks. Add roles only when risk justifies the coordination cost. Over-parallelization is an anti-pattern.
 
 **Advisor (default for small/medium):** a cheap executor drives the whole loop and consults a stronger reasoning model *only at reasoning walls* — 2 failed repair attempts, merge conflicts, or architecture uncertainty. This is Anthropic's advisor-tool pattern ([docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool)): the advisor gets a fork of the executor's context and returns reasoning, **never code and never tool calls** — the executor stays in control and acts on the advice. Cap consultations (`max_uses` ≈ 3) so a wall triggers escalation, not an expensive back-and-forth. Prefer this to a full multi-agent split until the task is genuinely high-risk. Per-host wiring (Claude subagent, Droid Task tool, Codex subagent) and the `advisor` config block are in `references/agentic-orchestration.md`.
+
+The advisor topology needs a strong executor (Sonnet-class or better). Cognition's production finding: with a weak primary the quality ceiling is set by the executor and the pattern underperforms — with a GLM-class implementer, keep orchestrator-delegates instead of defaulting to advisor. Treat this as a condition on the default, not a reason to skip the consult when the executor is strong.
 
 ## Hard Rules
 
