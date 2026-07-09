@@ -1,5 +1,84 @@
 # Changelog
 
+## 3.2.0
+
+The trust-chain release. Implements the 2026-07-09 critical review
+(`docs/critical-review-2026-07-09.md`): R1–R4 and R6–R8. R5 (per-model process
+depth) is deliberately deferred to the roadmap pending n≥3 live replication.
+
+**Enforcement (R1) — close the inversion:**
+- `action.yml` executes the action's **own pinned copy** of the gate scripts via
+  `GITHUB_ACTION_PATH`, never the user checkout. The documented soften-and-commit
+  attack now fails end-to-end; a red-team reality case replays the attack and a
+  lint case pins every python invocation to the pinned path.
+- Inputs are passed to the action step via `env` (no `${{ }}` interpolation into
+  bash — script-injection sink closed), the action fails when a repo carries
+  quality-loop config but no record (record-deletion bypass closed), and a
+  `base: HEAD` no-op configuration emits a CI warning.
+- Stop gate decision table: gates also fire at `verify`/`review` with a dirty
+  tree; `escalated` pauses require a non-empty `escalation_reason` (reasonless
+  escalation is gated like any non-terminal status); a present-but-unreadable
+  record **blocks instead of crashing** (fail closed); git-absent environments
+  fail open by design, documented. Earlier statuses still stop freely — the
+  merge boundary is anchored by CI.
+- New `verify --require-terminal`: fails when the diff vs base is non-empty but
+  the record status never reached `package`/`done`.
+
+**Evidence base (R2/R4):**
+- README publishes **all five** eval runs with methodology labels derived from
+  each run's own documentation — including the model-proxy relabel of Sudoku
+  07-01 and the negative results (ts-search Codex **−9.0**, webapp Codex −1.11).
+- Trigger suite reclassified as a **smoke fixture** and excluded from the gate
+  count: its default keyword grader is reverse-engineered from its own prompts
+  and structurally cannot fail. A real activation check needs `--judge-command`.
+- Gate-case count is now **125 across 6 suites** (11 static + 38 behavioral +
+  26 memory + 22 reality + 13 routing + 15 hook), synced across every public doc
+  and enforced by a count-consistency lint case. Evidence dashboard regenerated.
+- Test-weakening detection is scoped to added lines in test files
+  (`quality_loop_core.test_weakening_hits`), removing a false-positive class.
+
+**Process cost (R3):**
+- Live bench results must record per-arm `cost_usd`, `tokens_in`, `tokens_out`,
+  `duration_sec`; `bench/runner.py --validate` hard-fails on missing, zero,
+  negative, or non-numeric values and on empty/missing `runs`. Fixture runs are
+  exempt and labeled.
+- Optional `run_metrics` block in the record schema, type-checked when present.
+- README states the measured process tax (~15–22k tokens scaffolding per medium
+  loop, 3–6× wall time) next to the lift numbers, with the new policy: **every
+  gate must earn its tokens** (`references/philosophy.md`).
+
+**Docs (R6/R7):**
+- References deduped to canonical locations (task-class table, right-size
+  ladder, phase prose); the three divergent definitions of "medium" unified;
+  `references/` shrank 64,731 → 56,556 bytes (−12.6%; the −40% aspiration was
+  not reached without cutting load-bearing content — recorded as an accepted
+  deviation).
+- `agentic-orchestration.md` rewritten so page-weight matches what ships, with a
+  2026 topology decision note: orchestrator-delegates (host-native) vs
+  executor-consults-advisor (Anthropic advisor tool, an API-level primitive) —
+  including the strong-executor caveat and why harness diversity does not
+  guarantee model heterogeneity.
+- Philosophy #8 corrected: the scaffold-model interaction is **model-specific,
+  not a strength gradient** (Claude took the largest lifts; Codex was
+  flat-to-negative; strength did not predict the sign).
+- Cursor rule no longer `alwaysApply: true` (both the local copy and the tracked
+  `examples/cursor/` source users actually install); `v240-validation-contract.md`
+  moved to `archive/` with pointers updated; version markers unified on 3.2.0.
+
+**Code health (R8):**
+- New `scripts/quality_loop_core.py` (319 lines): shared status-set constants,
+  atomic write, git wrapper, secret patterns/redaction, evidence predicates.
+  Module sizes: quality_loop.py 1,749 → 1,613; memory 481 → 464; reality
+  574 → 561; routing 577 → 567. Reviewer-heterogeneity checks single-sourced;
+  dead phase machinery (`resolve_phase`, `--phase`, schema field) removed with
+  legacy-field tolerance; `init-record` no longer nests `.quality-loop/` when
+  the record lives inside it.
+
+Reviewed before merge by a fresh-context quality reviewer, a fresh-context
+security reviewer, and an independent Codex/GPT-5.5 pass; all verified findings
+fixed or explicitly accepted (accepted: references-dedup shortfall; stop gate
+allowing implement-status stops with the CI backstop; git-absent fail-open).
+
 ## 3.1.0
 
 Capability-aware, cost-disciplined routing, plus reality-layer hardening from

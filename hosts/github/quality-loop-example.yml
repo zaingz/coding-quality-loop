@@ -11,7 +11,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: zaingz/coding-quality-loop@v3.0.0
+      # Pin the action to a tag or (better) a full commit SHA. The action runs
+      # its OWN pinned copy of the gate scripts (via GITHUB_ACTION_PATH), never
+      # the scripts in the checkout under review — so a softened local
+      # quality_loop.py cannot defeat CI. That pinned copy is the trust anchor;
+      # an unpinned/floating ref would surrender it.
+      - uses: zaingz/coding-quality-loop@v3.2.0
         with:
           record: agent-record.json
           base: origin/${{ github.base_ref || 'main' }}

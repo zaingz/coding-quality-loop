@@ -11,13 +11,13 @@ import difflib
 import fnmatch
 import hashlib
 import json
-import os
 import re
 import sys
-import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Any
+
+import quality_loop_core as qlcore
 
 LESSON_KINDS = {"failure_mode", "convention", "gotcha", "preference"}
 RISK_TIERS = {"low", "medium", "high"}
@@ -79,14 +79,9 @@ def _safe_int(value: Any, default: int = 0) -> int:
 def _clean_lesson_text(text: Any) -> str:
     """Collapse internal whitespace (keeps MEMORY.md one physical line per
     lesson) and redact secrets before a lesson is persisted to the checked-in
-    store. Redaction reuses the project's existing patterns; if the main module
-    is unavailable, whitespace collapsing still applies."""
+    store. Redaction reuses the shared quality_loop_core patterns."""
     collapsed = " ".join(str(text or "").split())
-    try:
-        from quality_loop import redact
-    except ImportError:
-        return collapsed
-    return redact(collapsed)
+    return qlcore.redact(collapsed)
 
 
 def normalize_lesson(raw: dict[str, Any], created: str) -> dict[str, Any]:
@@ -132,22 +127,10 @@ def append_lesson(mem_dir: Path, lesson: dict[str, Any]) -> None:
 
 
 def save_lessons(mem_dir: Path, lessons: list[dict[str, Any]]) -> None:
-    mem_dir.mkdir(parents=True, exist_ok=True)
-    path = mem_dir / "lessons.jsonl"
     body = "".join(json.dumps(l, sort_keys=True) + "\n" for l in lessons)
-    # Unique temp file per writer (matches quality_loop.write_json) so concurrent
-    # writers cannot clobber a shared temp path before the atomic os.replace.
-    # On any write failure, remove the temp file and surface the real error
-    # rather than leaking it or masking the cause.
-    fd, tmp_name = tempfile.mkstemp(dir=mem_dir, prefix="lessons.", suffix=".tmp")
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(body)
-        os.replace(tmp_path, path)
-    except OSError:
-        tmp_path.unlink(missing_ok=True)
-        raise
+    # One atomic write for the whole package (unique temp file per writer +
+    # os.replace, temp cleaned up on failure). See quality_loop_core.
+    qlcore.atomic_write_text(mem_dir / "lessons.jsonl", body)
 
 
 def score_lesson(lesson: dict[str, Any], goal_tokens: set[str], files: list[str], risk: str) -> float:

@@ -16,7 +16,6 @@
   "properties": {
     "task_id": {"type": "string"},
     "goal": {"type": "string", "minLength": 1},
-    "phase": {"type": "string", "enum": ["plan", "execute", "review", "done", "escalated"]},
     "task_class": {"type": ["string", "null"], "enum": ["tiny", "small", "medium", "mission", null]},
     "implementer": {"type": ["string", "null"]},
     "security_sensitive": {"type": "boolean"},
@@ -24,6 +23,17 @@
     "completion_record": {"type": ["string", "object", "null"], "minLength": 1, "description": "Inline object (with optional files_changed array) or a path to a completion-record file"},
     "repair_attempts": {"type": "integer", "minimum": 0},
     "repeated_failure": {"type": "boolean"},
+    "run_metrics": {
+      "type": "object",
+      "description": "Optional per-run process-tax metrics (R3). All fields optional; check-record requires non-negative numbers and rejects unknown keys.",
+      "properties": {
+        "tokens_in": {"type": "number", "minimum": 0},
+        "tokens_out": {"type": "number", "minimum": 0},
+        "cost_usd": {"type": "number", "minimum": 0},
+        "duration_sec": {"type": "number", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
     "harness_update": {"type": ["string", "object", "null"], "minLength": 1},
     "independent_review": {
       "type": ["object", "null"],
@@ -123,6 +133,11 @@
     "status": {
       "type": "string",
       "enum": ["intake", "explore", "plan", "minimality_gate", "implement", "verify", "review", "package", "done", "iterating", "escalated"]
+    },
+    "escalation_reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required by the stop-gate valve when status is escalated: a non-empty reason makes the pause auditable."
     }
   },
   "additionalProperties": true

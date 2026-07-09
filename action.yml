@@ -1,12 +1,12 @@
 name: "Coding Quality Loop"
-description: "Dependency-free outcome gates for coding agents."
+description: "Dependency-free outcome gates for coding agents. Runs the action's own pinned copy of the gate scripts (via GITHUB_ACTION_PATH), never the user checkout, so a locally softened gate script cannot defeat CI."
 inputs:
   record:
     description: "Path to the agent record JSON."
     required: false
     default: "agent-record.json"
   base:
-    description: "Git base ref for diff checks."
+    description: "Git base ref for diff checks. Set this to your merge target (e.g. origin/main) in PR workflows: on a committed checkout the default HEAD yields an empty diff, which makes --require-terminal and the diff-grounded gates a no-op."
     required: false
     default: "HEAD"
   run-evidence:
@@ -20,19 +20,37 @@ inputs:
 runs:
   using: "composite"
   steps:
+    # Every python invocation runs from the action's OWN pinned copy
+    # (${GITHUB_ACTION_PATH}), not the user checkout. This is the trust anchor:
+    # an agent that softens scripts/quality_loop.py in the repo under review and
+    # commits it cannot weaken CI, because CI never executes that copy.
     - name: Compile Quality Loop scripts
       shell: bash
-      run: python3 -m py_compile scripts/*.py
+      run: python3 -m py_compile "${GITHUB_ACTION_PATH}"/scripts/*.py
     - name: Verify outcome gates
       shell: bash
+      # Inputs are passed via env (not interpolated into the script text) so a
+      # consumer wiring e.g. `base: ${{ github.head_ref }}` cannot inject shell.
+      env:
+        QL_RECORD: ${{ inputs.record }}
+        QL_BASE: ${{ inputs.base }}
+        QL_RED_GREEN: ${{ inputs.red-green }}
       run: |
-        if [ -f "${{ inputs.record }}" ]; then
-          cmd=(python3 scripts/quality_loop.py verify "${{ inputs.record }}" --base "${{ inputs.base }}")
-          if [ "${{ inputs.red-green }}" = "true" ]; then
+        if [ "$QL_BASE" = "HEAD" ]; then
+          echo "::warning::quality-loop: base is HEAD — on a committed checkout the diff is empty, so --require-terminal and the diff-grounded gates cannot bite. Pass base: origin/<default-branch> (or the PR base) to anchor them."
+        fi
+        if [ -f "$QL_RECORD" ]; then
+          cmd=(python3 "${GITHUB_ACTION_PATH}/scripts/quality_loop.py" verify "$QL_RECORD" --base "$QL_BASE" --require-terminal)
+          if [ "$QL_RED_GREEN" = "true" ]; then
             cmd+=(--red-green)
           fi
           "${cmd[@]}"
+        elif [ -d ".quality-loop" ] || [ -f "quality-loop.config.json" ]; then
+          # The checkout opted into the loop but ships no record: deleting the
+          # record must not demote CI to a diff-audit-only pass.
+          echo "::error::quality-loop config present but no record at $QL_RECORD — a repo that uses the loop cannot opt out per-PR by deleting its record."
+          exit 1
         else
-          echo "No record found at ${{ inputs.record }}; running diff-audit only"
-          python3 scripts/quality_loop.py diff-audit --base "${{ inputs.base }}"
+          echo "No record found at $QL_RECORD; running diff-audit only"
+          python3 "${GITHUB_ACTION_PATH}/scripts/quality_loop.py" diff-audit --base "$QL_BASE"
         fi

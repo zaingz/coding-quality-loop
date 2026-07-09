@@ -21,6 +21,8 @@
 | [**addyosmani/agent-skills**](https://github.com/addyosmani/agent-skills) | Broad, 24-skill SDLC suite covering the whole software lifecycle. | You want a **library** of skills (planning, testing, release, ops) rather than one focused loop. |
 | [**ponytail**](https://github.com/DietrichGebert/ponytail) | A tight minimality ladder — "always take the smaller rung". | You want the simplest possible right-size gate and nothing else. |
 
+**Where the alternatives win.** The feature table below is built around this project's chosen axes, so read it knowing the rubric is ours. On axes we did not pick: superpowers has deeper Claude-native subagent choreography and a far larger install base; addyosmani/agent-skills covers lifecycle breadth (planning, release, ops) this loop deliberately skips; ponytail is smaller and simpler than our right-size gate will ever be. If those axes are your axes, pick them.
+
 ## Feature comparison
 
 | Feature | Coding Quality Loop | Superpowers | addyosmani/agent-skills | ponytail |
@@ -33,7 +35,7 @@
 | **Diff-grounded reality layer** (record vs `git diff`) | ✅ | ❌ | ❌ | ❌ |
 | **Zero runtime dependencies** (stdlib-only helper) | ✅ | ❌ | ◐ | ✅ |
 | **Portable across hosts** (Claude, Codex, Cursor, Pi, Droid, standalone) | ✅ | Claude-first | Claude-first | Claude-first |
-| **Offline eval suite** (proves the gates actually fire) | ✅ (116 cases across 7 suites) | ◐ | ❌ | ❌ |
+| **Offline eval suite** (proves the gates actually fire) | ✅ (125 gate cases across 6 suites) | ◐ | ❌ | ❌ |
 | **Public benchmark harness** with trap tasks | ✅ (`bench/`) | ❌ | ❌ | ❌ |
 
 Legend: ✅ first-class · ◐ partial or advisory · ❌ not a goal

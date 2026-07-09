@@ -4,7 +4,7 @@
 > commitment; the loop's non-negotiable is that we ship the smallest correct change,
 > and that includes the roadmap itself.
 
-Last updated: 2026-07-03.
+Last updated: 2026-07-09.
 
 ## Now — landed in v3.0
 
@@ -26,7 +26,7 @@ Last updated: 2026-07-03.
   artifact dimensions.
 - ✅ **40% surface reduction.** Archived legacy adapters, local orchestration,
   v2.4 ceremony surfaces, and stats reporting. Scripts 4,600 → 3,300 lines.
-  116 eval cases across 7 suites.
+  125 gate cases across 6 suites (plus a 10-case trigger smoke fixture).
 
 ## Landed earlier — v2.4
 
@@ -74,6 +74,15 @@ Still open from the same findings:
   evidence bundle.
 - **Mutation testing (`mutate-lite`).** Check that acceptance-criteria tests
   would catch the intended root-cause mutation.
+- **Per-model process depth (critical-review R5).** Add `process_depth: full|light`
+  to model profiles once the model-specific interaction (Codex flat-to-negative,
+  Claude largest lifts) replicates at n≥3 seeds with cost capture. Deliberately
+  deferred from v3.2: config before evidence would be calibration theater.
+- **Cross-CLI orchestrator recipe (critical-review R7).** One page of verified
+  headless commands (`claude -p --safe-mode`, `codex exec -s workspace-write`,
+  `droid exec`) for running the loop's roles across harnesses, with the caveat
+  that harness diversity does not guarantee model heterogeneity — `check-config`
+  stays the arbiter.
 
 ## Later — exploring, no ETA
 

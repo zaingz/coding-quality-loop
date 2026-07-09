@@ -32,6 +32,7 @@ Cases (safety-hardening behaviors enforced on actual records):
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "quality_loop.py"
+
+# Canonical count of offline GATE cases. This is the single source of truth the
+# count-consistency lint (case_doc_counts_match_canonical) asserts every public
+# doc agrees with. It EXCLUDES the trigger smoke fixture, whose default grader is
+# reverse-engineered from its own prompts and cannot fail (see
+# evals/run_trigger_evals.py, evals/README.md).
+#
+# BUMP THIS whenever a gate suite's case count changes. Current breakdown:
+#   11 static + 38 behavioral + 26 memory + 22 reality + 13 routing + 15 hook = 125
+# (behavioral is this file: len(CASES); run it to confirm the number.)
+CANONICAL_GATE_CASES = 125
 
 sys.path.insert(0, str(ROOT / "scripts"))
 import quality_loop  # noqa: E402  (used for the static evaluate_input consistency check)
@@ -728,6 +740,153 @@ def case_schema_accepts_object_acceptance_criteria(tmp: Path) -> tuple[bool, str
     )
 
 
+def case_run_metrics_valid_passes(tmp: Path) -> tuple[bool, str]:
+    # Optional run_metrics with non-negative numbers must be accepted by check-record.
+    record = base_record(
+        run_metrics={"tokens_in": 1200, "tokens_out": 800, "cost_usd": 0.42, "duration_sec": 30.5}
+    )
+    code, output = check_record(tmp, record)
+    ok = code == 0 and "run_metrics" not in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def case_run_metrics_string_cost_fails(tmp: Path) -> tuple[bool, str]:
+    # A non-numeric metric value must be rejected by check-record.
+    record = base_record(run_metrics={"cost_usd": "0.42"})
+    code, output = check_record(tmp, record)
+    ok = code == 1 and "run_metrics.cost_usd" in output and "number" in output
+    return ok, f"exit={code}; output={output.strip()!r}"
+
+
+def _repo_with_uncommitted_change(tmp: Path, name: str) -> Path:
+    """A git repo with a base commit plus a new untracked file, so the diff vs
+    HEAD is non-empty (the shipped-work case --require-terminal guards)."""
+    repo = tmp / name
+    repo.mkdir()
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    git("init")
+    git("config", "user.email", "eval@example.com")
+    git("config", "user.name", "eval")
+    (repo / "main.py").write_text("print('hi')\n")
+    git("add", "main.py")
+    git("commit", "-m", "base")
+    (repo / "feature.py").write_text("def feature():\n    return 1\n")  # untracked -> dirty diff
+    return repo
+
+
+def case_require_terminal_blocks_unclosed_loop(tmp: Path) -> tuple[bool, str]:
+    # implement status + non-empty diff + --require-terminal -> verify fails with
+    # the shipped-unclosed finding; the same run WITHOUT the flag must not raise it.
+    repo = _repo_with_uncommitted_change(tmp, "rt-block")
+    (repo / "record.json").write_text(json.dumps(passing_medium(status="implement")))
+    code_flag, out_flag, err_flag = run_cli(
+        "verify", "record.json", "--base", "HEAD", "--require-terminal", cwd=str(repo)
+    )
+    combined_flag = out_flag + err_flag
+    blocked = code_flag != 0 and "work shipped without closing the loop" in combined_flag
+
+    code_no, out_no, err_no = run_cli("verify", "record.json", "--base", "HEAD", cwd=str(repo))
+    finding_absent_without_flag = "work shipped without closing the loop" not in (out_no + err_no)
+
+    ok = blocked and finding_absent_without_flag
+    return ok, f"flag(exit={code_flag},blocked={blocked}); no_flag(finding_absent={finding_absent_without_flag})"
+
+
+def case_require_terminal_noop_when_done(tmp: Path) -> tuple[bool, str]:
+    # done status: --require-terminal is a no-op — no shipped-unclosed finding and
+    # the exit code is unchanged vs running verify without the flag.
+    repo = _repo_with_uncommitted_change(tmp, "rt-done")
+    (repo / "record.json").write_text(json.dumps(passing_medium(status="done")))
+    code_flag, out_flag, err_flag = run_cli(
+        "verify", "record.json", "--base", "HEAD", "--require-terminal", cwd=str(repo)
+    )
+    code_no, out_no, err_no = run_cli("verify", "record.json", "--base", "HEAD", cwd=str(repo))
+    no_finding = "work shipped without closing the loop" not in (out_flag + err_flag)
+    unaffected = code_flag == code_no
+    ok = no_finding and unaffected
+    return ok, f"flag(exit={code_flag},no_finding={no_finding}); no_flag(exit={code_no}); unaffected={unaffected}"
+
+
+def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
+    # Numbers-consistency lint (critical review R2): every public doc that states an
+    # offline gate-case count must state CANONICAL_GATE_CASES. Guards against the
+    # 116->121 drift the review flagged. The trigger smoke fixture is counted
+    # separately and always as "10-case ..." (hyphen + singular), which this pattern
+    # deliberately does not match.
+    docs = [
+        ROOT / "README.md",
+        ROOT / "ROADMAP.md",
+        ROOT / "docs" / "README.md",
+        ROOT / "docs" / "comparison.md",
+        ROOT / "docs" / "launch-kit.md",
+        ROOT / "evals" / "README.md",
+    ]
+    # Matches the headline phrasings only: "<n> cases", "<n> gate cases",
+    # "<n> eval cases", "<n> offline cases", "<n> offline gate/eval cases".
+    pattern = re.compile(r"(\d+)\s+(?:offline\s+)?(?:gate\s+|eval\s+)?cases\b", re.IGNORECASE)
+    mismatches = []
+    for doc in docs:
+        rel = doc.relative_to(ROOT)
+        if not doc.exists():
+            mismatches.append(f"{rel}: MISSING")
+            continue
+        for m in pattern.finditer(doc.read_text(encoding="utf-8")):
+            n = int(m.group(1))
+            if n != CANONICAL_GATE_CASES:
+                mismatches.append(f"{rel}: {m.group(0)!r} != {CANONICAL_GATE_CASES}")
+    ok = not mismatches
+    return ok, ("all docs match canonical" if ok else f"mismatches={mismatches}")
+
+
+def case_bench_validate_requires_cost_fields(tmp: Path) -> tuple[bool, str]:
+    # Cost-instrumentation gate (critical review R3): the live-sweep validator must
+    # PASS a fixture run (zero placeholders are exempt) and FAIL a synthetic live
+    # result that omits the cost fields. Hermetic: both files live under tmp; the
+    # committed examples/*/results.json are intentionally not touched.
+    bench_runner = ROOT / "bench" / "runner.py"
+    if not bench_runner.exists():
+        return False, "bench/runner.py missing"
+
+    def run(*args: str) -> tuple[int, str]:
+        proc = subprocess.run(
+            [sys.executable, str(bench_runner), *args],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        )
+        return proc.returncode, proc.stdout + proc.stderr
+
+    fixture_out = tmp / "fixture.json"
+    gen_code, _ = run("--mode", "fixture", "--seeds", "1", "--out", str(fixture_out))
+    val_code, val_out = run("--validate", str(fixture_out))
+    fixture_ok = gen_code == 0 and val_code == 0 and "OK:" in val_out
+
+    bad_live = tmp / "live-missing-cost.json"
+    bad_live.write_text(
+        json.dumps(
+            {
+                "mode": "live",
+                "runs": [
+                    {"task_id": "webapp", "arm": "skill", "seed": 0, "mode": "live",
+                     "hidden_tests_passed": True}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    bad_code, bad_out = run("--validate", str(bad_live))
+    live_fails = bad_code == 1 and "MISSING-COST" in bad_out
+
+    ok = fixture_ok and live_fails
+    return ok, f"fixture_validates={fixture_ok}; live_missing_cost_fails={live_fails}"
+
+
 CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
     ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
@@ -761,6 +920,12 @@ CASES = [
     ("brief --json returns valid structured output", case_brief_json_valid),
     ("brief surfaces run journal steps and suggests next step", case_brief_with_run_journal),
     ("schema accepts object acceptance criteria with proving_command (and strings)", case_schema_accepts_object_acceptance_criteria),
+    ("optional run_metrics with non-negative numbers passes check-record", case_run_metrics_valid_passes),
+    ("run_metrics with a string cost_usd fails check-record", case_run_metrics_string_cost_fails),
+    ("verify --require-terminal blocks an unclosed loop (implement + dirty diff)", case_require_terminal_blocks_unclosed_loop),
+    ("verify --require-terminal is a no-op at done status", case_require_terminal_noop_when_done),
+    ("public docs state the canonical gate-case count (numbers-consistency lint)", case_doc_counts_match_canonical),
+    ("bench --validate requires cost fields on live runs (exempts fixtures)", case_bench_validate_requires_cost_fields),
 ]
 
 
