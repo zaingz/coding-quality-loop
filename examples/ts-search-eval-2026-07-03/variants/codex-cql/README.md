@@ -1,5 +1,10 @@
 # @eval/minisearch
 
+<!-- The vendored copy of the Quality Loop skill (scripts/, hosts/, assets/) has
+been removed from this eval artifact to avoid duplicating the source of truth.
+The skill lives at the repo root; the run artifacts under .quality-loop/ and the
+eval's own src/test/bench are what's preserved here. -->
+
 A strict TypeScript, zero-runtime-dependency in-memory full-text search library.
 
 ## Install and build
