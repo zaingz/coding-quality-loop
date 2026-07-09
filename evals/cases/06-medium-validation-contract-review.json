@@ -1,30 +1,35 @@
 {
   "name": "medium-requires-contract-and-independent-review",
-  "description": "A multi-file feature change. Medium class must require a validation contract, an independent review, and a completion record before shipping.",
-  "input": {
+  "description": "A multi-file feature change at done status. Medium risk must require a validation contract, an independent review, and a completion record; a record missing all three must fail the runtime gates.",
+  "record": {
+    "task_id": "t-06",
     "goal": "Add pagination to the projects list endpoint and its UI consumers",
-    "signals": ["multi_file", "behavior_change", "api_contract"],
-    "proposed_solution": {
-      "introduces": [],
-      "lower_rung_available": false
-    }
-  },
-  "expected": {
-    "risk_tier": "medium",
     "task_class": "medium",
-    "required_gates": [
-      "targeted_tests",
-      "relevant_tests",
-      "typecheck_or_build",
-      "caller_review",
-      "fresh_review"
-    ],
-    "minimality_flags": [],
-    "escalate": false,
-    "requires_validation_contract": true,
-    "requires_independent_review": true,
-    "requires_completion_record": true,
-    "requires_security_reviewer": false,
-    "hard_gate": false
+    "risk_tier": "medium",
+    "acceptance_criteria": ["List endpoint paginates; UI consumers render pages"],
+    "verification_plan": ["unit + integration tests"],
+    "minimality_decision": {"rung": "extend", "reason": "extend existing list handler"},
+    "plan": ["add pagination param", "update UI"],
+    "commands_run": [{"cmd": "pytest tests/test_projects.py", "class": "unit", "result": "pass", "evidence": "11 passed"}],
+    "open_risks": [],
+    "review_findings": ["fresh-context review: approved"],
+    "repo_map": {
+      "entry_points": ["projects/api.py:list"],
+      "likely_files": ["projects/api.py"],
+      "callers_checked": ["ui/projects.tsx:List"],
+      "tests": ["tests/test_projects.py"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": null,
+    "independent_review": null,
+    "security_review": null,
+    "completion_record": null,
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 1,
+    "findings_include": ["validation_contract", "independent_review", "completion_record"]
   }
 }

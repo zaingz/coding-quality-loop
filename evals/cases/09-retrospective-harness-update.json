@@ -1,20 +1,38 @@
 {
-  "name": "repeated-mistake-becomes-harness-update",
-  "description": "A repeated mistake (the same forgotten check recurring across tasks) must convert into a durable harness change in the retrospective, not another chat correction.",
-  "input": {
-    "goal": "Implement the missing null check the agent has now skipped three times",
-    "signals": ["behavior_change", "repeated_mistake"],
-    "proposed_solution": {
-      "introduces": [],
-      "lower_rung_available": false
-    }
-  },
-  "expected": {
-    "risk_tier": "medium",
+  "name": "repeated-failure-requires-durable-harness-update",
+  "description": "A repeated verification failure (repair_attempts >= 2) must convert into a durable harness_update (a rule/test/hook/checklist), not another chat correction. A record with repeated failures and no harness_update must fail the gate.",
+  "record": {
+    "task_id": "t-09",
+    "goal": "Implement the missing null check that verification has now caught failing twice",
     "task_class": "medium",
-    "minimality_flags": [],
-    "escalate": false,
-    "harness_update": true,
-    "requires_completion_record": true
+    "risk_tier": "medium",
+    "acceptance_criteria": ["Null input is handled without raising"],
+    "verification_plan": ["unit tests"],
+    "minimality_decision": {"rung": "edit-in-place", "reason": "guard clause in existing function"},
+    "plan": ["add guard clause"],
+    "commands_run": [{"cmd": "pytest tests/test_nullcheck.py", "class": "unit", "result": "pass", "evidence": "4 passed"}],
+    "repair_attempts": 2,
+    "repeated_failure": true,
+    "harness_update": null,
+    "open_risks": [],
+    "review_findings": ["fresh-context review: approved"],
+    "repo_map": {
+      "entry_points": ["core/parse.py:parse"],
+      "likely_files": ["core/parse.py"],
+      "callers_checked": ["core/run.py:main"],
+      "tests": ["tests/test_nullcheck.py"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {"goal": "Handle null", "acceptance_criteria": ["null handled"], "evidence": ["pytest -> pass"]},
+    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "security_review": null,
+    "completion_record": {"goal": "Handle null", "acceptance_criteria": ["null handled"], "evidence": ["pytest -> 4 passed", "review: approve"]},
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 1,
+    "findings_include": ["harness_update"]
   }
 }

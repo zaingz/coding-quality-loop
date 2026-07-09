@@ -305,6 +305,28 @@ def case_check_config_same_model_class(tmp: Path) -> tuple[bool, str]:
     return ok, f"same_class(exit={code1},flagged={same_class_fails}); placeholder(exit={code2},clean={placeholder_ok})"
 
 
+def case_check_config_planner_strong_reasoning(tmp: Path) -> tuple[bool, str]:
+    """P3.18: the planner/orchestrator step must route to strong_reasoning.
+    Downgrading PLAN to a cheaper class fails check-config; the example config
+    (PLAN -> strong_reasoning) passes."""
+    good = load_example()
+    p_good = tmp / "good.json"
+    p_good.write_text(json.dumps(good, indent=2), encoding="utf-8")
+    code_good, _, _ = run_cli("check-config", str(p_good))
+
+    bad = load_example()
+    for step in bad["steps"]:
+        if step.get("step") == "PLAN":
+            step["model_class"] = "cheap_fast"
+    p_bad = tmp / "bad.json"
+    p_bad.write_text(json.dumps(bad, indent=2), encoding="utf-8")
+    code_bad, _, err_bad = run_cli("check-config", str(p_bad))
+    bad_flagged = code_bad == 1 and "strong_reasoning" in err_bad and "PLAN" in err_bad
+
+    ok = code_good == 0 and bad_flagged
+    return ok, f"good(exit={code_good}); bad(exit={code_bad},flagged={bad_flagged})"
+
+
 def case_effort_ceiling(tmp: Path) -> tuple[bool, str]:
     """xhigh/max exceed the 'high' ceiling: check-config rejects them unless the
     block sets allow_overthink; setup-models surfaces an advisory warning."""
@@ -397,6 +419,7 @@ CASES = [
     ("unsupported thinking on codex warns and exits 1", case_unsupported_thinking),
     ("check-config: rejects unknown host/class/thinking, accepts valid", case_check_config),
     ("check-config: same model_class on IMPLEMENT_SLICE+REVIEW fails; placeholder does not", case_check_config_same_model_class),
+    ("check-config: planner/orchestrator step must route to strong_reasoning", case_check_config_planner_strong_reasoning),
     ("effort ceiling: xhigh/max rejected without allow_overthink, warned in setup", case_effort_ceiling),
     ("brief: routing section, drift detection, unconfigured hint", case_brief_routing),
     ("dry-run leaves files untouched", case_dry_run),

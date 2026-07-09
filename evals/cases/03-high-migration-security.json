@@ -1,27 +1,36 @@
 {
-  "name": "high-risk-migration-security-escalation",
-  "description": "Add a NOT NULL column with backfill plus an authorization check change. Migration + authz, high risk, must escalate.",
-  "input": {
-    "goal": "Add tenant_id to orders with backfill and enforce tenant-scoped authorization",
-    "signals": ["data_migration", "authz", "multi_file"],
-    "proposed_solution": {
-      "introduces": [],
-      "lower_rung_available": false
-    }
+  "name": "declared-low-cannot-downgrade-migration-authz-boundary",
+  "description": "The goal text hits both the data_migration (backfill) and authz (authorization) boundaries, but the record self-declares low risk. detect_risk_floor must return high, and verify-gates must force the high-risk gates and flag the attempted downgrade.",
+  "record": {
+    "task_id": "t-03",
+    "goal": "Add tenant_id to orders with a backfill migration and enforce tenant-scoped authorization",
+    "task_class": "small",
+    "risk_tier": "low",
+    "acceptance_criteria": ["tenant_id populated for all orders; access is tenant-scoped"],
+    "verification_plan": ["unit tests"],
+    "minimality_decision": {"rung": "reuse", "reason": "reuse existing migration tooling"},
+    "plan": ["write migration", "add authz check"],
+    "commands_run": [{"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "9 passed"}],
+    "open_risks": [],
+    "review_findings": [],
+    "repo_map": {
+      "entry_points": ["orders/model.py:Order"],
+      "likely_files": ["orders/model.py"],
+      "callers_checked": ["orders/api.py:list"],
+      "tests": ["tests/test_orders.py"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": null,
+    "independent_review": null,
+    "security_review": null,
+    "completion_record": null,
+    "security_sensitive": false,
+    "status": "review"
   },
-  "expected": {
-    "risk_tier": "high",
-    "required_gates": [
-      "targeted_tests",
-      "relevant_tests",
-      "typecheck_or_build",
-      "caller_review",
-      "fresh_review",
-      "security_review",
-      "rollback_plan",
-      "human_approval"
-    ],
-    "minimality_flags": [],
-    "escalate": true
+  "expect": {
+    "risk_floor": "high",
+    "floor_markers": ["authz", "data_migration"],
+    "gates_exit": 1,
+    "findings_include": ["downgrades a detected boundary", "security_review"]
   }
 }

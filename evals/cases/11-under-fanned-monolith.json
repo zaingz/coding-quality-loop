@@ -1,24 +1,35 @@
 {
-  "name": "under-fanned-monolith-flagged",
-  "description": "A medium task with several distinct features (e.g. tokenizer + parser + ranker + serializer) implemented as a single source file with a single test file is not minimality \u2014 it is under-fanned modularity. The simplicity reviewer must flag `under-fanned`.",
-  "input": {
-    "goal": "Ship a multi-feature library (tokenizer, query parser, ranker, snippet extractor, serializer) as a single index.ts with a single search.test.ts",
-    "signals": ["multi_file", "behavior_change"],
-    "proposed_solution": {
-      "introduces": [],
-      "lower_rung_available": false,
-      "single_source_file": true,
-      "single_test_file": true,
-      "feature_count": 5
-    }
-  },
-  "expected": {
-    "risk_tier": "medium",
+  "name": "pass-command-without-evidence-fails",
+  "description": "A 'pass' with no verifiable evidence handle is the cheapest way to game the gate. On non-trivial work, verify-gates must reject a pass-labeled command that carries no evidence field, even when every other artifact is complete.",
+  "record": {
+    "task_id": "t-11",
+    "goal": "Ship a multi-feature library (tokenizer, parser, ranker, serializer) behind one query entry point",
     "task_class": "medium",
-    "minimality_flags": ["under-fanned"],
-    "escalate": false,
-    "requires_validation_contract": true,
-    "requires_independent_review": true,
-    "requires_completion_record": true
+    "risk_tier": "medium",
+    "acceptance_criteria": ["Query returns ranked snippets across all feature paths"],
+    "verification_plan": ["unit tests per feature"],
+    "minimality_decision": {"rung": "build", "reason": "new library; fan out per feature module"},
+    "plan": ["tokenizer", "parser", "ranker", "serializer"],
+    "commands_run": [{"cmd": "pytest tests/test_lib.py", "class": "unit", "result": "pass"}],
+    "open_risks": [],
+    "review_findings": ["fresh-context review: approved"],
+    "repo_map": {
+      "entry_points": ["lib/query.py:run"],
+      "likely_files": ["lib/query.py"],
+      "callers_checked": ["app/search.py:call"],
+      "tests": ["tests/test_lib.py"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {"goal": "Search library", "acceptance_criteria": ["ranked snippets"], "evidence": ["pytest -> pass"]},
+    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "security_review": null,
+    "completion_record": {"goal": "Search library", "acceptance_criteria": ["ranked snippets"], "evidence": ["pytest -> passed", "review: approve"]},
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 1,
+    "findings_include": ["missing verifiable evidence"]
   }
 }

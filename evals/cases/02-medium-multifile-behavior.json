@@ -1,24 +1,34 @@
 {
-  "name": "medium-multifile-behavior-change",
-  "description": "Change retry behavior across a shared client and its callers. Multi-file behavior change, medium risk.",
-  "input": {
-    "goal": "Add bounded exponential backoff to the HTTP client retry path",
-    "signals": ["multi_file", "behavior_change", "shared_utility"],
-    "proposed_solution": {
-      "introduces": [],
-      "lower_rung_available": false
-    }
-  },
-  "expected": {
+  "name": "medium-multifile-behavior-change-ships",
+  "description": "A fully-compliant multi-file medium change (HTTP client retry backoff) with contract, independent review, executable evidence, and completion record passes every runtime gate. No boundary text, so the risk floor stays low.",
+  "record": {
+    "task_id": "t-02",
+    "goal": "Add bounded exponential backoff to the HTTP client retry path and update its callers",
+    "task_class": "medium",
     "risk_tier": "medium",
-    "required_gates": [
-      "targeted_tests",
-      "relevant_tests",
-      "typecheck_or_build",
-      "caller_review",
-      "fresh_review"
-    ],
-    "minimality_flags": [],
-    "escalate": false
+    "acceptance_criteria": ["Retries use bounded exponential backoff; caller behavior unchanged"],
+    "verification_plan": ["unit tests for the backoff schedule"],
+    "minimality_decision": {"rung": "extend", "reason": "extend the existing retry helper; no new dependency"},
+    "plan": ["add backoff to client", "update callers"],
+    "commands_run": [{"cmd": "pytest tests/test_client.py", "class": "unit", "result": "pass", "evidence": "18 passed"}],
+    "open_risks": [],
+    "review_findings": ["fresh-context review: approved"],
+    "repo_map": {
+      "entry_points": ["client/http.py:retry"],
+      "likely_files": ["client/http.py"],
+      "callers_checked": ["svc/a.py:call"],
+      "tests": ["tests/test_client.py"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {"goal": "Bounded backoff", "acceptance_criteria": ["backoff is capped"], "evidence": ["pytest tests/test_client.py -> pass"]},
+    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "security_review": null,
+    "completion_record": {"goal": "Bounded backoff", "acceptance_criteria": ["backoff is capped"], "evidence": ["pytest -> 18 passed", "fresh-context review: approve"]},
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 0
   }
 }

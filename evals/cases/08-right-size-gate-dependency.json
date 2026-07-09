@@ -1,20 +1,39 @@
 {
-  "name": "right-size-gate-catches-unnecessary-dependency",
-  "description": "A small behavior tweak where the agent proposes pulling in a new dependency and a generic abstraction although a lower rung is available. The right-size gate must flag overengineering.",
-  "input": {
-    "goal": "Trim whitespace from usernames before saving",
-    "signals": ["behavior_change"],
-    "proposed_solution": {
-      "introduces": ["new_dependency", "new_abstraction"],
-      "lower_rung_available": true
-    }
+  "name": "high-risk-record-with-full-evidence-ships",
+  "description": "The positive high-risk case: a migration + authorization change whose record carries executable checks, a security-class command, an approving distinct security_review, open risks, and complete artifacts satisfies every heavy gate and passes.",
+  "record": {
+    "task_id": "t-08",
+    "goal": "Add a tenant_id column via migration and enforce tenant authorization on the orders API",
+    "task_class": "mission",
+    "risk_tier": "high",
+    "acceptance_criteria": ["Migration backfills tenant_id; orders API is tenant-scoped"],
+    "verification_plan": ["unit + integration + security tests", "reviewed rollback plan"],
+    "minimality_decision": {"rung": "extend", "reason": "extend existing migration + authz middleware"},
+    "plan": ["write migration", "add authz middleware", "backfill"],
+    "commands_run": [
+      {"cmd": "pytest tests/test_orders.py", "class": "unit", "result": "pass", "evidence": "22 passed"},
+      {"cmd": "pytest tests/integration", "class": "integration", "result": "pass", "evidence": "6 passed"},
+      {"cmd": "bandit -r orders/", "class": "security", "result": "pass", "evidence": "no issues"}
+    ],
+    "open_risks": ["backfill runs online; monitor lock contention", "rollback drops the column"],
+    "review_findings": ["fresh-context review: approved", "security review: approved"],
+    "repo_map": {
+      "entry_points": ["orders/api.py:list", "orders/migrate.py:upgrade"],
+      "likely_files": ["orders/api.py", "orders/migrate.py"],
+      "callers_checked": ["orders/service.py:fetch"],
+      "tests": ["tests/test_orders.py", "tests/integration"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {"goal": "Tenant-scoped orders", "acceptance_criteria": ["authz enforced", "backfill complete"], "evidence": ["pytest -> pass", "bandit -> clean"]},
+    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "security_review": {"reviewer": "agent-c", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "completion_record": {"goal": "Tenant-scoped orders", "acceptance_criteria": ["authz enforced", "backfill complete"], "evidence": ["pytest -> 22 passed", "bandit -> clean", "reviews: approve"]},
+    "security_sensitive": true,
+    "status": "done"
   },
-  "expected": {
-    "risk_tier": "medium",
-    "task_class": "medium",
-    "minimality_flags": ["overengineering"],
-    "escalate": false,
-    "requires_security_reviewer": false,
-    "hard_gate": false
+  "expect": {
+    "risk_floor": "high",
+    "floor_markers": ["authz", "data_migration"],
+    "gates_exit": 0
   }
 }

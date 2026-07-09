@@ -3,8 +3,10 @@
 
 These cases exercise the *runtime* record gates in `scripts/quality_loop.py`
 (`verify-gates`, `check-record`, `diff-audit`) against constructed agent
-records. They complement the static intake-derivation cases in `evals/cases/`
-(run with `quality_loop.py eval-cases`), which assert `evaluate_input`.
+records. They complement the record-based cases in `evals/cases/` (run with
+`quality_loop.py eval-cases`), which feed a raw goal + record through the same
+production gates (`detect_risk_floor` + `verify-gates`) — there is no separate
+static classifier to drift from the shipping gate.
 
 Run: python evals/run_evals.py   (exits non-zero if any case fails)
 
@@ -41,7 +43,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "quality_loop.py"
 
 sys.path.insert(0, str(ROOT / "scripts"))
-import quality_loop  # noqa: E402  (used for the static evaluate_input consistency check)
+import quality_loop  # noqa: E402  (SECRET_PATTERNS reused by the untracked-secret case)
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -238,11 +240,22 @@ def case_right_size_gate_dependency(tmp: Path) -> tuple[bool, str]:
         git(repo, "commit", "-m", "base")
         return repo
 
+    # Severity tiers (P1.4): dependency and migration edits are ADVISORY, not
+    # blocking. They must surface in the audit's `advisory` list but exit 0, so a
+    # benign lockfile bump or a legitimate migration does not fail the loop (and
+    # does not block the git pre-commit hook). Only real correctness/safety
+    # problems (leaked secret, weakened test) are blocking / exit 1.
+    def advisory_of(out: str) -> list[str]:
+        try:
+            return json.loads(out).get("advisory", [])
+        except json.JSONDecodeError:
+            return []
+
     dep_repo = init_repo("dep")
     (dep_repo / "requirements.txt").write_text("leftpad==1.0.0\n")
     git(dep_repo, "add", "requirements.txt")
     dep_code, dep_out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(dep_repo))
-    dep_ok = dep_code == 1 and "dependency files changed" in dep_out
+    dep_ok = dep_code == 0 and any("dependency files changed" in a for a in advisory_of(dep_out))
 
     changelog_repo = init_repo("changelog")
     (changelog_repo / "CHANGELOG.md").write_text("## Changed\n\n- Document migration guidance.\n")
@@ -256,13 +269,88 @@ def case_right_size_gate_dependency(tmp: Path) -> tuple[bool, str]:
     migration_file.write_text("alter table users add column nickname text;\n")
     git(migration_repo, "add", str(migration_file.relative_to(migration_repo)))
     migration_code, migration_out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(migration_repo))
-    migration_ok = migration_code == 1 and "migration/schema-related files changed" in migration_out
+    migration_ok = migration_code == 0 and any(
+        "migration/schema-related files changed" in a for a in advisory_of(migration_out)
+    )
 
     ok = dep_ok and changelog_ok and migration_ok
     return ok, (
-        f"dependency(exit={dep_code},flagged={dep_ok}); "
+        f"dependency(exit={dep_code},advisory={dep_ok}); "
         f"changelog(exit={changelog_code},clean={changelog_ok}); "
-        f"migration(exit={migration_code},flagged={migration_ok})"
+        f"migration(exit={migration_code},advisory={migration_ok})"
+    )
+
+
+def case_diff_audit_untracked_hygiene(tmp: Path) -> tuple[bool, str]:
+    """P1.5/P1.6/P3.17 in one repo: loop scaffolding and caches are excluded from
+    the untracked sweep, an unreadable untracked file is surfaced (not silently
+    skipped), and an intentional `cql:` shortcut marker is counted — all advisory,
+    exit 0."""
+    import json as _json
+    import os as _os
+    import stat as _stat
+
+    repo = tmp / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    git("init")
+    git("config", "user.email", "eval@example.com")
+    git("config", "user.name", "eval")
+    (repo / "main.py").write_text("print('hi')\n")
+    git("add", "main.py")
+    git("commit", "-m", "base")
+
+    # P1.5: scaffolding + caches are untracked but must be dropped from the sweep.
+    (repo / ".quality-loop").mkdir()
+    (repo / ".quality-loop" / "progress.md").write_text("notes\n")
+    (repo / "__pycache__").mkdir()
+    (repo / "__pycache__" / "x.pyc").write_text("bytecode\n")
+    (repo / "agent-record.json").write_text('{"goal": "x"}\n')
+    # A real new module stays in the audit (untracked but not scaffolding).
+    (repo / "newmodule.py").write_text("x = 1\n")
+    # P3.17: a tracked change carrying a `cql:` shortcut marker is counted.
+    (repo / "main.py").write_text("print('hi')  # cql: linear scan; upgrade to index if slow\n")
+    # P1.6: an unreadable untracked file must be surfaced, not silently skipped.
+    unreadable = repo / "locked.py"
+    unreadable.write_text("secret = 'x'\n")
+    _os.chmod(unreadable, 0)
+
+    code, out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(repo))
+    _os.chmod(unreadable, _stat.S_IRUSR | _stat.S_IWUSR)  # restore for cleanup
+    try:
+        advisory = _json.loads(out).get("advisory", [])
+    except _json.JSONDecodeError:
+        return False, f"non-json output (exit={code}): {out[:120]!r}"
+
+    joined = " ".join(advisory)
+    scaffolding_excluded = (
+        ".quality-loop" not in joined
+        and "__pycache__" not in joined
+        and "agent-record.json" not in joined
+    )
+    module_included = "newmodule.py" in joined
+    unreadable_surfaced = any("could not scan untracked file" in a and "locked.py" in a for a in advisory)
+    marker_counted = any("shortcut marker" in a and "cql:" in a for a in advisory)
+
+    ok = (
+        code == 0
+        and scaffolding_excluded
+        and module_included
+        and unreadable_surfaced
+        and marker_counted
+    )
+    return ok, (
+        f"exit={code}; scaffolding_excluded={scaffolding_excluded}; "
+        f"module_included={module_included}; unreadable_surfaced={unreadable_surfaced}; "
+        f"marker_counted={marker_counted}"
     )
 
 
@@ -563,8 +651,9 @@ def case_floor_ignores_benign_common_words(tmp: Path) -> tuple[bool, str]:
 
 
 def case_small_low_ships_without_completion_record(tmp: Path) -> tuple[bool, str]:
-    # Consistency: the runtime gate and evaluate_input must agree that a small,
-    # low-risk task ships with handoff evidence, not a formal completion record.
+    # A small, low-risk task ships on handoff evidence (a passing targeted check),
+    # not a formal completion record. The runtime gate is the single source of
+    # truth now that the parallel static classifier is gone.
     record = base_record(
         goal="rename a local helper for clarity",
         risk_tier="low",
@@ -573,11 +662,8 @@ def case_small_low_ships_without_completion_record(tmp: Path) -> tuple[bool, str
         status="done",
     )
     code, output = verify_gates(tmp, record)
-    runtime_ok = code == 0 and "completion_record" not in output
-    static = quality_loop.evaluate_input({"signals": []})  # empty signals -> small/low
-    static_ok = static["task_class"] == "small" and static["requires_completion_record"] is False
-    ok = runtime_ok and static_ok
-    return ok, f"runtime(exit={code}) static(class={static['task_class']},req_cr={static['requires_completion_record']})"
+    ok = code == 0 and "completion_record" not in output
+    return ok, f"runtime(exit={code}); output={output.strip()!r}"
 
 
 def case_declared_high_auth_passes(tmp: Path) -> tuple[bool, str]:
@@ -745,6 +831,7 @@ CASES = [
     ("medium work requires validation contract and independent review", case_medium_requires_contract_and_review),
     ("security/high work requires a distinct security review", case_security_requires_distinct_review),
     ("right-size gate catches unnecessary dependency", case_right_size_gate_dependency),
+    ("diff-audit untracked hygiene: scaffolding excluded, unreadable surfaced, cql: marker counted", case_diff_audit_untracked_hygiene),
     ("implementer cannot be the final validator", case_implementer_cannot_validate),
     ("repeated mistake triggers retrospective harness update", case_repeated_mistake_retrospective),
     ("package status without completion record fails", case_package_requires_completion_record),

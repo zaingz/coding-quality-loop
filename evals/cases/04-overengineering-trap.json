@@ -1,24 +1,35 @@
 {
-  "name": "overengineering-trap-minimality",
-  "description": "A small validation tweak where the agent proposes a new dependency and a plugin abstraction despite a one-liner being available. Minimality gate must flag overengineering.",
-  "input": {
+  "name": "non-trivial-work-requires-minimality-decision",
+  "description": "The runtime minimality gate: a non-trivial change that has reached implementation must record a minimality_decision (the right-size choice). A medium record at review status with no minimality_decision must fail.",
+  "record": {
+    "task_id": "t-04",
     "goal": "Reject empty email on the signup form",
-    "signals": ["behavior_change"],
-    "proposed_solution": {
-      "introduces": ["new_dependency", "new_abstraction"],
-      "lower_rung_available": true
-    }
-  },
-  "expected": {
+    "task_class": "medium",
     "risk_tier": "medium",
-    "required_gates": [
-      "targeted_tests",
-      "relevant_tests",
-      "typecheck_or_build",
-      "caller_review",
-      "fresh_review"
-    ],
-    "minimality_flags": ["overengineering"],
-    "escalate": false
+    "acceptance_criteria": ["Empty email is rejected with a validation error"],
+    "verification_plan": ["unit tests"],
+    "minimality_decision": null,
+    "plan": ["add validation"],
+    "commands_run": [{"cmd": "pytest tests/test_signup.py", "class": "unit", "result": "pass", "evidence": "5 passed"}],
+    "open_risks": [],
+    "review_findings": ["fresh-context review: approved"],
+    "repo_map": {
+      "entry_points": ["signup/form.py:validate"],
+      "likely_files": ["signup/form.py"],
+      "callers_checked": ["signup/view.py:post"],
+      "tests": ["tests/test_signup.py"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {"goal": "Reject empty email", "acceptance_criteria": ["empty rejected"], "evidence": ["pytest -> pass"]},
+    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "security_review": null,
+    "completion_record": null,
+    "security_sensitive": false,
+    "status": "review"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 1,
+    "findings_include": ["minimality_decision is required"]
   }
 }

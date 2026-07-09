@@ -1,28 +1,35 @@
 {
-  "name": "performance-sensitive-task-is-medium",
-  "description": "A task whose brief includes a benchmark harness (e.g. an in-memory search library or a rendering hot path) is at least medium risk. The validation contract must commit to a worst-case complexity and p50/p95 target; a fresh reviewer is required. This case pins that the `performance_sensitive` signal alone lifts the task to medium.",
-  "input": {
-    "goal": "Build a small in-memory search library with a required benchmark harness (BM25, boolean, phrase, fuzzy)",
-    "signals": ["multi_file", "behavior_change", "performance_sensitive"],
-    "proposed_solution": {
-      "introduces": [],
-      "lower_rung_available": false
-    }
-  },
-  "expected": {
-    "risk_tier": "medium",
+  "name": "independent-review-reviewer-cannot-be-implementer",
+  "description": "Independence is real only if the reviewer is a different agent. A medium record whose independent_review names the same agent as the implementer must fail: a self-review does not satisfy the fresh-context gate.",
+  "record": {
+    "task_id": "t-10",
+    "goal": "Build a small in-memory search index over the docs corpus and expose a query function",
     "task_class": "medium",
-    "required_gates": [
-      "targeted_tests",
-      "relevant_tests",
-      "typecheck_or_build",
-      "caller_review",
-      "fresh_review"
-    ],
-    "minimality_flags": [],
-    "escalate": false,
-    "requires_validation_contract": true,
-    "requires_independent_review": true,
-    "requires_completion_record": true
+    "risk_tier": "medium",
+    "acceptance_criteria": ["Query returns ranked matches; index builds under the size budget"],
+    "verification_plan": ["unit tests for ranking"],
+    "minimality_decision": {"rung": "build", "reason": "no existing index; smallest viable build"},
+    "plan": ["build index", "add query fn"],
+    "commands_run": [{"cmd": "pytest tests/test_index.py", "class": "unit", "result": "pass", "evidence": "14 passed"}],
+    "open_risks": [],
+    "review_findings": ["fresh-context review: approved"],
+    "repo_map": {
+      "entry_points": ["search/index.py:build"],
+      "likely_files": ["search/index.py"],
+      "callers_checked": ["search/query.py:run"],
+      "tests": ["tests/test_index.py"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {"goal": "In-memory index", "acceptance_criteria": ["ranked matches"], "evidence": ["pytest -> pass"]},
+    "independent_review": {"reviewer": "agent-a", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "security_review": null,
+    "completion_record": {"goal": "In-memory index", "acceptance_criteria": ["ranked matches"], "evidence": ["pytest -> 14 passed", "review: approve"]},
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 1,
+    "findings_include": ["reviewer cannot be the implementer"]
   }
 }

@@ -1,24 +1,29 @@
 {
   "name": "tiny-task-no-mission-artifacts",
-  "description": "Fix a typo in a help string and update one obvious test. Tiny class must not require validation contract, independent review, or completion record.",
-  "input": {
+  "description": "Fix a typo in a help string and update one obvious test. A low-risk tiny task must not require a validation contract, an independent review, or a completion record.",
+  "record": {
+    "task_id": "t-05",
     "goal": "Fix typo in CLI help text and update the matching snapshot test",
-    "signals": ["typo", "obvious_test_update"],
-    "proposed_solution": {
-      "introduces": [],
-      "lower_rung_available": false
-    }
-  },
-  "expected": {
-    "risk_tier": "low",
     "task_class": "tiny",
-    "required_gates": ["self_review"],
-    "minimality_flags": [],
-    "escalate": false,
-    "requires_validation_contract": false,
-    "requires_independent_review": false,
-    "requires_completion_record": false,
-    "requires_security_reviewer": false,
-    "hard_gate": false
+    "risk_tier": "low",
+    "acceptance_criteria": ["Help text reads correctly; snapshot test updated"],
+    "verification_plan": ["run the snapshot test"],
+    "minimality_decision": {"rung": "edit-in-place", "reason": "one-line string plus its snapshot"},
+    "plan": ["edit help string", "update snapshot"],
+    "commands_run": [{"cmd": "pytest tests/test_cli.py", "class": "unit", "result": "pass", "evidence": "3 passed"}],
+    "open_risks": [],
+    "review_findings": [],
+    "implementer": "agent-a",
+    "validation_contract": null,
+    "independent_review": null,
+    "security_review": null,
+    "completion_record": null,
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 0,
+    "findings_exclude": ["validation_contract", "independent_review", "completion_record"]
   }
 }

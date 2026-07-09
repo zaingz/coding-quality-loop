@@ -436,6 +436,25 @@ def case_verify_in_non_git_repo(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; no_129={no_129}; report={has_report}; no_traceback={no_traceback}"
 
 
+def case_unresolvable_base_falls_back_with_hint(tmp: Path) -> tuple[bool, str]:
+    """P1.7: an unresolvable --base must not crash. diff-audit resolves a sane
+    fallback and surfaces a human-readable hint in `advisory` (exit 0)."""
+    repo = make_repo(tmp)
+    code, out, err = run_cli("diff-audit", "--base", "origin/does-not-exist", cwd=str(repo))
+    try:
+        payload = json.loads(out)
+    except json.JSONDecodeError:
+        return False, f"non-json output (exit={code}): {(out + err)[:120]!r}"
+    resolved_base = payload.get("base")
+    fell_back = bool(resolved_base) and resolved_base != "origin/does-not-exist"
+    hint = any(
+        "did not resolve" in a or "falling back" in a or "fell back" in a
+        for a in payload.get("advisory", [])
+    )
+    ok = code == 0 and fell_back and hint
+    return ok, f"exit={code}; resolved_base={resolved_base!r}; hint={hint}"
+
+
 def case_verify_object_ac_coverage(tmp: Path) -> tuple[bool, str]:
     """AC-to-command coverage must read proving_command off object acceptance
     criteria: a matching proving_command passes; a non-matching one fails the
@@ -578,6 +597,7 @@ CASES = [
     ("run-evidence refuses a command not on the allowlist", case_run_evidence_allowlist),
     ("verify umbrella fails when a constituent section fails (verify-gates)", case_verify_umbrella_fails_when_section_fails),
     ("verify in a non-git repo emits a report instead of exit 129", case_verify_in_non_git_repo),
+    ("unresolvable --base falls back to a sane ref with a hint (P1.7)", case_unresolvable_base_falls_back_with_hint),
     ("verify AC coverage reads proving_command off object acceptance criteria", case_verify_object_ac_coverage),
     ("record-only trailing change does not stale an attested review", case_record_only_trailing_change_stays_fresh),
     ("init-record scaffolds the run-evidence allowlist", case_init_record_scaffolds_allowlist),
