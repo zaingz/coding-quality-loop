@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Coding Quality Loop Orchestration Config",
   "type": "object",
-  "required": ["version", "profiles", "steps"],
+  "required": ["version", "profiles", "steps", "policy_guard", "routing_defaults"],
   "properties": {
     "version": {"type": "string"},
     "description": {"type": "string"},
@@ -30,7 +30,7 @@
         "properties": {
           "step": {
             "type": "string",
-            "enum": ["INTAKE", "EXPLORE", "PLAN", "MINIMALITY_GATE", "IMPLEMENT_SLICE", "VERIFY", "REVIEW", "PACKAGE"]
+            "enum": ["INTAKE", "EXPLORE", "PLAN", "MINIMALITY_GATE", "IMPLEMENT_SLICE", "VERIFY", "REVIEW", "PACKAGE", "RETROSPECT"]
           },
           "profile": {"type": "string"},
           "model_class": {
@@ -46,7 +46,29 @@
       }
     },
     "policy_guard": {"type": "object"},
-    "routing_defaults": {"type": "object"},
+    "routing_defaults": {
+      "type": "object",
+      "required": ["low", "medium", "high"],
+      "properties": {
+        "low": {"type": "object"},
+        "medium": {"type": "object"},
+        "high": {"type": "object"}
+      },
+      "additionalProperties": true
+    },
+    "advisor": {
+      "type": "object",
+      "description": "Optional Anthropic advisor-tool block. A cheap executor consults a stronger reasoning model at reasoning walls; the advisor never calls tools.",
+      "properties": {
+        "description": {"type": "string"},
+        "enabled_for": {"type": "array", "items": {"type": "string", "enum": ["tiny", "small", "medium", "mission"]}},
+        "executor_model_class": {"type": "string", "enum": ["cheap_fast", "strong_reasoning", "code_specialized"]},
+        "advisor_model_class": {"type": "string", "enum": ["cheap_fast", "strong_reasoning", "code_specialized"]},
+        "advisor_calls_tools": {"type": "boolean"},
+        "max_uses": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": true
+    },
     "memory": {
       "type": "object",
       "properties": {
@@ -86,5 +108,5 @@
       "additionalProperties": true
     }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }

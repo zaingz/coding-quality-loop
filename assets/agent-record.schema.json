@@ -122,7 +122,7 @@
     "review_findings": {"type": "array", "items": {"type": "string"}},
     "status": {
       "type": "string",
-      "enum": ["intake", "explore", "plan", "minimality_gate", "implement", "verify", "review", "package", "done", "iterating", "escalated"]
+      "enum": ["intake", "explore", "plan", "minimality_gate", "implement", "verify", "review", "package", "retrospect", "done", "iterating", "escalated"]
     }
   },
   "additionalProperties": true

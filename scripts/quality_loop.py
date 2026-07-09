@@ -49,6 +49,7 @@ STATUSES = {
     "verify",
     "review",
     "package",
+    "retrospect",
     "done",
     "iterating",
     "escalated",
@@ -67,6 +68,7 @@ _STATUS_TO_PHASE = {
     "verify": "execute",
     "review": "review",
     "package": "review",
+    "retrospect": "review",
     "done": "done",
     "iterating": "execute",
     "escalated": "escalated",
@@ -508,7 +510,7 @@ def check_record(args: argparse.Namespace) -> int:
                 errors.append("minimality_decision.rung is invalid")
             if not minimality.get("reason"):
                 errors.append("minimality_decision.reason is required")
-    if status in {"minimality_gate", "implement", "verify", "review", "package", "done", "iterating"} and not minimality:
+    if status in {"minimality_gate", "implement", "verify", "review", "package", "retrospect", "done", "iterating"} and not minimality:
         errors.append("minimality_decision is required at minimality_gate or later")
 
     for array_key in [
@@ -577,7 +579,7 @@ def check_record(args: argparse.Namespace) -> int:
         if verdict not in REVIEW_VERDICTS:
             errors.append(f"{review_key}.verdict must be a recognized review verdict")
 
-    if status in {"plan", "minimality_gate", "implement", "verify", "review", "package", "done"}:
+    if status in {"plan", "minimality_gate", "implement", "verify", "review", "package", "retrospect", "done"}:
         if not record.get("acceptance_criteria"):
             warnings.append("acceptance_criteria is empty after INTAKE")
         if not record.get("verification_plan"):
@@ -684,6 +686,61 @@ def run_git(args: list[str]) -> str:
     return proc.stdout
 
 
+# Scaffolding the loop writes into the working tree (the record, its sidecars,
+# the allowlist, byte-compiled helpers). It is process output, not "the change,"
+# so it must be excluded from the untracked-file sweep — the same reason the
+# attestation hash excludes .quality-loop/. Keeping "the diff" consistent
+# everywhere stops the audit from counting its own scaffolding as changed lines.
+def _is_scaffolding_path(path: str) -> bool:
+    norm = path.replace("\\", "/")
+    if norm.startswith(".quality-loop/") or "/.quality-loop/" in norm:
+        return True
+    if "__pycache__/" in norm or norm.endswith(".pyc"):
+        return True
+    return norm.split("/")[-1] == "agent-record.json"
+
+
+# Empty tree object — diffing against it treats every tracked file as new, a
+# sane last resort when no base ref resolves (e.g. a brand-new repo).
+_EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
+def _resolve_base(base: str) -> tuple[str, str | None]:
+    """Resolve a git base ref, falling back through common defaults.
+
+    Returns (resolved_ref, hint). ``hint`` is a human-readable note when the
+    requested base was unresolvable and a fallback was chosen, else None. A
+    fresh or detached checkout often lacks ``origin/main``; rather than surface
+    git's raw ``fatal: Needed a single revision`` (exit 128), pick a sane
+    fallback and tell the caller what happened.
+    """
+    def _resolves(ref: str) -> bool:
+        proc = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", ref + "^{commit}"],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        )
+        return proc.returncode == 0
+
+    if _resolves(base):
+        return base, None
+    for cand in ("origin/main", "origin/master", "main", "master", "HEAD"):
+        if cand != base and _resolves(cand):
+            return cand, (
+                f"base {base!r} did not resolve; using {cand!r}. "
+                "Pass --base <ref> explicitly on a fresh/detached checkout."
+            )
+    return _EMPTY_TREE_SHA, (
+        f"base {base!r} did not resolve and no fallback ref exists; "
+        "diffing against the empty tree (all tracked files treated as new)."
+    )
+
+
+# Intentional simplifications (P3.17) are marked with an inline `cql:` comment
+# naming the ceiling and the upgrade path. diff-audit surfaces a count only
+# (advisory), so the ceilings stay visible without blocking the change.
+_SHORTCUT_MARKER_RE = re.compile(r"(?:#|//|/\*|<!--)\s*cql:", re.IGNORECASE)
+
+
 def is_migration_path(path: str) -> bool:
     normalized = path.replace("\\", "/").lower()
     parts = [part for part in normalized.split("/") if part]
@@ -698,26 +755,39 @@ def is_migration_path(path: str) -> bool:
 
 
 def diff_audit(args: argparse.Namespace) -> int:
+    # Findings split by severity. blocking = a real correctness/safety problem
+    # that must stop a commit (leaked secret, silently weakened test). advisory =
+    # "look here before you ship" signal that must NOT fail the loop on its own
+    # (benign lockfile bump, large but legitimate diff, scaffolding sweep). The
+    # git pre-commit hook keys off the exit code, so advisory-only stays exit 0.
+    advisory: list[str] = []
+    blocking: list[str] = []
+    base_label: str
+
     staged = bool(getattr(args, "staged", False))
     if staged:
         diff = run_git(["diff", "--cached", "--numstat"])
         name_only = run_git(["diff", "--cached", "--name-only"])
         patch = run_git(["diff", "--cached"])
         untracked: list[str] = []
-        untracked_warnings: list[str] = []
+        base_label = "staged"
     else:
-        base = args.base or "HEAD"
-        diff = run_git(["diff", "--numstat", base])
-        name_only = run_git(["diff", "--name-only", base])
-        patch = run_git(["diff", base])
+        resolved, hint = _resolve_base(args.base or "HEAD")
+        if hint:
+            advisory.append(hint)
+        base_label = resolved
+        diff = run_git(["diff", "--numstat", resolved])
+        name_only = run_git(["diff", "--name-only", resolved])
+        patch = run_git(["diff", resolved])
         # Untracked files are invisible to `git diff`, so a brand-new module (the
-        # common agent-work case) bypasses the secret/size scan entirely. Fold them in.
+        # common agent-work case) bypasses the secret/size scan entirely. Fold them
+        # in, but drop the loop's own scaffolding — it is process output, not "the
+        # change" (same rationale as the attestation hash's .quality-loop/ skip).
         untracked = [
             f.strip()
             for f in run_git(["ls-files", "--others", "--exclude-standard"]).splitlines()
-            if f.strip()
+            if f.strip() and not _is_scaffolding_path(f.strip())
         ]
-        untracked_warnings = []
 
     files = [line.strip() for line in name_only.splitlines() if line.strip()]
     added = 0
@@ -739,61 +809,149 @@ def diff_audit(args: argparse.Namespace) -> int:
         for f in untracked:
             try:
                 content = Path(f).read_text(errors="replace")
-            except (OSError, ValueError):
+            except (OSError, ValueError) as exc:
+                # A file we cannot read is a file we cannot scan for secrets.
+                # Surfacing it (advisory) beats the old silent `continue`, which
+                # let an unreadable new file slip past the secret sweep unnoticed.
+                advisory.append(
+                    f"could not scan untracked file for secrets: {f} ({exc.__class__.__name__})"
+                )
+                if f not in files:
+                    files.append(f)
                 continue
             added += len(content.splitlines())
             if f not in files:
                 files.append(f)
             if any(p.search(content) for p in SECRET_PATTERNS):
-                untracked_warnings.append(f"possible secret in untracked file: {f}")
+                blocking.append(f"possible secret in untracked file: {f}")
         if untracked:
-            untracked_warnings.append(
+            advisory.append(
                 f"{len(untracked)} untracked file(s) included in audit: " + ", ".join(untracked)
             )
 
-    warnings: list[str] = list(untracked_warnings)
     if len(files) > args.max_files:
-        warnings.append(f"large file count: {len(files)} files changed")
+        advisory.append(f"large file count: {len(files)} files changed")
     if added + deleted > args.max_lines:
-        warnings.append(f"large diff: {added + deleted} changed lines")
+        advisory.append(f"large diff: {added + deleted} changed lines")
 
     dependency_edits = [f for f in files if os.path.basename(f) in DEPENDENCY_FILES]
     if dependency_edits:
-        warnings.append("dependency files changed: " + ", ".join(dependency_edits))
+        advisory.append("dependency files changed: " + ", ".join(dependency_edits))
 
     migration_edits = [f for f in files if is_migration_path(f)]
     if migration_edits:
-        warnings.append("migration/schema-related files changed: " + ", ".join(migration_edits))
+        advisory.append("migration/schema-related files changed: " + ", ".join(migration_edits))
 
     added_lines = "\n".join(
         line[1:] for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++")
     )
     for pattern in SECRET_PATTERNS:
         if pattern.search(added_lines):
-            warnings.append("possible secret added in diff")
+            blocking.append("possible secret added in diff")
             break
 
     test_files = [f for f in files if any(m in f.lower() for m in TEST_PATH_MARKERS)]
     if test_files and any(
         p.search(line) for line in patch.splitlines() for p in TEST_WEAKENING_PATTERNS
     ):
-        warnings.append(
+        blocking.append(
             "possible test-weakening (added skip/xfail/.only) in test files: "
             + ", ".join(test_files)
         )
 
+    marker_count = sum(1 for line in patch.splitlines() if _SHORTCUT_MARKER_RE.search(line))
+    if marker_count:
+        advisory.append(
+            f"{marker_count} intentional shortcut marker(s) (cql:) in diff — "
+            "confirm each names a ceiling and an upgrade path"
+        )
+
     result = {
-        "base": "staged" if staged else (args.base or "HEAD"),
+        "base": base_label,
         "files_changed": files,
         "file_count": len(files),
         "lines_added": added,
         "lines_deleted": deleted,
         "binary_files_changed": binary,
-        "warnings": warnings,
+        "blocking": blocking,
+        "advisory": advisory,
     }
 
     print(json.dumps(result, indent=2))
-    return 1 if warnings else 0
+    return 1 if blocking else 0
+
+
+_EXEC_CLASSES = {"unit", "integration", "typecheck", "build", "lint"}
+_REVIEW_READY_STATUS = {"review", "package", "done"}
+
+# Table-driven risk-tier evidence rules. Each tier lists ordered (check, message)
+# pairs; the check name is resolved by _tier_check_fails. Keeping this as data
+# rather than nested if/elif blocks makes the per-tier evidence floor auditable
+# at a glance and adds a new tier or rule without touching control flow.
+_RISK_TIER_RULES: dict[str, list[tuple[str, str]]] = {
+    "low": [
+        ("needs_check_or_plan", "low risk still needs a targeted check or rationale"),
+    ],
+    "medium": [
+        ("needs_exec", "medium risk needs at least one relevant executable check"),
+        ("needs_review_status", "medium risk must reach review/package/done status before review evidence is accepted"),
+        ("needs_review_findings", "medium risk should include fresh-context review result or rationale"),
+    ],
+    "high": [
+        ("needs_exec", "high risk needs relevant executable checks"),
+        ("needs_security", "high risk needs security review/check evidence or blocked rationale"),
+        ("needs_review_status", "high risk must reach review/package/done status before review evidence is accepted"),
+        ("needs_risk_doc", "high risk needs explicit risk/review documentation"),
+    ],
+}
+
+
+def _tier_check_fails(
+    name: str,
+    *,
+    commands: list[Any],
+    command_classes: set[str],
+    status: str,
+    record: dict[str, Any],
+) -> bool:
+    status_ok = status in _REVIEW_READY_STATUS
+    if name == "needs_check_or_plan":
+        return not commands and not record.get("verification_plan")
+    if name == "needs_exec":
+        return not (_EXEC_CLASSES & command_classes)
+    if name == "needs_review_status":
+        return not status_ok
+    if name == "needs_review_findings":
+        # medium's original `elif`: only meaningful once status is review-ready.
+        return status_ok and len(record.get("review_findings", [])) == 0
+    if name == "needs_security":
+        return "security" not in command_classes
+    if name == "needs_risk_doc":
+        return not record.get("open_risks") and len(record.get("review_findings", [])) == 0
+    return False
+
+
+def _risk_tier_findings(
+    risk: str,
+    commands: list[Any],
+    command_classes: set[str],
+    status: str,
+    record: dict[str, Any],
+) -> list[str]:
+    rules = _RISK_TIER_RULES.get(risk)
+    if rules is None:
+        return ["invalid risk tier"]
+    findings: list[str] = []
+    for check, message in rules:
+        if _tier_check_fails(
+            check,
+            commands=commands,
+            command_classes=command_classes,
+            status=status,
+            record=record,
+        ):
+            findings.append(message)
+    return findings
 
 
 def verify_gates(args: argparse.Namespace) -> int:
@@ -908,27 +1066,9 @@ def verify_gates(args: argparse.Namespace) -> int:
     if status in {"implement", "verify", "review", "package", "done", "iterating"} and not record.get("minimality_decision"):
         findings.append("minimality_decision is required before implementation can pass gates")
 
-    if risk == "low":
-        if not commands and not record.get("verification_plan"):
-            findings.append("low risk still needs a targeted check or rationale")
-    elif risk == "medium":
-        if not ({"unit", "integration", "typecheck", "build", "lint"} & command_classes):
-            findings.append("medium risk needs at least one relevant executable check")
-        if status not in {"review", "package", "done"}:
-            findings.append("medium risk must reach review/package/done status before review evidence is accepted")
-        elif len(record.get("review_findings", [])) == 0:
-            findings.append("medium risk should include fresh-context review result or rationale")
-    elif risk == "high":
-        if not ({"unit", "integration", "typecheck", "build", "lint"} & command_classes):
-            findings.append("high risk needs relevant executable checks")
-        if "security" not in command_classes:
-            findings.append("high risk needs security review/check evidence or blocked rationale")
-        if status not in {"review", "package", "done"}:
-            findings.append("high risk must reach review/package/done status before review evidence is accepted")
-        if not record.get("open_risks") and len(record.get("review_findings", [])) == 0:
-            findings.append("high risk needs explicit risk/review documentation")
-    else:
-        findings.append("invalid risk tier")
+    findings.extend(
+        _risk_tier_findings(risk, commands, command_classes, status, record)
+    )
 
     if blocked:
         findings.append(f"{len(blocked)} verification command(s) blocked; ensure rationale is recorded")
@@ -974,146 +1114,100 @@ REQUIRED_STEPS = [
     "VERIFY",
     "REVIEW",
     "PACKAGE",
+    "RETROSPECT",
 ]
 
-LOW_SIGNALS = {"docs", "copy", "comment", "formatting", "ui_copy"}
-MEDIUM_SIGNALS = {
-    "multi_file",
-    "behavior_change",
-    "api_contract",
-    "shared_utility",
-    "persistence_adjacent",
-    "auth_adjacent",
-    # Performance-sensitive work (search/indexing/ranking, rendering, hot request
-    # paths, data pipelines, batch jobs, or briefs with an explicit benchmark
-    # harness) is at least medium risk: it requires a worst-case-complexity
-    # commitment and a p50/p95 target in the validation contract, and a fresh
-    # reviewer must confirm both.
-    "performance_sensitive",
-}
-HIGH_SIGNALS = {
-    "authn",
-    "authz",
-    "payments",
-    "billing",
-    "data_migration",
-    "destructive",
-    "secrets",
-    "production_infra",
-    "external_side_effect",
-    "concurrency",
-}
+# Single source of truth for the config schema/version. check_config rejects a
+# config that does not declare this version so the skill, config, CHANGELOG, and
+# npm package cannot silently drift apart.
+EXPECTED_CONFIG_VERSION = "4.0.0"
 
-# Signals that scope the task class (effort/blast-radius), orthogonal to risk tier.
-TINY_SIGNALS = {
-    "docs",
-    "copy",
-    "comment",
-    "formatting",
-    "ui_copy",
-    "typo",
-    "one_line_config",
-    "obvious_test_update",
-}
-MISSION_SIGNALS = {"multi_day", "multi_module", "multi_repo", "uncertain_architecture"}
-
-# Risk boundaries that require a dedicated security-reviewer pass and a hard gate.
-SECURITY_BOUNDARY_SIGNALS = {
-    "authn",
-    "authz",
-    "payments",
-    "billing",
-    "secrets",
-    "data_migration",
-    "pii",
-    "upload_download",
-    "network",
-    "shell",
-    "dependency_change",
-}
-
-GATES_LOW = ["self_review"]
-GATES_MEDIUM = [
-    "targeted_tests",
-    "relevant_tests",
-    "typecheck_or_build",
-    "caller_review",
-    "fresh_review",
-]
-GATES_HIGH = GATES_MEDIUM + ["security_review", "rollback_plan", "human_approval"]
+# Step model-class floor: reasoning-heavy steps must route to the strongest
+# reasoning class so "the right LLM for the right job" is deterministically
+# backed, not just prose. check_config enforces this. PLAN is the planner step;
+# MINIMALITY_GATE and REVIEW are the other judgement-heavy steps.
+# P3.18: planner/orchestrator steps must route to a strong-reasoning model.
+STRONG_REASONING_STEPS = {"PLAN", "ORCHESTRATE"}
 
 
-def derive_risk_tier(signals: list[str]) -> str:
-    signal_set = set(signals)
-    if signal_set & HIGH_SIGNALS:
-        return "high"
-    if signal_set & MEDIUM_SIGNALS:
-        return "medium"
-    return "low"
+def _reviewer_heterogeneity(
+    profiles: dict[str, Any], steps: list[Any], routing: Any
+) -> list[str]:
+    """Return errors if the implementer and validator collapse to one model.
 
+    medium+ tasks require an independent reviewer, which is meaningless if the
+    same model both writes and reviews the diff. Two checks: (1) the profile
+    ``model`` fields, and (2) if model_routing is configured, the resolved
+    per-host model for the IMPLEMENT_SLICE and REVIEW model_classes. Placeholder
+    models (null / inherit / ``<...>``) are skipped so an unfilled config does
+    not false-positive.
+    """
+    errors: list[str] = []
 
-def required_gates_for_tier(tier: str) -> list[str]:
-    return {"low": GATES_LOW, "medium": GATES_MEDIUM, "high": GATES_HIGH}.get(tier, [])
+    impl_profile = profiles.get("implementer", {}) if isinstance(profiles, dict) else {}
+    rev_profile = profiles.get("fresh_reviewer", {}) if isinstance(profiles, dict) else {}
+    impl_model = impl_profile.get("model") if isinstance(impl_profile, dict) else None
+    rev_model = rev_profile.get("model") if isinstance(rev_profile, dict) else None
+    if (
+        isinstance(impl_model, str) and isinstance(rev_model, str)
+        and impl_model and rev_model and impl_model == rev_model
+        and not _is_placeholder_model(impl_model)
+    ):
+        errors.append(
+            f"reviewer heterogeneity: implementer and fresh_reviewer are both "
+            f"routed to {impl_model!r}; medium+ tasks require a different model "
+            f"for review (use a different model or model_class)"
+        )
 
+    if not isinstance(routing, dict):
+        return errors
+    host = routing.get("host")
+    host_models = routing.get("host_models", {})
+    if not (isinstance(host_models, dict) and host and host in host_models):
+        return errors
+    hblock = host_models.get(host, {})
+    if not isinstance(hblock, dict):
+        return errors
 
-def derive_task_class(signals: list[str]) -> str:
-    signal_set = set(signals)
-    if signal_set & MISSION_SIGNALS:
-        return "mission"
-    if signal_set & (MEDIUM_SIGNALS | HIGH_SIGNALS):
-        return "medium"
-    if signal_set and signal_set <= TINY_SIGNALS:
-        return "tiny"
-    return "small"
+    impl_class = None
+    rev_class = None
+    for step in (steps if isinstance(steps, list) else []):
+        if not isinstance(step, dict):
+            continue
+        if step.get("step") == "IMPLEMENT_SLICE":
+            impl_class = step.get("model_class")
+        elif step.get("step") == "REVIEW":
+            rev_class = step.get("model_class")
+    if not (impl_class and rev_class):
+        return errors
 
-
-def requires_security_reviewer(signals: list[str]) -> bool:
-    return bool(set(signals) & SECURITY_BOUNDARY_SIGNALS)
-
-
-def minimality_flags(proposed: dict[str, Any]) -> list[str]:
-    introduces = proposed.get("introduces", [])
-    lower_rung_available = proposed.get("lower_rung_available", False)
-    flags: list[str] = []
-    if introduces and lower_rung_available:
-        flags.append("overengineering")
-    # under-fanned: a multi-feature medium/mission task collapsed into a single
-    # source or test file. Modularity is a maintainability property; a monolith
-    # for a 7-feature brief is not "minimal," it is under-fanned.
-    if proposed.get("single_source_file") and proposed.get("feature_count", 0) >= 3:
-        flags.append("under-fanned")
-    if proposed.get("single_test_file") and proposed.get("feature_count", 0) >= 3:
-        if "under-fanned" not in flags:
-            flags.append("under-fanned")
-    return flags
-
-
-def evaluate_input(case_input: dict[str, Any]) -> dict[str, Any]:
-    signals = case_input.get("signals", [])
-    tier = derive_risk_tier(signals)
-    task_class = derive_task_class(signals)
-    proposed = case_input.get("proposed_solution", {})
-    security = requires_security_reviewer(signals)
-    # The completion-record shipping gate fires for the same work the runtime
-    # verify_gates treats as non-trivial: medium/mission class, medium/high risk,
-    # or security-sensitive. A small low-risk task ships with handoff evidence
-    # (contract + evidence + risks), not a formal completion record.
-    requires_completion = (
-        task_class in {"medium", "mission"} or tier in {"medium", "high"} or security
-    )
-    return {
-        "risk_tier": tier,
-        "task_class": task_class,
-        "required_gates": required_gates_for_tier(tier),
-        "minimality_flags": minimality_flags(proposed),
-        "escalate": tier == "high",
-        "requires_validation_contract": task_class in {"medium", "mission"},
-        "requires_independent_review": task_class in {"medium", "mission"},
-        "requires_completion_record": requires_completion,
-        "requires_security_reviewer": security,
-        "hard_gate": security or tier == "high",
-        "harness_update": "repeated_mistake" in set(signals),
-    }
+    impl_resolved = hblock.get(impl_class, {}).get("model")
+    rev_resolved = hblock.get(rev_class, {}).get("model")
+    if impl_class == rev_class:
+        # Same model_class on IMPLEMENT_SLICE and REVIEW means the same model on
+        # medium+ routing.
+        if not (
+            _is_placeholder_model(impl_resolved) or _is_placeholder_model(rev_resolved)
+        ):
+            errors.append(
+                f"reviewer heterogeneity: IMPLEMENT_SLICE and REVIEW both "
+                f"use model_class={impl_class!r} on host {host!r}; medium+ "
+                f"tasks require a different model for review (use a different "
+                f"model or model_class)"
+            )
+    elif (
+        isinstance(impl_resolved, str) and isinstance(rev_resolved, str)
+        and impl_resolved and rev_resolved and impl_resolved == rev_resolved
+        and not (
+            _is_placeholder_model(impl_resolved) or _is_placeholder_model(rev_resolved)
+        )
+    ):
+        errors.append(
+            f"reviewer heterogeneity: implementer (model_class={impl_class!r}) "
+            f"and fresh_reviewer (model_class={rev_class!r}) both resolve to "
+            f"{impl_resolved!r} on host {host!r}; use a different model for review"
+        )
+    return errors
 
 
 def _is_placeholder_model(model: Any) -> bool:
@@ -1141,6 +1235,13 @@ def check_config(args: argparse.Namespace) -> int:
         if key not in config:
             errors.append(f"missing required field: {key}")
 
+    version = config.get("version")
+    if "version" in config and version != EXPECTED_CONFIG_VERSION:
+        errors.append(
+            f"config version is {version!r}; expected {EXPECTED_CONFIG_VERSION!r} "
+            f"(the skill, config, CHANGELOG, and npm package share one version)"
+        )
+
     profiles = config.get("profiles", {})
     if not isinstance(profiles, dict) or not profiles:
         errors.append("profiles must be a non-empty object")
@@ -1162,6 +1263,15 @@ def check_config(args: argparse.Namespace) -> int:
                 errors.append(f"step {name!r} must declare required_artifacts")
             if not step.get("gates"):
                 errors.append(f"step {name!r} must declare gates")
+            if name in STRONG_REASONING_STEPS and step.get("model_class") not in (
+                None,
+                "strong_reasoning",
+            ):
+                errors.append(
+                    f"step {name!r} is reasoning-heavy and must route to "
+                    f"model_class 'strong_reasoning', not "
+                    f"{step.get('model_class')!r}"
+                )
         missing_steps = [s for s in REQUIRED_STEPS if s not in seen]
         if missing_steps:
             errors.append("missing lifecycle steps: " + ", ".join(missing_steps))
@@ -1182,71 +1292,7 @@ def check_config(args: argparse.Namespace) -> int:
     if routing is not None:
         errors.extend(qlroute.validate_model_routing(routing))
 
-    # Reviewer heterogeneity: implementer and validator must not be the same model on medium+.
-    impl_profile = profiles.get("implementer", {}) if isinstance(profiles, dict) else {}
-    rev_profile = profiles.get("fresh_reviewer", {}) if isinstance(profiles, dict) else {}
-    impl_model = impl_profile.get("model") if isinstance(impl_profile, dict) else None
-    rev_model = rev_profile.get("model") if isinstance(rev_profile, dict) else None
-    if (
-        isinstance(impl_model, str) and isinstance(rev_model, str)
-        and impl_model and rev_model and impl_model == rev_model
-        and not _is_placeholder_model(impl_model)
-    ):
-        errors.append(
-            f"reviewer heterogeneity: implementer and fresh_reviewer are both "
-            f"routed to {impl_model!r}; medium+ tasks require a different model "
-            f"for review (use a different model or model_class)"
-        )
-
-    # If model_routing is configured, also check model-class resolution.
-    if isinstance(routing, dict):
-        host = routing.get("host")
-        host_models = routing.get("host_models", {})
-        if isinstance(host_models, dict) and host and host in host_models:
-            hblock = host_models.get(host, {})
-            if isinstance(hblock, dict):
-                impl_class = None
-                rev_class = None
-                for step in (steps if isinstance(steps, list) else []):
-                    if not isinstance(step, dict):
-                        continue
-                    if step.get("step") == "IMPLEMENT_SLICE":
-                        impl_class = step.get("model_class")
-                    elif step.get("step") == "REVIEW":
-                        rev_class = step.get("model_class")
-                if impl_class and rev_class:
-                    impl_resolved = hblock.get(impl_class, {}).get("model")
-                    rev_resolved = hblock.get(rev_class, {}).get("model")
-                    if impl_class == rev_class:
-                        # Same model_class on IMPLEMENT_SLICE and REVIEW means the
-                        # same model on medium+ routing. Skip placeholder models
-                        # (null / "inherit" / "<...>") so an unfilled config does
-                        # not false-positive before the user supplies real models.
-                        if not (
-                            _is_placeholder_model(impl_resolved)
-                            or _is_placeholder_model(rev_resolved)
-                        ):
-                            errors.append(
-                                f"reviewer heterogeneity: IMPLEMENT_SLICE and REVIEW both "
-                                f"use model_class={impl_class!r} on host {host!r}; medium+ "
-                                f"tasks require a different model for review (use a different "
-                                f"model or model_class)"
-                            )
-                    else:
-                        if (
-                            isinstance(impl_resolved, str) and isinstance(rev_resolved, str)
-                            and impl_resolved and rev_resolved
-                            and impl_resolved == rev_resolved
-                            and not (
-                                _is_placeholder_model(impl_resolved)
-                                or _is_placeholder_model(rev_resolved)
-                            )
-                        ):
-                            errors.append(
-                                f"reviewer heterogeneity: implementer (model_class={impl_class!r}) "
-                                f"and fresh_reviewer (model_class={rev_class!r}) both resolve to "
-                                f"{impl_resolved!r} on host {host!r}; use a different model for review"
-                            )
+    errors.extend(_reviewer_heterogeneity(profiles, steps, routing))
 
     if errors:
         for error in errors:
@@ -1412,6 +1458,33 @@ def cmd_brief(args: argparse.Namespace) -> int:
 
 
 
+def _run_case_gates(record: dict[str, Any]) -> tuple[int, list[str]]:
+    """Run the real verify_gates on a record in-process, capturing findings.
+
+    Writes the record to a temp file (verify_gates loads from disk and resolves
+    artifact paths relative to it) and captures the ``warning:`` lines it emits.
+    This exercises the exact production code path a running loop would hit — no
+    parallel classifier to drift from the shipping gate.
+    """
+    import contextlib
+    import io
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rec_path = Path(tmp) / "agent-record.json"
+        rec_path.write_text(json.dumps(record))
+        vg_args = argparse.Namespace(record=str(rec_path), against_diff=False, base="HEAD")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = verify_gates(vg_args)
+    findings = [
+        line[len("warning:"):].strip()
+        for line in buf.getvalue().splitlines()
+        if line.strip().startswith("warning:")
+    ]
+    return rc, findings
+
+
 def eval_cases(args: argparse.Namespace) -> int:
     cases_dir = Path(args.cases_dir)
     if cases_dir.is_dir():
@@ -1433,25 +1506,26 @@ def eval_cases(args: argparse.Namespace) -> int:
     for case_file in case_files:
         case = load_json(case_file)
         name = case.get("name", case_file.stem)
-        expected = case.get("expected", {})
-        actual = evaluate_input(case.get("input", {}))
+        record = case.get("record", {})
+        expect = case.get("expect", {})
         mismatches: list[str] = []
-        comparable_keys = (
-            "risk_tier",
-            "task_class",
-            "required_gates",
-            "minimality_flags",
-            "escalate",
-            "requires_validation_contract",
-            "requires_independent_review",
-            "requires_completion_record",
-            "requires_security_reviewer",
-            "hard_gate",
-            "harness_update",
-        )
-        for key in comparable_keys:
-            if key in expected and expected[key] != actual[key]:
-                mismatches.append(f"{key}: expected {expected[key]!r}, got {actual[key]!r}")
+
+        floor, markers = detect_risk_floor(record)
+        gates_rc, findings = _run_case_gates(record)
+
+        if "risk_floor" in expect and expect["risk_floor"] != floor:
+            mismatches.append(f"risk_floor: expected {expect['risk_floor']!r}, got {floor!r}")
+        for marker in expect.get("floor_markers", []):
+            if marker not in markers:
+                mismatches.append(f"floor_markers missing {marker!r} (got {markers})")
+        if "gates_exit" in expect and expect["gates_exit"] != gates_rc:
+            mismatches.append(f"gates_exit: expected {expect['gates_exit']}, got {gates_rc}")
+        for needle in expect.get("findings_include", []):
+            if not any(needle in f for f in findings):
+                mismatches.append(f"expected a finding containing {needle!r}; got {findings}")
+        for needle in expect.get("findings_exclude", []):
+            if any(needle in f for f in findings):
+                mismatches.append(f"unexpected finding containing {needle!r}; got {findings}")
 
         total += 1
         if mismatches:
@@ -1518,9 +1592,16 @@ def verify(args: argparse.Namespace) -> int:
 
     record_path = Path(args.record)
     record = load_json(record_path)
-    base = getattr(args, "base", "HEAD")
+    requested_base = getattr(args, "base", "HEAD")
+    # Resolve the base once and reuse it for every diff-grounded section. On a
+    # fresh/detached checkout the requested ref (often origin/main) may not exist;
+    # rather than let each section die with git's raw exit 128, fall back to a
+    # sane ref and tell the caller how to pin it explicitly.
+    base, base_hint = _resolve_base(requested_base)
     all_findings: list[str] = []
     all_warnings: list[str] = []
+    if base_hint:
+        all_warnings.append(base_hint)
     sections: list[tuple[str, int, str]] = []  # (name, exit_code, output)
 
     def _run_section(fn) -> tuple[int, str]:
@@ -1550,18 +1631,19 @@ def verify(args: argparse.Namespace) -> int:
                 all_warnings.append(line[len("warning:"):].strip())
 
     # 2. Diff audit (wrapped so a non-git repo produces a failed section, not a
-    #    bare exit 129 with no report).
+    #    bare exit 129 with no report). Parse regardless of exit code: advisory
+    #    findings are emitted at exit 0 and must still surface as warnings, while
+    #    blocking findings (exit 1) roll into all_findings and fail the umbrella.
     da_args = argparse.Namespace(base=base, staged=False, max_files=12, max_lines=600)
     da_rc, da_out = _run_section(lambda: diff_audit(da_args))
     sections.append(("diff-audit", da_rc, da_out))
-    if da_rc != 0:
-        try:
-            result = json.loads(da_out)
-            for w in result.get("warnings", []):
-                all_warnings.append(w)
-        except json.JSONDecodeError:
-            if da_out and "section aborted" not in da_out:
-                all_warnings.append(da_out)
+    try:
+        result = json.loads(da_out)
+        all_findings.extend(result.get("blocking", []))
+        all_warnings.extend(result.get("advisory", []))
+    except json.JSONDecodeError:
+        if da_rc != 0 and da_out and "section aborted" not in da_out:
+            all_findings.append(da_out)
 
     # 3. Evidence re-execution (if pass commands exist)
     pass_cmds = [c for c in record.get("commands_run", []) if isinstance(c, dict) and c.get("result") == "pass"]
@@ -1604,6 +1686,9 @@ def verify(args: argparse.Namespace) -> int:
     # Unified report
     print("=" * 60)
     print("VERIFY — unified gate report")
+    print(f"base: {base}" + (f" (requested {requested_base!r})" if base != requested_base else ""))
+    if base_hint:
+        print(f"note: {base_hint}")
     print("=" * 60)
     for name, rc, output in sections:
         status = "PASS" if rc == 0 else "FAIL"

@@ -1,6 +1,6 @@
 {
   "$schema": "./quality-loop.config.schema.json",
-  "version": "2.3.0",
+  "version": "4.0.0",
   "description": "Agentic routing data for the Coding Quality Loop. Map each profile to a real model on your platform. Models are placeholders; replace with your provider's identifiers. This is routing DATA consumed by hosts (Claude subagents, Droid droids, Codex subagents, Pi providers) — it is not a runtime. Per-role model routing is the host's job via the config profiles and the harness-agnostic role pack in assets/prompts/ and .claude/agents/. orchestrator and security_reviewer are mission/boundary roles, not per-step profiles.",
   "profiles": {
     "orchestrator": {"role": "Mission: scope, classify, context, spec/validation contract, decompose, assign workers, collect findings, stop if unsafe", "model": "<strong-reasoning-model>", "tools": ["read", "search"]},
@@ -13,6 +13,7 @@
     "fresh_reviewer": {"role": "INDEPENDENT REVIEW: validator; diff review vs validation contract", "model": "<strong-reasoning-model>", "tools": ["read", "search"], "independent_session": true},
     "security_reviewer": {"role": "Risk boundaries only: auth, secrets, payments, PII, migrations, upload/download, network, shell, dependencies", "model": "<strong-reasoning-model>", "tools": ["read", "search"], "independent_session": true},
     "packager": {"role": "SHIP/HANDOFF: assemble PR handoff + completion record", "model": "<cheap-fast-model>", "tools": ["read"]},
+    "retrospector": {"role": "RETROSPECT: convert a repeated failure into a durable harness update (rule/test/hook/checklist)", "model": "<strong-reasoning-model>", "tools": ["read", "write"]},
     "policy_guard": {"role": "Cross-cutting deterministic safety blocks", "model": null, "tools": ["hook"], "deterministic": true}
   },
   "steps": [
@@ -80,6 +81,14 @@
       "tools": ["read"],
       "required_artifacts": ["pr_handoff"],
       "gates": ["handoff_complete"]
+    },
+    {
+      "step": "RETROSPECT",
+      "profile": "retrospector",
+      "model_class": "strong_reasoning",
+      "tools": ["read", "write"],
+      "required_artifacts": ["harness_update"],
+      "gates": ["repeated_failure_converted_to_durable_harness_update"]
     }
   ],
   "policy_guard": {
@@ -98,6 +107,14 @@
     "low": {"agents": ["implementer"], "policy_guard": true, "note": "One agent runs the whole loop."},
     "medium": {"agents": ["implementer", "fresh_reviewer", "verification_runner"], "policy_guard": true, "note": "Independent reviewer + real checks."},
     "high": {"agents": ["orchestrator", "planner", "minimality_reviewer", "implementer", "verification_runner", "fresh_reviewer", "security_reviewer"], "policy_guard": true, "human_approval": true, "security_reviewer_at_boundaries": true, "note": "Full split with enforced security/migration blocks; security_reviewer required at risk boundaries."}
+  },
+  "advisor": {
+    "description": "Anthropic advisor-tool pattern (https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool). A cheap executor drives the loop and consults a stronger reasoning model at reasoning walls only. The advisor never calls tools; it returns reasoning the executor acts on. DEFAULT for small/medium tasks -- cheaper than routing every step to a strong model, and it keeps one driver in control. Prefer this to a full multi-agent split until the task is genuinely high-risk.",
+    "enabled_for": ["small", "medium"],
+    "executor_model_class": "cheap_fast",
+    "advisor_model_class": "strong_reasoning",
+    "advisor_calls_tools": false,
+    "max_uses": 3
   },
   "memory": {
     "lessons_store": "files",
