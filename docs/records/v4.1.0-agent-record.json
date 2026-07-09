@@ -1,0 +1,305 @@
+{
+ "task_id": "v32-trust-chain",
+ "goal": "v3.2.0 trust-chain release: close the enforcement inversion (CI pinned-copy anchor, stop-gate decision table, --require-terminal), repair the evidence base (honest 5-eval table, model-proxy relabels, 122-case count sync, trigger smoke reclassification), instrument process cost (bench validation, run_metrics), dedupe docs and reposition orchestration, extract quality_loop_core",
+ "acceptance_criteria": [
+  "AC1 (R1): action.yml executes gate scripts only from ${GITHUB_ACTION_PATH}; a red-team eval case proves a softened committed local script no longer defeats verification",
+  "AC2 (R1): stop_gate blocks at status verify/review with a dirty tree and failing gates; allows escalate as auditable pause; allows stop_hook_active; package/done behavior unchanged",
+  "AC3 (R1): verify --require-terminal fails on non-empty diff with non-terminal status",
+  "AC4 (R2/R4): README lists all five eval runs with methodology labels and negatives; trigger suite excluded from gate count and labeled smoke; all docs state the same gate-case count, enforced by a lint case",
+  "AC5 (R3): bench validates cost_usd/tokens_in/tokens_out/duration_sec on live runs, hard-fail; record schema accepts optional run_metrics",
+  "AC6 (R6/R7): references deduped with canonical pointers, medium unified, advisor-topology decision rule present, v240 archived with pointers updated, cursor alwaysApply off",
+  "AC7 (R8): quality_loop_core.py extracted, heterogeneity logic single-sourced, dead phase machinery removed, all suites green"
+ ],
+ "constraints": [],
+ "non_goals": [
+  "R5 per-model process depth (deferred: needs n>=3 live replication)",
+  "npm publish mechanics beyond tagging a release"
+ ],
+ "assumptions": [],
+ "risk_tier": "medium",
+ "task_class": "medium",
+ "implementer": "claude-fable-5 supervisor + subagents (s1-enforcement, s2-scripts, s3-evidence, s4-docs, s5-bench)",
+ "security_sensitive": false,
+ "verification_plan": [
+  "all 6 suite runners + static eval-cases green (122 gate cases + 10 trigger smoke)",
+  "bench fixture smoke green",
+  "py_compile clean on all 5 modules",
+  "fresh-context quality review + security review + codex adversarial review, findings fixed",
+  "verify umbrella with --require-terminal passes on this record at package"
+ ],
+ "validation_contract": {
+  "goal": "v3.2.0 trust-chain release: close the enforcement inversion (CI pinned-copy anchor, stop-gate decision table, --require-terminal), repair the evidence base (honest 5-eval table, model-proxy relabels, 122-case count sync, trigger smoke reclassification), instrument process cost (bench validation, run_metrics), dedupe docs and reposition orchestration, extract quality_loop_core",
+  "acceptance_criteria": [
+   "all seven ACs above hold, each backed by a runnable command or a file:line check"
+  ],
+  "evidence": [
+   "python3 scripts/quality_loop.py eval-cases evals/cases -> 11/11",
+   "python3 evals/run_evals.py -> 38/38 (incl. count-consistency lint, run_metrics, require-terminal, bench-validate cases)",
+   "python3 evals/run_hook_evals.py -> 15/15 (incl. unreadable-record fail-closed, reasonless-escalated block)",
+   "python3 evals/run_memory_evals.py -> 26/26",
+   "python3 evals/run_reality_evals.py -> 22/22 (incl. CI-anchor red-team + action-pinning lint)",
+   "python3 evals/run_routing_evals.py -> 13/13",
+   "python3 evals/run_trigger_evals.py -> 10/10 smoke",
+   "python3 bench/runner.py --mode fixture --seeds 1 -> exit 0",
+   "python3 -m py_compile scripts/*.py hosts/claude-code/*.py -> clean"
+  ]
+ },
+ "independent_review": {
+  "reviewer": "quality-loop-reviewer",
+  "verdict": "approve",
+  "fresh_context": true,
+  "patched": false,
+  "ran_checks": true,
+  "findings": [
+   "resolved: README:215 + :499 breakdown now 11/39/26/23/15/16 = 130, arithmetic verified",
+   "resolved: CHANGELOG 4.1.0 states 130 across 6 suites with correct breakdown; 'version markers unified on 4.1.0'",
+   "resolved: dashboard PNG and generator source and README alt text all agree at 130 / Hook 16 (PNG visually verified)",
+   "resolved: hosts/github example pins @v4.1.0",
+   "resolved: retrospect merge seam closed \u2014 retrospect in DIRTY_GATED_STATUSES + case_stop_gate_blocks_retrospect_dirty (hook 16/16); coherent with require-terminal treating retrospect as non-terminal",
+   "resolved: count lint extended to docs/images/src/README.md + CHANGELOG top entry (10-case fixture whitelisted); _REVIEW_READY_STATUS aliased to core REVIEW_READY_STATUSES",
+   "resolved: CHANGELOG references measurement corrected to 65,869 -> 62,982 (-4.4%) vs shipped 4.0.0 baseline, with the branch-lineage -12.6% kept as labeled context",
+   "resolved: CHANGELOG module sizes corrected to quality_loop.py 1,833 -> 1,693 vs shipped 4.0.0 baseline"
+  ],
+  "verification_assessment": "ran_checks=true. Executed on the reconciled staged tree: py_compile clean; 11 static + 39 behavioral + 26 memory + 23 reality + 15 routing + 16 hook = 130 gate cases green, matching CANONICAL_GATE_CASES=130 and every linted doc; 10/10 trigger smoke; bench fixture + --validate; check-config against EXPECTED_CONFIG_VERSION=4.1.0; dashboard PNG visually inspected at 130/16. Merge semantics verified across both streams: classifier removal, table-driven tier rules, _reviewer_heterogeneity, advisory/blocking diff-audit, _resolve_base fallback (behavior-equivalent via qlcore.git_capture) from 4.0.0; core extraction, --require-terminal, run_metrics, test_weakening_hits as blocking, stop-gate decision table, action.yml pinning/env-hardening from trust-chain. RETROSPECT constants byte-equivalent to shipped 4.0.0 literal sets. Config example semantically identical to 4.0.0's except version (deep-compared). Final round: CHANGELOG-only edit verified (both numbers match my own measurements exactly, fully staged, no other file touched); behavioral 39/39 (count lint included) and hook 16/16 re-run green; py_compile clean.",
+  "minimality_assessment": "Reconciliation is the smallest correct union: no behavior invented outside either stream; the only new surface since my last pass (retrospect dirty-gating, lint extension, alias) each answers a named reviewer finding with a pinning eval. Config reformat is cosmetic churn (verified semantics-identical) \u2014 acceptable.",
+  "diff_sha256": "e7ce28cd6657606c4b9ccffde35dc59b854bf1efc2bd180c18cd4576579f907d",
+  "attested_at": "2026-07-09T21:46:09"
+ },
+ "security_review": {
+  "reviewer": "quality-loop-security-reviewer",
+  "verdict": "approve",
+  "fresh_context": true,
+  "patched": false,
+  "findings": [],
+  "probes": [
+   "invalid-UTF8 record at done+dirty -> fail-closed block, no traceback",
+   "escalated + non-empty reason -> allow; whitespace-only reason -> blocked via dirty gate",
+   "valid-JSON-non-object record -> blocked as unreadable",
+   "action.yml script body: zero ${{ }} interpolations (env indirection verified)",
+   "record-deletion: action fails ::error when loop config present without record",
+   "bench --validate rejects non-numeric/negative/empty-runs"
+  ],
+  "accepted_residuals": [
+   "git-absent fail-open in stop hook (documented; CI anchor holds)",
+   "reasonless escalated + clean tree allows (nothing shipped; require-terminal blocks merge)",
+   "local hook executes checkout scripts (by design; pinned CI copy is the anchor, eval-pinned)"
+  ]
+ },
+ "completion_record": {
+  "goal": "v3.2.0 trust-chain release: close the enforcement inversion (CI pinned-copy anchor, stop-gate decision table, --require-terminal), repair the evidence base (honest 5-eval table, model-proxy relabels, 122-case count sync, trigger smoke reclassification), instrument process cost (bench validation, run_metrics), dedupe docs and reposition orchestration, extract quality_loop_core",
+  "acceptance_criteria": [
+   "AC1 (R1): action.yml executes gate scripts only from ${GITHUB_ACTION_PATH}; a red-team eval case proves a softened committed local script no longer defeats verification",
+   "AC2 (R1): stop_gate blocks at status verify/review with a dirty tree and failing gates; allows escalate as auditable pause; allows stop_hook_active; package/done behavior unchanged",
+   "AC3 (R1): verify --require-terminal fails on non-empty diff with non-terminal status",
+   "AC4 (R2/R4): README lists all five eval runs with methodology labels and negatives; trigger suite excluded from gate count and labeled smoke; all docs state the same gate-case count, enforced by a lint case",
+   "AC5 (R3): bench validates cost_usd/tokens_in/tokens_out/duration_sec on live runs, hard-fail; record schema accepts optional run_metrics",
+   "AC6 (R6/R7): references deduped with canonical pointers, medium unified, advisor-topology decision rule present, v240 archived with pointers updated, cursor alwaysApply off",
+   "AC7 (R8): quality_loop_core.py extracted, heterogeneity logic single-sourced, dead phase machinery removed, all suites green"
+  ],
+  "evidence": [
+   "130/130 gate cases green across 6 suites (11+39+26+23+15+16) + 10/10 trigger smoke on the reconciled tree",
+   "reconciliation merge onto shipped 4.0.0: quality reviewer verified both streams' semantics preserved, nothing dropped (attested, base origin/main)",
+   "security reviewer: approve \u2014 merge-seam finding (retrospect dirty-gating) fixed and probe-proven; corrupt-record fail-closed re-verified",
+   "Codex merge-loss verdict: no runtime behavior lost from either parent, nothing widened; all doc-truth findings fixed",
+   "red-team eval replays the documented soften-and-commit attack; pinned CI copy blocks it"
+  ],
+  "files": [
+   "CHANGELOG.md",
+   "README.md",
+   "ROADMAP.md",
+   "SKILL.md",
+   "action.yml",
+   "archive/v240-validation-contract.md",
+   "assets/agent-record.schema.json",
+   "assets/completion-record.md",
+   "assets/quality-loop.config.example.json",
+   "bench/live-run-recipe.md",
+   "bench/metrics.py",
+   "bench/runner.py",
+   "docs/README.md",
+   "docs/architecture.md",
+   "docs/comparison.md",
+   "docs/critical-review-2026-07-09.md",
+   "docs/images/evidence-dashboard.png",
+   "docs/images/src/README.md",
+   "docs/images/src/evidence_dashboard.py",
+   "docs/launch-kit.md",
+   "docs/spec-2026-07-09-critical-review-and-headless-orchestration.md",
+   "evals/README.md",
+   "evals/run_evals.py",
+   "evals/run_hook_evals.py",
+   "evals/run_reality_evals.py",
+   "evals/run_trigger_evals.py",
+   "examples/cursor/.cursor/rules/coding-quality-loop.mdc",
+   "examples/sudoku-agent-eval-2026-07-01/README.md",
+   "hosts/claude-code/stop_gate.py",
+   "hosts/github/quality-loop-example.yml",
+   "packages/npm/package.json",
+   "references/agentic-orchestration.md",
+   "references/engineering-operating-system.md",
+   "references/lifecycle.md",
+   "references/philosophy.md",
+   "scripts/quality_loop.py",
+   "scripts/quality_loop_core.py",
+   "scripts/quality_loop_memory.py",
+   "scripts/quality_loop_reality.py",
+   "scripts/quality_loop_routing.py"
+  ],
+  "rollback": "git revert the single release merge commit on main; npm: deprecate 4.1.0 and re-point latest at 4.0.0"
+ },
+ "repair_attempts": 0,
+ "repeated_failure": false,
+ "harness_update": null,
+ "repo_map": {
+  "entry_points": [
+   "scripts/quality_loop.py:main",
+   "hosts/claude-code/stop_gate.py:main",
+   "action.yml:runs.steps",
+   "bench/runner.py:main"
+  ],
+  "likely_files": [
+   "CHANGELOG.md",
+   "README.md",
+   "ROADMAP.md",
+   "SKILL.md",
+   "action.yml",
+   "archive/v240-validation-contract.md",
+   "assets/agent-record.schema.json",
+   "assets/completion-record.md",
+   "assets/quality-loop.config.example.json",
+   "bench/live-run-recipe.md",
+   "bench/metrics.py",
+   "bench/runner.py",
+   "docs/README.md",
+   "docs/architecture.md",
+   "docs/comparison.md",
+   "docs/critical-review-2026-07-09.md",
+   "docs/images/evidence-dashboard.png",
+   "docs/images/src/README.md",
+   "docs/images/src/evidence_dashboard.py",
+   "docs/launch-kit.md",
+   "docs/spec-2026-07-09-critical-review-and-headless-orchestration.md",
+   "evals/README.md",
+   "evals/run_evals.py",
+   "evals/run_hook_evals.py",
+   "evals/run_reality_evals.py",
+   "evals/run_trigger_evals.py",
+   "examples/cursor/.cursor/rules/coding-quality-loop.mdc",
+   "examples/sudoku-agent-eval-2026-07-01/README.md",
+   "hosts/claude-code/stop_gate.py",
+   "hosts/github/quality-loop-example.yml",
+   "packages/npm/package.json",
+   "references/agentic-orchestration.md",
+   "references/engineering-operating-system.md",
+   "references/lifecycle.md",
+   "references/philosophy.md",
+   "scripts/quality_loop.py",
+   "scripts/quality_loop_core.py",
+   "scripts/quality_loop_memory.py",
+   "scripts/quality_loop_reality.py",
+   "scripts/quality_loop_routing.py"
+  ],
+  "callers_checked": [
+   ".claude/settings.json:Stop hook -> stop_gate.py",
+   "scripts/install.py:66 glob quality_loop*.py -> ships core module",
+   "packages/npm prepack -> dist/skill/scripts",
+   ".github/workflows/evals.yml -> suite runners",
+   "evals/run_evals.py:import quality_loop -> re-exports verified"
+  ],
+  "tests": [
+   "evals/run_evals.py",
+   "evals/run_hook_evals.py",
+   "evals/run_reality_evals.py",
+   "evals/run_memory_evals.py",
+   "evals/run_routing_evals.py",
+   "evals/run_trigger_evals.py"
+  ],
+  "patterns_to_follow": [
+   "stdlib-only scripts",
+   "finding strings are load-bearing (eval cases assert on them)",
+   "JSON decision output for Claude Code hooks"
+  ]
+ },
+ "minimality_decision": {
+  "rung": "minimal_new_code",
+  "reason": "every change lands in existing surfaces (action.yml, stop hook, scripts, docs); the only new file is quality_loop_core.py, extracted (not invented) to break the documented god-module coupling; R5's new config surface deliberately deferred"
+ },
+ "plan": [
+  "S1 enforcement trust chain (action.yml, stop_gate, red-team + hook eval cases)",
+  "S2 core extraction + heterogeneity dedupe + dead phase removal + run_metrics + --require-terminal",
+  "S5 bench cost validation",
+  "S3 evidence-base repair + count sync + trigger smoke reclassification",
+  "S4 references dedup + orchestration reposition + philosophy fix + hygiene",
+  "supervisor: README/comparison positioning, seam fixes, init-record nesting fix",
+  "review swarm + dogfood verify + release v3.2.0"
+ ],
+ "commands_run": [
+  {
+   "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases",
+   "class": "unit",
+   "result": "pass",
+   "evidence": "11/11 eval cases passed"
+  },
+  {
+   "cmd": "python3 evals/run_evals.py",
+   "class": "unit",
+   "result": "pass",
+   "evidence": "39/39 eval cases passed"
+  },
+  {
+   "cmd": "python3 evals/run_hook_evals.py",
+   "class": "integration",
+   "result": "pass",
+   "evidence": "16/16 hook eval cases passed"
+  },
+  {
+   "cmd": "python3 evals/run_memory_evals.py",
+   "class": "unit",
+   "result": "pass",
+   "evidence": "26/26 memory eval cases passed"
+  },
+  {
+   "cmd": "python3 evals/run_reality_evals.py",
+   "class": "integration",
+   "result": "pass",
+   "evidence": "23/23 reality eval cases passed"
+  },
+  {
+   "cmd": "python3 evals/run_routing_evals.py",
+   "class": "unit",
+   "result": "pass",
+   "evidence": "15/15 routing eval cases passed"
+  },
+  {
+   "cmd": "python3 evals/run_trigger_evals.py",
+   "class": "e2e",
+   "result": "pass",
+   "evidence": "10/10 trigger smoke cases passed"
+  },
+  {
+   "cmd": "python3 -m py_compile scripts/quality_loop.py scripts/quality_loop_core.py scripts/quality_loop_memory.py scripts/quality_loop_reality.py scripts/quality_loop_routing.py",
+   "class": "lint",
+   "result": "pass",
+   "evidence": "clean, no output"
+  }
+ ],
+ "open_risks": [
+  "R5 (per-model process depth) deferred to ROADMAP pending n>=3 live replication with cost capture",
+  "references dedup landed -12.6% vs -40% aspiration; accepted deviation, recorded in CHANGELOG",
+  "stop gate allows implement-status stops with dirty tree by design (interactive turns); CI --require-terminal is the merge-boundary backstop; accepted",
+  "git-absent environments fail open in the stop hook by design (session must not lock); documented in code",
+  "GH Action pinning verified by local red-team simulation + static lint, not by a real Actions run",
+  "diff-audit leaves an unreadable untracked file as advisory (cannot be scanned for secrets); accepted residual per security review \u2014 an untracked file never ships, and staging it enters the blocking patch scan"
+ ],
+ "review_findings": [
+  "fresh-context quality review (quality-loop-reviewer): approve, attested diff_sha256 f58fb7f9...913; 8 findings resolved or explicitly accepted",
+  "fresh-context security review (quality-loop-security-reviewer): approve, zero findings, six adversarial probes incl. corrupt-record fail-closed and whitespace-reason evasion",
+  "independent Codex/GPT-5.5 review: 5 findings (require-terminal base no-op, stop-gate crash guard, escalate/escalated, stale docs counts, phase doc drift) \u2014 all fixed and re-verified"
+ ],
+ "next_action": "Complete intake and acceptance criteria.",
+ "status": "done",
+ "run_metrics": {
+  "duration_sec": 4800
+ },
+ "escalation_reason": "Awaiting reviewer re-attest: the quality reviewer approved the reconciled v4.1.0 tree, then requested two CHANGELOG baseline corrections; applying them invalidated the attest hash by design. The refreshed attest against the staged diff (base origin/main) is the only open gate before merge+tag. Security: approve (probe-proven). Codex: clean merge-loss verdict, all findings fixed. Battery: 130 gate cases + 10 smoke green."
+}
