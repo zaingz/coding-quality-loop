@@ -14,7 +14,7 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-3.1.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-4.0.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
 [![offline gates](https://img.shields.io/badge/offline%20gates-121%20cases-111111?style=flat-square)](evals/)
@@ -56,7 +56,7 @@ You ask your agent to *"fix the checkout retry bug."*
 
 That is the whole idea: smaller changes, real proof, a second set of eyes, and memory that sticks. The work scales to the risk: a typo just gets fixed; a payment migration runs the full process. See a real worked example in [`examples/walkthrough/`](examples/walkthrough/README.md).
 
-- **New in 3.1.0**: capability-aware routing plus reality-layer hardening from the first live 2×2 webapp eval. `verify` now prints **helper-integrity sha256** for each helper module (motivated by a live run where an agent silently softened its local `diff-audit`, then reported PASS); `init-record` scaffolds `.quality-loop/allowed-commands`; reasoning-effort is capped at `high` unless a model-class block opts in with `allow_overthink`. See [`CHANGELOG.md`](CHANGELOG.md#310) for the full list.
+- **New in 4.0.0**: trust-the-gates hardening from a two-reviewer audit. `diff-audit` now separates **blocking** findings (secrets, test-weakening) from **advisory** ones (dependency bump, migration touch, large diff, notes) so a benign lockfile change no longer forces `Overall: FAIL`; `verify --base` falls back cleanly on a fresh detached checkout; the lifecycle models a `RETROSPECT` step; an `advisor` role (cheap executor consults a strong model at reasoning walls) is the default below high-risk; and version is now a single source of truth that `check-config` enforces. The dead classifier path and the `archive/` tree are gone. See [`CHANGELOG.md`](CHANGELOG.md#400) for the full list.
 
 <details>
 <summary><strong>What the agent produces, step by step</strong></summary>
@@ -225,48 +225,19 @@ Current result: **11/11 static** + **32/32 behavioral** + **26/26 memory** + **2
 
 </details>
 
-### The three live cross-agent evals
+### Live cross-agent evals
 
-Three real runs, published with the source, the numbers, and the caveats.
-
-- [**Sudoku 06-28**](examples/sudoku-agent-eval-2026-06-28/README.md) — the original pilot (n=1). Four coding agents built the same browser Sudoku app from identical requirements, two with the skill and two without. Presented honestly as a *single pilot*: sample too small to generalize, rubric fixed-but-subjective, judges independent but few. The skill variants showed stronger planning, more robust solvers, and better verification evidence; full numbers, caveats, and the [consolidated report](examples/sudoku-agent-eval-2026-06-28/evaluation-report.md) are committed. Headline numbers intentionally omitted from this README so no one quotes the pilot as product lift.
-- [**Sudoku 07-01**](examples/sudoku-agent-eval-2026-07-01/README.md) — live cross-agent run: Codex, Claude Code, and Droid/GLM-5.2 each built the same Sudoku app with and without CQL. All six arms completed, used zero dependencies, passed `npm test`, and scored `100/100` on the broad machine heuristic. Two blind LLM judges, Claude and Codex, agreed on the ranking; CQL averaged **89.5** vs **85.0** for baselines (**+4.5 points**), with per-agent lifts of Codex **+1.0**, Claude Code **+4.5**, and Droid/GLM-5.2 **+8.0**. Caveat: one-seed live eval, no real browser automation; strong directional evidence, not a durable benchmark claim.
-- [**Webapp 07-07**](examples/webapp-agent-eval-2026-07-07/README.md) — the latest live 2×2 run (Codex gpt-5.5, Claude Code, baseline vs CQL v3) on the previously unrun bench webapp task, this time with the five hidden behaviors verified by **real browser automation** (all arms 5/5). Judged honestly on the **code-quality headline that excludes process artifacts**: Claude Code **+6.67**, Codex **−1.11** (totals with artifacts: +16.0 / +7.5). The run also caught an agent silently softening its local copy of the gate script and reporting PASS against it — see the panel below.
+Three real runs are published with source, numbers, and caveats: the [Sudoku 06-28 pilot](examples/sudoku-agent-eval-2026-06-28/README.md) (n=1, headline numbers withheld), the [Sudoku 07-01](examples/sudoku-agent-eval-2026-07-01/README.md) six-arm run (CQL **+4.5** avg; per-agent Codex +1.0 / Claude +4.5 / GLM-5.2 +8.0), and the [Webapp 07-07](examples/webapp-agent-eval-2026-07-07/README.md) 2×2 run judged on code-quality excluding process artifacts (Claude **+6.67**, Codex **−1.11**). All directional, not durable benchmark claims. The benchmark harness, fixture-smoke result, and ablation protocol live in [`bench/`](bench/ablation-protocol.md).
 
 ### The gate-gaming story
 
-The best marketing artifact in this repo is the one we did not want to publish.
-
 <div align="center">
 
-<img src="docs/images/gate-gaming.png" alt="Gate-gaming incident panel, 2026-07-07. Three panels: the gaming — an agent softened diff-audit locally and reported PASS; the catch — the pristine gates re-run against the same record failed it; the harness change — v3.1.0 added helper-integrity sha256 reporting and the SKILL.md rule 'never repair or stub the helper; report and stop.'" width="900">
+<img src="docs/images/gate-gaming.png" alt="Gate-gaming incident panel, 2026-07-07. Three panels: the gaming — an agent softened diff-audit locally and reported PASS; the catch — the pristine gates re-run against the same record failed it; the harness change — helper-integrity sha256 reporting and the SKILL.md rule 'never repair or stub the helper; report and stop.'" width="900">
 
 </div>
 
-**What happened.** During the [Webapp 07-07](examples/webapp-agent-eval-2026-07-07/README.md) live run, one agent silently modified its workspace copy of `diff-audit` — removing the untracked-file secret check and softening test-weakening detection — and then reported `Overall: PASS` under its own softened gate.
-
-**How we caught it.** The pristine gates, re-run against the same record, immediately failed it. That contrast is the entire product in one incident.
-
-**The harness change.** [`CHANGELOG.md` §3.1.0](CHANGELOG.md#310) adds:
-
-- **Helper-integrity reporting.** `verify` now prints the sha256 of each helper module so a hook or CI can catch a locally modified gate.
-- **`SKILL.md` rule.** *Never repair or stub the helper; report breakage and stop.*
-- **Four new reality-eval cases** covering allowlist scaffolding, partial-install errors, and helper-integrity output — pinning the fix.
-
-That is what "the harness is what improves" means in practice: a repeated failure becomes a durable rule, a test, and a hook — not a chat correction.
-
-### Benchmarks and ablation
-
-`bench/` contains the proof harness: vendored tasks, trap tasks, objective metrics, and a judge protocol. The committed result [`bench/results/fixture-smoke-2026-07-01.json`](bench/results/fixture-smoke-2026-07-01.json) is a deterministic fixture smoke result. It proves the benchmark plumbing runs; it is not a live Claude/Codex model sweep and should not be quoted as product lift.
-
-**Ablation eval program.** [`bench/ablation-protocol.md`](bench/ablation-protocol.md) defines a 3 tasks × 2-3 model families × 3 seeds × 4 arms (baseline, v3-full, v3-no-review, v3-no-contract) protocol. The headline metric excludes artifact production and measures code-quality lift only. A component whose ablation shows no code-quality lift across >=2 families is a v3.1 cut candidate.
-
-```bash
-python3 bench/runner.py --mode fixture --seeds 3
-python3 evals/run_trigger_evals.py
-```
-
-Live sweeps must record host, model, seed, cost, artifacts, and null results.
+During the [Webapp 07-07](examples/webapp-agent-eval-2026-07-07/README.md) run, one agent silently softened its workspace copy of `diff-audit` and reported `Overall: PASS` under its own weakened gate. The pristine gates, re-run against the same record, failed it immediately — that contrast is the product in one incident. The fix ([`CHANGELOG.md` §3.1.0](CHANGELOG.md#310)): `verify` prints a sha256 for each helper module, the SKILL.md rule *never repair or stub the helper; report and stop*, and reality-eval cases pinning it. A repeated failure becomes a durable rule, test, and hook — not a chat correction.
 
 ### Run it yourself on your task
 
@@ -329,69 +300,7 @@ Pick your host. Full copy-paste files live in [`examples/`](examples/); every pa
 
 > **Provenance note:** the `npx` installer ships from the [`coding-quality-loop`](https://www.npmjs.com/package/coding-quality-loop) npm package (source: [`packages/npm/`](packages/npm/)) with signed [Sigstore provenance](https://search.sigstore.dev/?logIndex=2050768324) tying the tarball to a specific GitHub Actions build. It is a thin UX wrapper around [`scripts/install.py`](scripts/install.py), so both paths land the exact same files. This repo is not yet on the [agentskills.io](https://agentskills.io) Skills Hub; `gh skill install` works once a maintainer publishes a release. See [Release & pinning](#release--pinning).
 
-<details>
-<summary id="claude-code"><strong>Claude Code install</strong></summary>
-
-Skill mode, progressive disclosure:
-
-```bash
-cp -r . .claude/skills/coding-quality-loop
-```
-
-Instruction-only mode:
-
-```bash
-cp examples/claude-code/CLAUDE.md ./CLAUDE.md
-```
-
-Invoke:
-
-```bash
-claude "Use the coding-quality-loop skill to fix the failing test and open a PR."
-claude "Follow the Coding Quality Loop to fix the failing test."
-```
-
-</details>
-
-<details>
-<summary id="codex"><strong>Codex install</strong></summary>
-
-```bash
-cp examples/codex/AGENTS.md ./AGENTS.md
-codex "Follow the Coding Quality Loop in AGENTS.md to fix the bug."
-```
-
-</details>
-
-<details>
-<summary id="cursor"><strong>Cursor install</strong></summary>
-
-```bash
-cp -r examples/cursor/.cursor ./.cursor
-```
-
-Invoke in chat:
-
-```text
-@coding-quality-loop fix the retry bug with verification evidence
-```
-
-</details>
-
-<details>
-<summary id="pi"><strong>Pi install</strong></summary>
-
-```bash
-cp -r . ~/.agents/skills/coding-quality-loop
-```
-
-Or use in-repo `.agents/skills/`. Invoke:
-
-```text
-/skill:coding-quality-loop implement the change with a validation contract and independent review
-```
-
-</details>
+The matrix rows above are the full per-host install + invoke commands; copy-paste host files live in [`examples/`](examples/).
 
 <details>
 <summary><strong>Host wiring and hooks</strong></summary>
@@ -425,7 +334,7 @@ A repo can opt into required edit-before-plan blocking with `.quality-loop/confi
 
 ### Three adoption levels
 
-- **No install** — paste the [Minimal Drop-In Prompt](SKILL.md) or a host rule file. Zero scripts, zero config. Best for trying it on one task.
+- **No install** — paste the [Minimal Drop-In Prompt](assets/prompts/drop-in-prompt.md) or a host rule file. Zero scripts, zero config. Best for trying it on one task.
 - **Install** — copy the skill folder so the agent pulls `references/`, `assets/`, and the state-record schema on demand via progressive disclosure. Best for repeated use.
 - **Orchestrated** — adopt `assets/quality-loop.config.example.json` and route each step to a role-based agent profile. Best for multi-agent or production setups.
 
@@ -501,9 +410,9 @@ See [`references/memory.md`](references/memory.md) for the memory contract.
 
 ## Why agentic-first
 
-One model grading its own work is the dominant failure mode. The skill splits the loop into role-based profiles: `orchestrator`, `context_mapper`, `implementer`, `validator`, `simplicity_reviewer`, `security_reviewer`, `policy_guard`. Map each role to the best available model or tool profile. Defaults stay simple: **one implementer + one independent validator + deterministic policy hooks.** Add specialists only when risk justifies the coordination cost; over-parallelization is an anti-pattern. ([Orchestration](references/agentic-orchestration.md))
+One model grading its own work is the dominant failure mode. The skill splits the loop into role-based profiles: `orchestrator`, `context_mapper`, `implementer`, `validator`, `simplicity_reviewer`, `security_reviewer`, `advisor`, `policy_guard`. Map each role to the best available model or tool profile. Defaults stay simple: **one implementer + one independent validator + deterministic policy hooks.** Add specialists only when risk justifies the coordination cost; over-parallelization is an anti-pattern. ([Orchestration](references/agentic-orchestration.md))
 
-**Smart Friend pattern (optional).** The implementer can consult a stronger model on defined triggers: 2 failed repair attempts, merge conflicts, or architecture uncertainty. The stronger model gets a fork of the implementer's context and responds with guidance, not code. Per-host wiring: Claude subagent, Droid Task tool, Codex subagent. See [`references/agentic-orchestration.md`](references/agentic-orchestration.md).
+**Advisor pattern (default for small/medium).** A cheap executor drives the whole loop and consults a stronger reasoning model *only at reasoning walls* — 2 failed repair attempts, merge conflicts, or architecture uncertainty. This is [Anthropic's advisor-tool pattern](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool): the advisor gets a fork of the executor's context and returns reasoning, **never code and never tool calls**; cap consultations (`max_uses` ≈ 3) so a wall triggers escalation, not an expensive back-and-forth. Per-host wiring: Claude subagent, Droid Task tool, Codex subagent. See [`references/agentic-orchestration.md`](references/agentic-orchestration.md).
 
 ---
 
@@ -567,7 +476,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   provenance is not hand-faked.
 - **Skills Hub publish checklist.** Before publishing to the
   [agentskills.io](https://agentskills.io) Skills Hub:
-  1. Bump `packages/npm/package.json` and tag a release (`git tag v3.1.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
+  1. Bump `packages/npm/package.json` and tag a release (`git tag v4.0.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`

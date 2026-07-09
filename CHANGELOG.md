@@ -1,5 +1,73 @@
 # Changelog
 
+## 4.0.0
+
+Trust-the-gates hardening from a two-reviewer audit: the deterministic gates now
+run one code path, advisory findings stop forcing false failures, and the
+lifecycle models the retrospective step it always described. Version is now a
+single source of truth (skill, config, CHANGELOG, npm all read 4.0.0; `check-config`
+rejects a config that disagrees).
+
+### Removed
+
+- **Runtime-dead classifier path** in `scripts/quality_loop.py` (`evaluate_input`,
+  `derive_risk_tier`, `derive_task_class`, `required_gates_for_tier`,
+  `minimality_flags`, `requires_security_reviewer`, and the `*_SIGNALS` / `GATES_*`
+  tables). Nothing in the shipped commands called it; the real gates derive risk
+  from the record and the diff. Eval cases now feed a raw goal + record through the
+  same production path, so a second implementation can no longer drift from it.
+- **`archive/`** (Honcho adapter, driven-mode orchestrator, v2.4 ceremony
+  subcommands and their evals) deleted outright — it was frozen dead code kept only
+  as history, which `git log` already provides.
+- **Vendored skill copies** under `examples/*/variants/*` replaced with a one-line
+  README pointer to the repo-root source of truth, so the skill is defined once.
+- **`v240-validation-contract.md`** removed from the repo root.
+- **Checked-in dogfood run artifacts** (`.quality-loop/readme-rebuild-*`) removed and
+  `.gitignore`d.
+
+### Fixed
+
+- **Advisory findings no longer force `Overall: FAIL`.** `diff-audit` now separates
+  **blocking** findings (secrets, test-weakening) from **advisory** ones (dependency
+  bump, migration touch, large diff, untracked notes, unreadable file, shortcut
+  markers) and exits 0 when only advisories are present. `verify` aggregates the two
+  streams, so a benign lockfile bump or a scaffolding sweep is surfaced without
+  failing the gate or blocking the pre-commit hook.
+- **`diff-audit` untracked sweep** excludes `.quality-loop/`, agent record JSON, and
+  `__pycache__`, and now emits an advisory (instead of silently continuing) when an
+  untracked file cannot be read.
+- **`verify --base`** detects a missing/unresolvable base, prints an actionable hint,
+  and falls back through `origin/main`, `main`, `HEAD`, and finally the empty-tree
+  object so a fresh detached checkout still audits cleanly.
+
+### Added
+
+- **`RETROSPECT` lifecycle step** modeled end to end: added to `STATUSES`,
+  `REQUIRED_STEPS`, the record-schema step enum, and the example config (with a
+  `retrospector` profile) behind a `harness_update` gate.
+- **Advisor role** (Anthropic advisor-tool pattern): a cheap executor drives the loop
+  and consults a strong reasoning model at reasoning walls; the advisor never calls
+  tools and is capped at `max_uses ≈ 3`. Documented as the default for small/medium
+  tasks in SKILL.md and `references/agentic-orchestration.md`; optional `advisor`
+  block added to the config example and schema.
+- **Shortcut-marker convention.** An inline `cql:` comment names the complexity
+  ceiling and its upgrade path; `diff-audit` reports the count as an advisory only.
+- **Stricter `check-config`.** Validates the config version, asserts reasoning-heavy
+  steps (PLAN/MINIMALITY_GATE/REVIEW) route to `strong_reasoning`, and the schema now
+  sets `additionalProperties: false` at the root and requires `policy_guard` and
+  `routing_defaults.{low,medium,high}`.
+
+### Changed
+
+- **Review-waiver scope** clarified in SKILL.md: waivable only on small/low work;
+  medium+ always requires an independent review.
+- **SKILL.md slimmed** — the drop-in prompt moved to `assets/prompts/drop-in-prompt.md`
+  and the per-command CLI catalog to `references/tool-contracts.md`; duplicated
+  Tool-Surface and trends/inspirations prose de-duplicated across references.
+- **`verify_gates` risk-tier logic** refactored to a table-driven structure and the
+  `check-config` reviewer-heterogeneity checks extracted into one
+  `_reviewer_heterogeneity()` helper.
+
 ## 3.1.0
 
 Capability-aware, cost-disciplined routing, plus reality-layer hardening from

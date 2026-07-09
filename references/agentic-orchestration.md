@@ -57,10 +57,13 @@ and class grow (tiny/small need none of the specialist roles).
 | `validator` | `fresh_reviewer` | Fresh context; does **not** implement. Checks acceptance criteria, behavior contract, regression risk, edge cases, and evidence against the validation contract. | **yes** |
 | `simplicity_reviewer` | `minimality_reviewer` | Deletion / reuse / stdlib / native / dependency / abstraction review — the right-size gate as a reviewer, run before plan and before review. | optional |
 | `security_reviewer` | (boundary only) | Reviews changes at risk boundaries: auth, permissions, secrets, payments, PII, migrations, upload/download, network, shell, dependency changes. | **yes** |
+| `advisor` | (on-demand, small/medium default) | Consulted by the executor at reasoning walls; returns guidance, **never code and never tool calls**; capped at `max_uses` ≈ 3. See the Advisor Pattern below. | consulted |
 | `policy_guard` | `policy_guard` | Deterministic safety blocks. Never a model. | enforced |
 
 The `orchestrator` and `security_reviewer` are not per-step profiles in the base config; they
-are mission/boundary roles. Wire them in for medium/mission work and at risk boundaries.
+are mission/boundary roles. Wire them in for medium/mission work and at risk boundaries. The
+`advisor` is not a step either — it is an on-demand consult the executor invokes at reasoning
+walls, and it is the default topology below high-risk (see Advisor Pattern).
 
 ## Default Step-to-Agent Matrix
 
@@ -137,28 +140,43 @@ task costs far less than shipping mediocre work and reworking it later. This is 
 tiebreaker rather than a gate — it should never prevent using the right model for a step that
 ships.
 
-## Smart Friend Pattern (optional)
+## Advisor Pattern (default for small/medium)
 
-The implementer can consult a stronger model on defined triggers, following the
-"smart friend" pattern from Cognition's multi-agent research (April 2026). The
-stronger model gets a fork of the implementer's context and responds with guidance,
-not code. The implementer decides what to ask; the smart friend suggests what to
-investigate and flags things the implementer may have missed.
+The `advisor` role is the **default topology below high-risk**: a cheap executor
+drives the entire loop and consults a stronger reasoning model *only at reasoning
+walls*. This is Anthropic's advisor-tool pattern
+([advisor tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool)),
+which converges with the "smart friend" finding from Cognition's multi-agent
+research (April 2026). The advisor gets a fork of the executor's context and returns
+**reasoning, never code and never tool calls** — the executor stays in control and
+acts on the advice. Prefer this to a full multi-agent split until the task is
+genuinely high-risk: it is cheaper than routing every step to a strong model and
+keeps one driver in control.
 
-**Triggers:**
+**Triggers (reasoning walls):**
 - 2 failed repair attempts on the same issue.
 - Merge conflicts or ambiguous integration points.
 - Architecture uncertainty where the chosen approach may not hit the perf/correctness target.
+
+**Constraints:**
+- The advisor **never calls tools** — it reads the forked context and returns guidance.
+- Cap consultations at **`max_uses` ≈ 3**. Hitting the cap is a signal to escalate
+  (split roles, add a reviewer, or stop for human input), not to keep paying for
+  back-and-forth.
+
+**Config.** The optional `advisor` block in `quality-loop.config.example.json` carries
+`enabled_for` (task classes, default `["small","medium"]`), `executor_model_class`,
+`advisor_model_class`, `advisor_calls_tools: false`, and `max_uses`.
 
 **Per-host wiring:**
 - **Claude Code**: subagent with a stronger model (e.g., Opus) invoked via the Task tool.
 - **Droid (Factory)**: Task tool with a stronger model droid.
 - **Codex**: subagent with a higher thinking level.
 
-**Key insight from Cognition:** smart-friend works best when both models are strong.
-Getting it to work with an asymmetrically weaker primary is still an open problem.
-Cross-frontier delegation (Claude + GPT together) works as a **capability router**:
-route to whichever model is best at the specific sub-task, not just to a "smarter" model.
+**Key insight from Cognition:** the pattern works best when the advisor is genuinely
+stronger. Cross-frontier delegation (Claude + GPT together) works as a **capability
+router**: consult whichever model is best at the specific sub-task, not just a
+"smarter" one.
 
 ## Defaults First
 

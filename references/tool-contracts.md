@@ -2,13 +2,43 @@
 
 These contracts are building blocks for agent platforms that support tools, hooks, workers, or persistent state. Repo-map, verification, reviewer, and state tools are optional accelerators. Policy hooks are different: they are the enforcement mechanism for non-negotiable safety blocks.
 
+## Helper Command Catalog (`scripts/quality_loop.py`)
+
+**Primary verification (one command):**
+
+```bash
+python3 scripts/quality_loop.py verify agent-record.json --base origin/main --red-green
+```
+
+`verify` runs record-shape gates, diff-grounded reality checks, evidence re-execution, and AC-to-command coverage in one pass. If `--base` is missing or unresolvable it prints a hint and falls back (`origin/main` → `main` → `HEAD` → empty tree) so a fresh detached checkout still audits.
+
+**Individual commands (for targeted checks):**
+
+```bash
+python3 scripts/quality_loop.py init-record --goal "Fix bug" --risk-tier medium --output agent-record.json
+python3 scripts/quality_loop.py verify-gates agent-record.json --against-diff --base origin/main
+python3 scripts/quality_loop.py diff-audit --base origin/main
+python3 scripts/quality_loop.py run-evidence agent-record.json --red-green --base origin/main
+python3 scripts/quality_loop.py attest-review review.json --base origin/main
+python3 scripts/quality_loop.py brief
+python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
+python3 scripts/quality_loop.py setup-models --host claude-code
+python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
+```
+
+`diff-audit` separates **blocking** findings (secrets, test-weakening — exit 1) from **advisory** ones (dependency bump, migration touch, large diff, untracked notes, unreadable file, `cql:` shortcut markers — exit 0), so benign changes are surfaced without failing the gate.
+
+Memory: `memory-recall`, `memory-commit`, `memory-prune`, `memory-status`.
+
 ## Tool Surface Guidance
 
 - **Minimum:** read, search, edit, shell, run tests, `git diff` / branch / commit / PR.
 - **Useful extensions:** repo-map generator, AST search, browser automation, GitHub CLI, issue
   tracker, CI logs, Sentry/Datadog logs, read-only DB access, design docs, MCP connectors.
 - **MCP only when** context lives outside the repo, changes frequently, or should be repeatable
-  via a tool. Add a tool only when it removes a real manual loop — not for its own sake.
+  via a tool. Add a tool only when it removes a real manual loop — not for its own sake
+  ([Codex best practices](https://developers.openai.com/codex/learn/best-practices),
+  [Codex customization](https://developers.openai.com/codex/concepts/customization)).
 
 ## Task Contract Tool
 

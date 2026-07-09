@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "3.1.0"
+  version: "4.0.0"
 ---
 
 # Coding Quality Loop
@@ -41,7 +41,7 @@ The same scaffolding helps weaker models and can hurt stronger ones. In our own 
 
 - **Strong models** (frontier-class): skip ceremony on tiny/small. For medium+, write the validation contract and run independent review, but do not over-constrain the plan. Add an explicit anti-compression rule: the right-size gate is about diff size and dependency minimality, not about collapsing architecture into fewer files. Do not monolith.
 - **Weaker models**: run full scaffolding. The validation contract and context map prevent the most common failure: wrong-layer fixes and unmapped blast radius.
-- **Review is paid only when the task exceeds what the model does reliably solo.** A frontier model on a one-module bug fix may not need a separate reviewer. A migration always does.
+- **Independent review is waivable only on small/low work.** A frontier model on a tiny or small, low-risk change may run the loop solo. Medium-or-higher tasks and any risk boundary always require an independent reviewer — model strength does not waive it (this is Hard Rule 4). A migration always does.
 - **Cross-frontier routing works as a capability router.** Route review to a different model family than implementation; route planning to the strongest reasoning model available. The implementer and validator must not be the same model on medium+.
 - **Process artifacts alone do not buy product quality.** In the webapp eval (2026-07-07), CQL lifted Codex +7.5 total but −1.1 on code quality once artifacts were excluded, while Claude gained on both. For user-facing tasks the validation contract must include a product floor: keyboard operability, labeled inputs, no `prompt()`/`confirm()` for primary flows, and a test floor appropriate to the task class. The reviewer scores product/UX fitness, not just diff correctness.
 
@@ -102,11 +102,12 @@ Every **repeated** mistake becomes a durable harness change: a rule, a test, a h
 | `validator` | acceptance criteria, evidence, regression risk | strong reasoning, **separate session** |
 | `simplicity_reviewer` | right-size gate as reviewer | strong reasoning |
 | `security_reviewer` | auth, secrets, payments, PII, migrations, dependencies | strong reasoning, boundary only |
+| `advisor` | consulted at reasoning walls; returns guidance, never code or tool calls | strong reasoning, on-demand |
 | `policy_guard` | deterministic safety blocks | **never a model** (hook/command) |
 
 Start simple: one implementer + one independent validator + deterministic hooks. Add roles only when risk justifies the coordination cost. Over-parallelization is an anti-pattern.
 
-**Smart friend (optional):** the implementer can consult a stronger model on defined triggers: 2 failed repair attempts, merge conflicts, or architecture uncertainty. The stronger model gets a fork of the implementer's context and responds with guidance, not code. Per-host wiring: Claude subagent, Droid Task tool, Codex subagent. See `references/agentic-orchestration.md`.
+**Advisor (default for small/medium):** a cheap executor drives the whole loop and consults a stronger reasoning model *only at reasoning walls* — 2 failed repair attempts, merge conflicts, or architecture uncertainty. This is Anthropic's advisor-tool pattern ([docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool)): the advisor gets a fork of the executor's context and returns reasoning, **never code and never tool calls** — the executor stays in control and acts on the advice. Cap consultations (`max_uses` ≈ 3) so a wall triggers escalation, not an expensive back-and-forth. Prefer this to a full multi-agent split until the task is genuinely high-risk. Per-host wiring (Claude subagent, Droid Task tool, Codex subagent) and the `advisor` config block are in `references/agentic-orchestration.md`.
 
 ## Hard Rules
 
@@ -123,7 +124,7 @@ The helper script enforces rules 1-6 as record-shape or diff-grounded gates. Rul
 
 ## Persistent Project Memory (optional, advisory)
 
-Recall distilled lessons at INTAKE; commit at RETROSPECTIVE. Retrieval, not context stuffing: <=40-line index, budget-capped recall, secrets redacted before writing. See `references/memory.md`.
+Recall distilled lessons at INTAKE (`memory-recall`); commit at RETROSPECTIVE (`memory-commit`). Retrieval, not context stuffing: <=40-line index, budget-capped recall, secrets redacted before writing. See `references/memory.md`.
 
 ## Session Continuity
 
@@ -135,34 +136,13 @@ At session start, run `brief` to get up to speed. At PACKAGE/RETROSPECT, update 
 ```bash
 python3 scripts/quality_loop.py verify agent-record.json --base origin/main --red-green
 ```
-`verify` runs record-shape gates, diff-grounded reality checks, evidence re-execution, and AC-to-command coverage in one pass.
+`verify` runs record-shape gates, diff-grounded reality checks, evidence re-execution, and AC-to-command coverage in one pass. If `--base` is missing/unresolvable it prints a hint and falls back (`origin/main` → `main` → `HEAD` → empty tree).
 
-**Individual commands (for targeted checks):**
-```bash
-python3 scripts/quality_loop.py init-record --goal "Fix bug" --risk-tier medium --output agent-record.json
-python3 scripts/quality_loop.py verify-gates agent-record.json --against-diff --base origin/main
-python3 scripts/quality_loop.py diff-audit --base origin/main
-python3 scripts/quality_loop.py run-evidence agent-record.json --red-green --base origin/main
-python3 scripts/quality_loop.py attest-review review.json --base origin/main
-python3 scripts/quality_loop.py brief
-python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
-python3 scripts/quality_loop.py setup-models --host claude-code
-python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
-```
-
-Memory: `memory-recall`, `memory-commit`, `memory-prune`, `memory-status`.
+The full command catalog (init-record, verify-gates, diff-audit, run-evidence, attest-review, brief, check-config, setup-models, eval-cases, and the `memory-*` commands) is in `references/tool-contracts.md`.
 
 ## Minimal Drop-In Prompt
 
-```markdown
-You are a coding agent that runs the Coding Quality Loop.
-
-Lifecycle: PLAN -> EXECUTE -> REVIEW. Context is a budget; verification terminates each phase. PLAN covers intake, context map, validation contract, right-size gate, and planning. EXECUTE covers implementation slices and verification. REVIEW covers fresh-context review, packaging, and retrospective.
-
-Pick the smallest safe task class. Before editing, map the change and, for non-trivial work, write a validation contract pairing each acceptance criterion with the check that proves it. Apply the right-size gate: choose the highest valid rung (no change, delete, reuse, stdlib, native, existing dependency, one-liner, minimal new code). Minimal diff is not minimal architecture or minimal performance: when the brief includes a benchmark, commit to a worst-case complexity and p50/p95 target at plan time.
-
-Implement one slice at a time. Run the smallest sufficient checks; record commands and results. For non-trivial work, review the diff in fresh context (different session or model) against the contract, and execute tests when possible. Do not claim completion without a completion record. Stop and escalate on destructive, security-sensitive, or repeatedly failing work. Turn every repeated mistake into a durable rule, not a repeated correction.
-```
+To run the loop in an agent without installing the skill, paste the prompt in `assets/prompts/drop-in-prompt.md`.
 
 ## References
 

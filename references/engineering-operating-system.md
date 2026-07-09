@@ -7,31 +7,12 @@ improvable across sessions, models, and platforms.
 ## Why "operating system," not "prompt"
 
 The industry trend is unambiguous: ad-hoc prompting is being replaced by reusable process
-artifacts and durable instructions.
-
-- **Prompting → durable instructions.** A clever one-off prompt dies with the session.
-  `AGENTS.md`, `CLAUDE.md`, and `.cursor/rules` encode standing behavior that every run
-  inherits. Short, accurate guidance beats long, vague guidance
-  ([Codex best practices](https://developers.openai.com/codex/learn/best-practices)).
-- **Capability → skills.** Skills are becoming the portable unit of agent capability: a
-  `SKILL.md` with triggers, steps, and exit criteria, plus optional scripts/resources, loaded
-  via progressive disclosure — metadata first, full instructions when relevant, extra files on
-  demand ([Anthropic Agent Skills](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills),
-  [Codex skills](https://developers.openai.com/codex/skills)).
-- **One context → orchestration.** Long-horizon work degrades a single context. Factory's
-  Missions architecture splits broad work into focused units with fresh agents, shared state,
-  validation contracts, and orchestrator/worker/validator roles
-  ([Factory Missions](https://factory.ai/news/missions-architecture)).
-- **Vague verification → validation contract.** Verification must be a contract — each
-  acceptance criterion paired with the check that proves it — not a hand-wave. A fresh
-  validator checks the diff against the contract, not the implementer's confidence.
-- **Complexity creep → complexity discipline.** Minimalism is a first-class quality property:
-  prefer deletion, reuse, stdlib, and native features before new code.
-- **Advisory text → deterministic gates.** When a rule matters, enforce it with a hook or a
-  check ([Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks)).
-- **Context stuffing → repo maps.** A concise map of important files, symbols, signatures, and
-  relationships lets an agent understand the code and request depth on demand, instead of
-  reading everything ([Aider repo map](https://aider.chat/docs/repomap.html)).
+artifacts and durable instructions. Each converging trend maps to an artifact this skill ships —
+prompting → durable instructions, capability → skills, one context → orchestration, vague
+verification → validation contract, complexity creep → complexity discipline, advisory text →
+deterministic gates, context stuffing → repo maps. The full trend analysis and the prior-art
+citations behind each move live in [`philosophy.md`](philosophy.md) (§ Trends we have observed,
+§ Inspirations); "The Five Parts" below is how those transitions land as concrete artifacts.
 
 ## The Five Parts
 
@@ -87,13 +68,8 @@ Adopt the lightest mode that fits; combine as risk grows.
 
 ## Tool Surface
 
-- **Minimum:** read, search, edit, shell, run tests, `git diff` / branch / commit / PR.
-- **Useful extensions:** repo-map generator, AST search, browser automation, GitHub CLI, issue
-  tracker, CI logs, Sentry/Datadog logs, read-only DB access, design docs, MCP connectors.
-- **MCP only when** the context lives outside the repo, changes frequently, or should be
-  repeatable via a tool. Add a tool only when it removes a real manual loop — not for its own
-  sake ([Codex best practices](https://developers.openai.com/codex/learn/best-practices),
-  [Codex customization](https://developers.openai.com/codex/concepts/customization)).
+The minimum tool set, useful extensions, and the "MCP only when" rule are defined once in
+[`tool-contracts.md` § Tool Surface Guidance](tool-contracts.md#tool-surface-guidance).
 
 ## The Improvement Loop
 
