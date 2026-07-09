@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "quality_loop.py"
 EXAMPLE_CONFIG = ROOT / "assets" / "quality-loop.config.example.json"
+SCHEMA_CONFIG = ROOT / "assets" / "quality-loop.config.schema.json"
 
 sys.path.insert(0, str(ROOT / "scripts"))
 import quality_loop_routing as qlroute  # noqa: E402
@@ -327,6 +328,55 @@ def case_check_config_planner_strong_reasoning(tmp: Path) -> tuple[bool, str]:
     return ok, f"good(exit={code_good}); bad(exit={code_bad},flagged={bad_flagged})"
 
 
+def case_example_config_schema_valid(tmp: Path) -> tuple[bool, str]:
+    """P2.13: the shipped example config must be valid against its own tightened
+    schema AND pass check-config (schema-valid == checker-valid). With root
+    additionalProperties:false, every top-level key (including the IDE `$schema`
+    pointer) must be declared in the schema. Uses a real jsonschema validator
+    when available; otherwise a stdlib top-level-shape check pins the same
+    regression ($schema whitelisted, no undeclared keys, required present)."""
+    config = json.loads(EXAMPLE_CONFIG.read_text(encoding="utf-8"))
+    schema = json.loads(SCHEMA_CONFIG.read_text(encoding="utf-8"))
+
+    validator_used = "stdlib"
+    schema_ok = True
+    detail = ""
+    try:
+        import jsonschema  # type: ignore
+
+        validator_used = "jsonschema"
+        try:
+            jsonschema.validate(config, schema)
+        except jsonschema.ValidationError as exc:  # noqa: PERF203
+            schema_ok = False
+            detail = str(exc).splitlines()[0]
+    except ImportError:
+        # Stdlib fallback: root additionalProperties:false means the config's
+        # top-level keys must be a subset of declared properties, and every
+        # required key must be present.
+        declared = set(schema.get("properties", {}))
+        if schema.get("additionalProperties") is False:
+            undeclared = set(config) - declared
+            if undeclared:
+                schema_ok = False
+                detail = f"undeclared top-level keys: {sorted(undeclared)}"
+        missing = [k for k in schema.get("required", []) if k not in config]
+        if missing:
+            schema_ok = False
+            detail = (detail + "; " if detail else "") + f"missing required: {missing}"
+
+    code, _, err = run_cli("check-config", str(EXAMPLE_CONFIG))
+    checker_ok = code == 0
+
+    ok = schema_ok and checker_ok
+    return ok, (
+        f"validator={validator_used}; schema_valid={schema_ok}; "
+        f"checker_valid={checker_ok}(exit={code})"
+        + (f"; {detail}" if detail else "")
+        + (f"; {err.strip()}" if not checker_ok and err.strip() else "")
+    )
+
+
 def case_effort_ceiling(tmp: Path) -> tuple[bool, str]:
     """xhigh/max exceed the 'high' ceiling: check-config rejects them unless the
     block sets allow_overthink; setup-models surfaces an advisory warning."""
@@ -420,6 +470,7 @@ CASES = [
     ("check-config: rejects unknown host/class/thinking, accepts valid", case_check_config),
     ("check-config: same model_class on IMPLEMENT_SLICE+REVIEW fails; placeholder does not", case_check_config_same_model_class),
     ("check-config: planner/orchestrator step must route to strong_reasoning", case_check_config_planner_strong_reasoning),
+    ("example config is schema-valid AND checker-valid (P2.13)", case_example_config_schema_valid),
     ("effort ceiling: xhigh/max rejected without allow_overthink, warned in setup", case_effort_ceiling),
     ("brief: routing section, drift detection, unconfigured hint", case_brief_routing),
     ("dry-run leaves files untouched", case_dry_run),

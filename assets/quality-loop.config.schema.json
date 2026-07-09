@@ -4,6 +4,7 @@
   "type": "object",
   "required": ["version", "profiles", "steps", "policy_guard", "routing_defaults"],
   "properties": {
+    "$schema": {"type": "string"},
     "version": {"type": "string"},
     "description": {"type": "string"},
     "profiles": {

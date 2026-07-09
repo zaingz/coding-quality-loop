@@ -72,7 +72,7 @@ For medium/mission, write down what "done" means before implementing: each accep
 Name files/modules to change, implementation slices, verification commands, risks, rollback path, non-goals.
 
 ### IMPLEMENT IN SMALL SLICES
-One coherent slice at a time. Existing conventions, no speculative abstractions, no unrelated cleanup. Small diffs. Update tests near the changed behavior.
+One coherent slice at a time. Existing conventions, no speculative abstractions, no unrelated cleanup. Small diffs. Update tests near the changed behavior. When you knowingly take a shortcut, mark it inline with a `cql:` comment that names the ceiling and the upgrade path (e.g. `# cql: linear scan; swap to an index if the list grows`); `diff-audit` surfaces a count of these (advisory only) so the ceilings stay visible without blocking the change.
 
 ### VERIFY
 Run the smallest sufficient checks first, then broader as risk warrants. Record exact commands and results. Add every verification command you record to `.quality-loop/allowed-commands` (scaffolded by `init-record`) so `run-evidence` can re-execute it; a command missing from the allowlist is reported `not_allowed`, not proven. A bug fix shows a failing-then-passing (RED to GREEN) reproduction. Tests are never weakened, skipped, or deleted to reach green.

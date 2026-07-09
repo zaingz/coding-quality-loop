@@ -55,8 +55,8 @@ STATUSES = {
     "escalated",
 }
 
-# v2.4.0: three canonical phases (PLAN -> EXECUTE -> REVIEW) that every status
-# maps into. `done` and `escalated` are terminal phases in their own right.
+# Three canonical phases (PLAN -> EXECUTE -> REVIEW) that every status maps into.
+# `done` and `escalated` are terminal phases in their own right.
 PHASE = ["plan", "execute", "review", "done", "escalated"]
 
 _STATUS_TO_PHASE = {
@@ -495,8 +495,8 @@ def check_record(args: argparse.Namespace) -> int:
     status = record.get("status")
     if status not in STATUSES:
         errors.append("status is not a valid lifecycle state")
-    # v2.4.0: `phase` is optional (mapped from status when absent) but must be
-    # valid when provided.
+    # `phase` is optional (mapped from status when absent) but must be valid
+    # when provided.
     phase = record.get("phase")
     if phase is not None and phase not in PHASE:
         errors.append(f"phase is not a valid lifecycle phase (got {phase!r})")
@@ -1122,11 +1122,10 @@ REQUIRED_STEPS = [
 # npm package cannot silently drift apart.
 EXPECTED_CONFIG_VERSION = "4.0.0"
 
-# Step model-class floor: reasoning-heavy steps must route to the strongest
-# reasoning class so "the right LLM for the right job" is deterministically
-# backed, not just prose. check_config enforces this. PLAN is the planner step;
-# MINIMALITY_GATE and REVIEW are the other judgement-heavy steps.
-# P3.18: planner/orchestrator steps must route to a strong-reasoning model.
+# Step model-class floor (P3.18): the planner (PLAN) and orchestrator
+# (ORCHESTRATE) steps must route to the strongest reasoning class so "the right
+# LLM for the right job" is deterministically backed, not just prose.
+# check_config enforces this.
 STRONG_REASONING_STEPS = {"PLAN", "ORCHESTRATE"}
 
 
