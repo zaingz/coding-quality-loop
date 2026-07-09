@@ -1,100 +1,255 @@
 {
   "$schema": "./quality-loop.config.schema.json",
-  "version": "4.0.0",
-  "description": "Agentic routing data for the Coding Quality Loop. Map each profile to a real model on your platform. Models are placeholders; replace with your provider's identifiers. This is routing DATA consumed by hosts (Claude subagents, Droid droids, Codex subagents, Pi providers) — it is not a runtime. Per-role model routing is the host's job via the config profiles and the harness-agnostic role pack in assets/prompts/ and .claude/agents/. orchestrator and security_reviewer are mission/boundary roles, not per-step profiles.",
+  "version": "4.1.0",
+  "description": "Agentic routing data for the Coding Quality Loop. Map each profile to a real model on your platform. Models are placeholders; replace with your provider's identifiers. This is routing DATA consumed by hosts (Claude subagents, Droid droids, Codex subagents, Pi providers) \u2014 it is not a runtime. Per-role model routing is the host's job via the config profiles and the harness-agnostic role pack in assets/prompts/ and .claude/agents/. orchestrator and security_reviewer are mission/boundary roles, not per-step profiles.",
   "profiles": {
-    "orchestrator": {"role": "Mission: scope, classify, context, spec/validation contract, decompose, assign workers, collect findings, stop if unsafe", "model": "<strong-reasoning-model>", "tools": ["read", "search"]},
-    "contract_agent": {"role": "INTAKE: goal -> task contract", "model": "<cheap-fast-model>", "tools": ["read"]},
-    "repo_mapper": {"role": "EXPLORE/CONTEXT MAP: smallest relevant code map; findings not dumps", "model": "<cheap-fast-model>", "tools": ["read", "search", "grep"]},
-    "planner": {"role": "PLAN: design smallest correct change", "model": "<strong-reasoning-model>", "tools": ["read", "search"]},
-    "minimality_reviewer": {"role": "COMPLEXITY BRAKE: pick highest valid rung; simplicity review", "model": "<strong-reasoning-model>", "tools": ["read"]},
-    "implementer": {"role": "IMPLEMENT_SLICE: write the diff", "model": "<code-specialized-model>", "tools": ["read", "edit", "write", "exec"]},
-    "verification_runner": {"role": "VERIFY: run checks, capture evidence", "model": "<cheap-fast-model>", "tools": ["exec"]},
-    "fresh_reviewer": {"role": "INDEPENDENT REVIEW: validator; diff review vs validation contract", "model": "<strong-reasoning-model>", "tools": ["read", "search"], "independent_session": true},
-    "security_reviewer": {"role": "Risk boundaries only: auth, secrets, payments, PII, migrations, upload/download, network, shell, dependencies", "model": "<strong-reasoning-model>", "tools": ["read", "search"], "independent_session": true},
-    "packager": {"role": "SHIP/HANDOFF: assemble PR handoff + completion record", "model": "<cheap-fast-model>", "tools": ["read"]},
-    "retrospector": {"role": "RETROSPECT: convert a repeated failure into a durable harness update (rule/test/hook/checklist)", "model": "<strong-reasoning-model>", "tools": ["read", "write"]},
-    "policy_guard": {"role": "Cross-cutting deterministic safety blocks", "model": null, "tools": ["hook"], "deterministic": true}
+    "orchestrator": {
+      "role": "Mission: scope, classify, context, spec/validation contract, decompose, assign workers, collect findings, stop if unsafe",
+      "model": "<strong-reasoning-model>",
+      "tools": [
+        "read",
+        "search"
+      ]
+    },
+    "contract_agent": {
+      "role": "INTAKE: goal -> task contract",
+      "model": "<cheap-fast-model>",
+      "tools": [
+        "read"
+      ]
+    },
+    "repo_mapper": {
+      "role": "EXPLORE/CONTEXT MAP: smallest relevant code map; findings not dumps",
+      "model": "<cheap-fast-model>",
+      "tools": [
+        "read",
+        "search",
+        "grep"
+      ]
+    },
+    "planner": {
+      "role": "PLAN: design smallest correct change",
+      "model": "<strong-reasoning-model>",
+      "tools": [
+        "read",
+        "search"
+      ]
+    },
+    "minimality_reviewer": {
+      "role": "COMPLEXITY BRAKE: pick highest valid rung; simplicity review",
+      "model": "<strong-reasoning-model>",
+      "tools": [
+        "read"
+      ]
+    },
+    "implementer": {
+      "role": "IMPLEMENT_SLICE: write the diff",
+      "model": "<code-specialized-model>",
+      "tools": [
+        "read",
+        "edit",
+        "write",
+        "exec"
+      ]
+    },
+    "verification_runner": {
+      "role": "VERIFY: run checks, capture evidence",
+      "model": "<cheap-fast-model>",
+      "tools": [
+        "exec"
+      ]
+    },
+    "fresh_reviewer": {
+      "role": "INDEPENDENT REVIEW: validator; diff review vs validation contract",
+      "model": "<strong-reasoning-model>",
+      "tools": [
+        "read",
+        "search"
+      ],
+      "independent_session": true
+    },
+    "security_reviewer": {
+      "role": "Risk boundaries only: auth, secrets, payments, PII, migrations, upload/download, network, shell, dependencies",
+      "model": "<strong-reasoning-model>",
+      "tools": [
+        "read",
+        "search"
+      ],
+      "independent_session": true
+    },
+    "packager": {
+      "role": "SHIP/HANDOFF: assemble PR handoff + completion record",
+      "model": "<cheap-fast-model>",
+      "tools": [
+        "read"
+      ]
+    },
+    "retrospector": {
+      "role": "RETROSPECT: convert a repeated failure into a durable harness update (rule/test/hook/checklist)",
+      "model": "<strong-reasoning-model>",
+      "tools": [
+        "read",
+        "write"
+      ]
+    },
+    "policy_guard": {
+      "role": "Cross-cutting deterministic safety blocks",
+      "model": null,
+      "tools": [
+        "hook"
+      ],
+      "deterministic": true
+    }
   },
   "steps": [
     {
       "step": "INTAKE",
       "profile": "contract_agent",
       "model_class": "cheap_fast",
-      "tools": ["read"],
-      "required_artifacts": ["task_contract"],
-      "gates": ["contract_has_goal", "contract_has_acceptance_criteria", "contract_has_risk_tier"]
+      "tools": [
+        "read"
+      ],
+      "required_artifacts": [
+        "task_contract"
+      ],
+      "gates": [
+        "contract_has_goal",
+        "contract_has_acceptance_criteria",
+        "contract_has_risk_tier"
+      ]
     },
     {
       "step": "EXPLORE",
       "profile": "repo_mapper",
       "model_class": "cheap_fast",
-      "tools": ["read", "search", "grep"],
-      "required_artifacts": ["repo_map"],
-      "gates": ["likely_files_named"]
+      "tools": [
+        "read",
+        "search",
+        "grep"
+      ],
+      "required_artifacts": [
+        "repo_map"
+      ],
+      "gates": [
+        "likely_files_named"
+      ]
     },
     {
       "step": "MINIMALITY_GATE",
       "profile": "minimality_reviewer",
       "model_class": "strong_reasoning",
-      "tools": ["read"],
-      "required_artifacts": ["minimality_decision"],
-      "gates": ["rung_chosen", "lower_rungs_rejected", "safety_exceptions_checked"]
+      "tools": [
+        "read"
+      ],
+      "required_artifacts": [
+        "minimality_decision"
+      ],
+      "gates": [
+        "rung_chosen",
+        "lower_rungs_rejected",
+        "safety_exceptions_checked"
+      ]
     },
     {
       "step": "PLAN",
       "profile": "planner",
       "model_class": "strong_reasoning",
-      "tools": ["read", "search"],
-      "required_artifacts": ["plan"],
-      "gates": ["plan_names_files", "plan_names_verification"]
+      "tools": [
+        "read",
+        "search"
+      ],
+      "required_artifacts": [
+        "plan"
+      ],
+      "gates": [
+        "plan_names_files",
+        "plan_names_verification"
+      ]
     },
     {
       "step": "IMPLEMENT_SLICE",
       "profile": "implementer",
       "model_class": "code_specialized",
-      "tools": ["read", "edit", "write", "exec"],
-      "required_artifacts": ["diff"],
-      "gates": ["diff_scoped_to_plan"]
+      "tools": [
+        "read",
+        "edit",
+        "write",
+        "exec"
+      ],
+      "required_artifacts": [
+        "diff"
+      ],
+      "gates": [
+        "diff_scoped_to_plan"
+      ]
     },
     {
       "step": "VERIFY",
       "profile": "verification_runner",
       "model_class": "cheap_fast",
-      "tools": ["exec"],
-      "required_artifacts": ["command_evidence"],
-      "gates": ["evidence_matches_risk_tier"]
+      "tools": [
+        "exec"
+      ],
+      "required_artifacts": [
+        "command_evidence"
+      ],
+      "gates": [
+        "evidence_matches_risk_tier"
+      ]
     },
     {
       "step": "REVIEW",
       "profile": "fresh_reviewer",
       "model_class": "strong_reasoning",
-      "tools": ["read", "search"],
+      "tools": [
+        "read",
+        "search"
+      ],
       "independent_session": true,
-      "required_artifacts": ["review_verdict"],
-      "gates": ["verdict_recorded", "findings_recorded"]
+      "required_artifacts": [
+        "review_verdict"
+      ],
+      "gates": [
+        "verdict_recorded",
+        "findings_recorded"
+      ]
     },
     {
       "step": "PACKAGE",
       "profile": "packager",
       "model_class": "cheap_fast",
-      "tools": ["read"],
-      "required_artifacts": ["pr_handoff"],
-      "gates": ["handoff_complete"]
+      "tools": [
+        "read"
+      ],
+      "required_artifacts": [
+        "pr_handoff"
+      ],
+      "gates": [
+        "handoff_complete"
+      ]
     },
     {
       "step": "RETROSPECT",
       "profile": "retrospector",
       "model_class": "strong_reasoning",
-      "tools": ["read", "write"],
-      "required_artifacts": ["harness_update"],
-      "gates": ["repeated_failure_converted_to_durable_harness_update"]
+      "tools": [
+        "read",
+        "write"
+      ],
+      "required_artifacts": [
+        "harness_update"
+      ],
+      "gates": [
+        "repeated_failure_converted_to_durable_harness_update"
+      ]
     }
   ],
   "policy_guard": {
     "profile": "policy_guard",
     "enforcement": "deterministic",
-    "applies_to": ["all_steps"],
+    "applies_to": [
+      "all_steps"
+    ],
     "block_or_escalate": [
       "secrets_or_credentials_in_diff",
       "destructive_migration_or_data_deletion",
@@ -104,13 +259,44 @@
     ]
   },
   "routing_defaults": {
-    "low": {"agents": ["implementer"], "policy_guard": true, "note": "One agent runs the whole loop."},
-    "medium": {"agents": ["implementer", "fresh_reviewer", "verification_runner"], "policy_guard": true, "note": "Independent reviewer + real checks."},
-    "high": {"agents": ["orchestrator", "planner", "minimality_reviewer", "implementer", "verification_runner", "fresh_reviewer", "security_reviewer"], "policy_guard": true, "human_approval": true, "security_reviewer_at_boundaries": true, "note": "Full split with enforced security/migration blocks; security_reviewer required at risk boundaries."}
+    "low": {
+      "agents": [
+        "implementer"
+      ],
+      "policy_guard": true,
+      "note": "One agent runs the whole loop."
+    },
+    "medium": {
+      "agents": [
+        "implementer",
+        "fresh_reviewer",
+        "verification_runner"
+      ],
+      "policy_guard": true,
+      "note": "Independent reviewer + real checks."
+    },
+    "high": {
+      "agents": [
+        "orchestrator",
+        "planner",
+        "minimality_reviewer",
+        "implementer",
+        "verification_runner",
+        "fresh_reviewer",
+        "security_reviewer"
+      ],
+      "policy_guard": true,
+      "human_approval": true,
+      "security_reviewer_at_boundaries": true,
+      "note": "Full split with enforced security/migration blocks; security_reviewer required at risk boundaries."
+    }
   },
   "advisor": {
     "description": "Anthropic advisor-tool pattern (https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool). A cheap executor drives the loop and consults a stronger reasoning model at reasoning walls only. The advisor never calls tools; it returns reasoning the executor acts on. DEFAULT for small/medium tasks -- cheaper than routing every step to a strong model, and it keeps one driver in control. Prefer this to a full multi-agent split until the task is genuinely high-risk.",
-    "enabled_for": ["small", "medium"],
+    "enabled_for": [
+      "small",
+      "medium"
+    ],
     "executor_model_class": "cheap_fast",
     "advisor_model_class": "strong_reasoning",
     "advisor_calls_tools": false,
@@ -126,24 +312,55 @@
     "host": null,
     "host_models": {
       "claude-code": {
-        "cheap_fast": {"model": "haiku"},
-        "strong_reasoning": {"model": "sonnet"},
-        "code_specialized": {"model": "inherit"}
+        "cheap_fast": {
+          "model": "haiku"
+        },
+        "strong_reasoning": {
+          "model": "sonnet"
+        },
+        "code_specialized": {
+          "model": "inherit"
+        }
       },
       "droid": {
-        "cheap_fast": {"model": "inherit", "note": "Replace with a Factory model id (docs.factory.ai/models) or custom:<id> for BYOK."},
-        "strong_reasoning": {"model": "inherit"},
-        "code_specialized": {"model": "inherit"}
+        "cheap_fast": {
+          "model": "inherit",
+          "note": "Replace with a Factory model id (docs.factory.ai/models) or custom:<id> for BYOK."
+        },
+        "strong_reasoning": {
+          "model": "inherit"
+        },
+        "code_specialized": {
+          "model": "inherit"
+        }
       },
       "codex": {
-        "cheap_fast": {"model": "gpt-5.5", "thinking": "low"},
-        "strong_reasoning": {"model": "gpt-5.5", "thinking": "high"},
-        "code_specialized": {"model": "gpt-5.5", "thinking": "high"}
+        "cheap_fast": {
+          "model": "gpt-5.5",
+          "thinking": "low"
+        },
+        "strong_reasoning": {
+          "model": "gpt-5.5",
+          "thinking": "high"
+        },
+        "code_specialized": {
+          "model": "gpt-5.5",
+          "thinking": "high"
+        }
       },
       "pi": {
-        "cheap_fast": {"model": null, "thinking": "low", "note": "Fill with your provider's model id."},
-        "strong_reasoning": {"model": null, "thinking": "high"},
-        "code_specialized": {"model": null}
+        "cheap_fast": {
+          "model": null,
+          "thinking": "low",
+          "note": "Fill with your provider's model id."
+        },
+        "strong_reasoning": {
+          "model": null,
+          "thinking": "high"
+        },
+        "code_specialized": {
+          "model": null
+        }
       }
     },
     "agents": {

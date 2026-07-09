@@ -22,6 +22,9 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         gates = sum(1 for r in arm_rows if r.get("gate_compliant"))
         diff = sum(int(r.get("diff_lines", 0)) for r in arm_rows)
         cost = sum(float(r.get("cost_usd", 0.0)) for r in arm_rows)
+        tokens_in = sum(int(r.get("tokens_in", 0)) for r in arm_rows)
+        tokens_out = sum(int(r.get("tokens_out", 0)) for r in arm_rows)
+        duration = sum(float(r.get("duration_sec", 0.0)) for r in arm_rows)
         out[arm] = {
             "runs": n,
             "hidden_test_pass_rate": round(hidden / n, 3) if n else 0,
@@ -30,6 +33,11 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "gate_compliance_rate": round(gates / n, 3) if n else 0,
             "avg_diff_lines": round(diff / n, 1) if n else 0,
             "cost_usd": round(cost, 4),
+            "avg_cost_usd": round(cost / n, 4) if n else 0,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "duration_sec": round(duration, 1),
+            "avg_duration_sec": round(duration / n, 1) if n else 0,
         }
     return out
 

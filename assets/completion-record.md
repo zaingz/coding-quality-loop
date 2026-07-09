@@ -11,7 +11,7 @@ Recast the Coding Quality Loop around a canonical **PLAN → EXECUTE → REVIEW*
 
 ## Contract
 
-`v240-validation-contract.md` (9 acceptance criteria, AC1-AC9). Kept in-repo alongside this record because it is the definitive statement of intent for this release.
+`archive/v240-validation-contract.md` (9 acceptance criteria, AC1-AC9). Kept in-repo alongside this record because it is the definitive statement of intent for this release.
 
 ## Implementation summary
 
@@ -68,7 +68,7 @@ Five slices, four executed by parallel sub-agents (S1 lifecycle, S2 context budg
 
 **Added** (8): `assets/context-budget.md`, `assets/phase-verification.md`, `assets/execution-log.jsonl.md`, `assets/synthetic-log-clean.jsonl`, `assets/synthetic-log-loop.jsonl`, `evals/cases/12-context-budget-missing-medium.json`, `evals/cases/13-phase-verifications-missing-medium.json`, `evals/cases/14-review-same-agent-verifier-medium.json`, plus this completion record.
 
-Also kept in-tree: `v240-validation-contract.md` (the record of intent for this release).
+Also kept in-tree: `archive/v240-validation-contract.md` (the record of intent for this release).
 
 ## Minimality decision
 
@@ -112,7 +112,7 @@ PASS review-verified-by-same-agent-fails-verify-phases
 
 ## Independent review
 
-Fresh-context reviewer (`gpt_5_5`, separate session, no read access to my working notes) checked the diff against `v240-validation-contract.md`. Verdict: `request_changes` with four findings:
+Fresh-context reviewer (`gpt_5_5`, separate session, no read access to my working notes) checked the diff against `archive/v240-validation-contract.md`. Verdict: `request_changes` with four findings:
 
 1. AC2 — `check-record` did not validate the new `phase` enum. **Fixed** — added enum validation.
 2. AC4 — `verify-phases` only required an entry for the current phase, not for all prior phases. **Fixed** — now walks the ordered phase list and requires a `passed` entry for each prior phase.

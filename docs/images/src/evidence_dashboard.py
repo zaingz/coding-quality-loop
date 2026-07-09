@@ -1,10 +1,11 @@
 """Evidence dashboard — one graphic summarizing the proof.
 
 Sections:
-  - 121 offline gate cases (broken down across 7 suites)
+  - 130 offline gate cases (broken down across 6 gate suites; the 10-case trigger
+    smoke fixture is excluded because its default grader cannot fail)
   - Zero runtime deps
   - Per-agent code-quality lift (honest split incl. Codex -1.11)
-  - Three live evals in examples/
+  - Five published eval runs in examples/ (only webapp 07-07 is real-CLI)
 """
 from __future__ import annotations
 
@@ -26,12 +27,11 @@ MUTED = "#8b93a3"
 
 SUITES = [
     ("Static", 11),
-    ("Behavioral", 32),
+    ("Behavioral", 39),
     ("Memory", 26),
-    ("Reality", 20),
-    ("Routing", 13),
-    ("Trigger", 10),
-    ("Hook", 9),
+    ("Reality", 23),
+    ("Routing", 15),
+    ("Hook", 16),
 ]
 
 # Honest per-agent code-quality lift (excluding process artifacts)
@@ -87,14 +87,14 @@ def main():
         ha="left", va="center", fontsize=12, color=MUTED, family="DejaVu Sans",
     )
 
-    # Big number: 121
+    # Big number: 130
     card(ax, 5, 62, 38, 22, "OFFLINE GATE CASES")
     ax.text(
-        24, 74, "121", ha="center", va="center",
+        24, 74, "130", ha="center", va="center",
         fontsize=64, color=ACCENT, fontweight="bold", family="DejaVu Sans",
     )
     ax.text(
-        24, 66, "across 7 suites, re-run on every push",
+        24, 66, "across 6 gate suites, re-run on every push",
         ha="center", va="center", fontsize=11, color=MUTED, family="DejaVu Sans",
     )
 
@@ -186,8 +186,8 @@ def main():
     stat_card(5, 28, "RUNTIME DEPS", "0", "stdlib-only Python helper")
     stat_card(36, 28, "HOSTS SUPPORTED", "5",
               "Claude · Codex · Cursor · Pi · Droid")
-    stat_card(67, 28, "LIVE CROSS-AGENT EVALS", "3",
-              "Sudoku 06-28 · 07-01 · Webapp 07-07")
+    stat_card(67, 28, "PUBLISHED EVAL RUNS", "5",
+              "only webapp 07-07 is real-CLI")
 
     fig.savefig(OUT, facecolor=BG, dpi=100)
     plt.close(fig)

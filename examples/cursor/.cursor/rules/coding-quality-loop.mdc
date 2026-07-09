@@ -1,7 +1,7 @@
 ---
-description: Coding Quality Loop - smallest correct, verified change with fresh-context review
+description: Apply to non-trivial coding work — implementing, fixing, refactoring, testing, or migrating a change. Produce the smallest correct, verified change with fresh-context review. Skip for trivial one-line edits.
 globs:
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Coding Quality Loop
@@ -27,7 +27,8 @@ EXECUTE groups `IMPLEMENT_SLICE`, `VERIFY`; REVIEW groups `REVIEW`, `PACKAGE`, `
 Escalate before destructive migrations, secret exposure, payments/billing, production infra,
 ambiguous user-facing behavior, or after two failed repair loops.
 
-This is an Always rule. For focused workflows, add Manual rules and invoke with
+This is an Agent Requested rule: Cursor pulls it into context for coding work based on the
+description above, so it does not load on every trivial edit. Invoke it explicitly any time with
 `@coding-quality-loop` (https://docs.cursor.com/en/context/rules).
 
 One-line usage in chat: `@coding-quality-loop fix the retry bug and provide verification evidence`.

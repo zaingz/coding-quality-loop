@@ -14,8 +14,8 @@ Closes the three "free lies" in v1.4.0 by grounding the record in git:
      object so review freshness is checkable, not self-attested.
 
 Stdlib-only, portable, no network. Mirrors ``quality_loop_memory.py`` and reuses
-``run_git`` / ``redact`` / ``SECRET_PATTERNS`` / ``has_evidence`` / ``load_json``
-from ``quality_loop``.
+``git_capture`` / ``run_git`` / ``redact`` / ``SECRET_PATTERNS`` / ``load_json``
+from ``quality_loop_core``.
 
 Record schema gains **optional** fields only (``diff_sha256``, ``files_changed``,
 ``red_green``) — no adopter break.
@@ -35,7 +35,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import quality_loop as ql
+import quality_loop_core as qlc
 
 # High-tier path components/anchors — a changed *path* matching these forces
 # high-risk gates, grounding detect_risk_floor in git rather than prose.
@@ -51,26 +51,11 @@ _BUGFIX_GOAL_KEYWORDS = ("bug", "broken", "crash", "regression", "defect")
 _WAIVER_KEYS = ("test_waiver", "no_test_waiver", "bugfix_test_waiver")
 
 
-def _git(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
-    """Run git without raising. Returns (returncode, stdout, stderr)."""
-    proc = subprocess.run(
-        ["git", *args],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=str(cwd) if cwd else None,
-        check=False,
-    )
-    return proc.returncode, proc.stdout, proc.stderr
-
-
-def _git_or_fail(args: list[str], cwd: Path | None = None) -> str:
-    """Run git, printing redacted stderr and exiting on failure (matches ql.run_git)."""
-    code, out, err = _git(args, cwd)
-    if code != 0:
-        print(ql.redact(err.strip()), file=sys.stderr)
-        raise SystemExit(code)
-    return out
+# The git wrapper lives in quality_loop_core; these preserve the module-local
+# names and exact error behavior (git_capture never raises; run_git prints
+# redacted stderr and exits on failure).
+_git = qlc.git_capture
+_git_or_fail = qlc.run_git
 
 
 def changed_files(base: str = "HEAD", cwd: Path | None = None) -> list[str]:
@@ -180,12 +165,14 @@ def _diff_audit_blocking_warnings(base: str, cwd: Path) -> list[str]:
         line[1:] for line in patch.splitlines()
         if line.startswith("+") and not line.startswith("+++")
     )
-    if any(p.search(added_lines) for p in ql.SECRET_PATTERNS):
+    if any(p.search(added_lines) for p in qlc.SECRET_PATTERNS):
         warnings.append("possible secret added in diff")
-    if any(
-        p.search(line) for line in patch.splitlines() for p in ql.TEST_WEAKENING_PATTERNS
-    ):
-        warnings.append("possible test-weakening (added skip/xfail/.only) in diff")
+    weakened = qlc.test_weakening_hits(patch)
+    if weakened:
+        warnings.append(
+            "possible test-weakening (added skip/xfail/.only) in test files: "
+            + ", ".join(weakened)
+        )
     return warnings
 
 
@@ -249,7 +236,7 @@ def verify_gates_against_diff(
     is_bugfix = any(k in goal for k in _BUGFIX_GOAL_KEYWORDS)
     if is_bugfix and files and not _has_waiver(record):
         tests_in_diff = [
-            f for f in files if any(m in f.lower() for m in ql.TEST_PATH_MARKERS)
+            f for f in files if any(m in f.lower() for m in qlc.TEST_PATH_MARKERS)
         ]
         if not tests_in_diff:
             findings.append(
@@ -389,10 +376,10 @@ def run_evidence(
             findings.append(
                 "run-evidence: command not on allowlist (.quality-loop/allowed-commands): %s "
                 "— to allow it, add a matching line (globs ok) to .quality-loop/allowed-commands"
-                % ql.redact(cmd)
+                % qlc.redact(cmd)
             )
             reruns.append({
-                "cmd": ql.redact(cmd),
+                "cmd": qlc.redact(cmd),
                 "recorded_result": "pass",
                 "rerun_result": "not_allowed",
             })
@@ -400,16 +387,16 @@ def run_evidence(
         result = _run_command(cmd, cwd, timeout)
         passed = result["exit_code"] == 0 and not result["timed_out"]
         reruns.append({
-            "cmd": ql.redact(cmd),
+            "cmd": qlc.redact(cmd),
             "recorded_result": "pass",
             "rerun_result": "pass" if passed else ("timeout" if result["timed_out"] else "fail"),
             "exit_code": result["exit_code"],
-            "stderr_tail": ql.redact(result["stderr"]) if result["stderr"] else "",
+            "stderr_tail": qlc.redact(result["stderr"]) if result["stderr"] else "",
         })
         if not passed:
             findings.append(
                 "run-evidence: recorded-pass command did not pass on rerun: %s (%s)"
-                % (ql.redact(cmd), "timeout" if result["timed_out"] else f"exit {result['exit_code']}")
+                % (qlc.redact(cmd), "timeout" if result["timed_out"] else f"exit {result['exit_code']}")
             )
 
     red_green_results: list[dict[str, Any]] = []
@@ -424,12 +411,12 @@ def run_evidence(
             if rg["red"] != "fail":
                 findings.append(
                     "run-evidence --red-green: RED not proven for %s — %s"
-                    % (ql.redact(cmd), rg["red_reason"])
+                    % (qlc.redact(cmd), rg["red_reason"])
                 )
             if rg["green"] != "pass":
                 findings.append(
                     "run-evidence --red-green: GREEN not proven for %s — %s"
-                    % (ql.redact(cmd), rg["green_reason"])
+                    % (qlc.redact(cmd), rg["green_reason"])
                 )
 
     result = {
@@ -456,7 +443,7 @@ def _red_green_check(cmd: str, base: str, cwd: Path, timeout: int) -> dict[str, 
     Worktree unavailable → explicit "not proven", never a silent pass.
     """
     out: dict[str, Any] = {
-        "cmd": ql.redact(cmd),
+        "cmd": qlc.redact(cmd),
         "red": "not_proven",
         "red_reason": "",
         "green": "not_proven",
@@ -465,7 +452,7 @@ def _red_green_check(cmd: str, base: str, cwd: Path, timeout: int) -> dict[str, 
     worktree_dir = tempfile.mkdtemp(prefix="ql-rg-")
     code, _, err = _git(["worktree", "add", "--detach", worktree_dir, base], cwd)
     if code != 0:
-        out["red_reason"] = "worktree unavailable: %s" % ql.redact(err.strip())
+        out["red_reason"] = "worktree unavailable: %s" % qlc.redact(err.strip())
         out["green_reason"] = "worktree unavailable (RED unproven)"
         # best-effort cleanup of the empty temp dir
         try:
@@ -504,10 +491,10 @@ def scan_text(text: str) -> list[dict[str, Any]]:
     """Secret-scan-as-a-service: return findings (line, redacted snippet) for input text."""
     findings: list[dict[str, Any]] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
-        for pattern in ql.SECRET_PATTERNS:
+        for pattern in qlc.SECRET_PATTERNS:
             match = pattern.search(line)
             if match:
-                snippet = ql.redact(line.strip())
+                snippet = qlc.redact(line.strip())
                 findings.append({
                     "line": lineno,
                     "snippet": snippet[:160],
@@ -544,7 +531,7 @@ def cmd_attest_review(args: Any) -> int:
 
 def cmd_run_evidence(args: Any) -> int:
     record_path = Path(args.record)
-    record = ql.load_json(record_path)
+    record = qlc.load_json(record_path)
     try:
         result = run_evidence(
             record,

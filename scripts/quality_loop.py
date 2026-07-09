@@ -10,17 +10,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math as _math
 import os
 import re
-import subprocess
 import sys
-import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
 
 try:
+    import quality_loop_core as qlcore
     import quality_loop_memory as qlmem
     import quality_loop_reality as qlreal
     import quality_loop_routing as qlroute
@@ -31,12 +29,34 @@ except ImportError as _exc:  # pragma: no cover - exercised via subprocess eval
     sys.stderr.write(
         "coding-quality-loop: incomplete install — %s.\n"
         "The helper needs all sibling modules in the same directory: "
-        "quality_loop.py, quality_loop_memory.py, quality_loop_reality.py, "
-        "quality_loop_routing.py.\n"
+        "quality_loop.py, quality_loop_core.py, quality_loop_memory.py, "
+        "quality_loop_reality.py, quality_loop_routing.py.\n"
         "Copy the full scripts/ directory or re-run scripts/install.py. "
         "Do not hand-edit or stub the helper.\n" % _exc
     )
     raise SystemExit(2)
+
+# Re-export the shared primitives moved into quality_loop_core so that
+# `import quality_loop; quality_loop.<name>` (evals) keeps working and this
+# module's own references resolve. Explicit names, never a star import.
+from quality_loop_core import (  # noqa: E402
+    MINIMALITY_REQUIRED_STATUSES,
+    POST_IMPLEMENT_STATUSES,
+    POST_INTAKE_STATUSES,
+    REVIEW_READY_STATUSES,
+    SECRET_PATTERNS,
+    TERMINAL_STATUSES,
+    TEST_PATH_MARKERS,
+    TEST_WEAKENING_PATTERNS,
+    _nonempty,
+    atomic_write_text,
+    git_capture,
+    has_evidence,
+    load_json,
+    redact,
+    run_git,
+    write_json,
+)
 
 
 RISK_TIERS = {"low", "medium", "high"}
@@ -55,37 +75,6 @@ STATUSES = {
     "escalated",
 }
 
-# Three canonical phases (PLAN -> EXECUTE -> REVIEW) that every status maps into.
-# `done` and `escalated` are terminal phases in their own right.
-PHASE = ["plan", "execute", "review", "done", "escalated"]
-
-_STATUS_TO_PHASE = {
-    "intake": "plan",
-    "explore": "plan",
-    "plan": "plan",
-    "minimality_gate": "plan",
-    "implement": "execute",
-    "verify": "execute",
-    "review": "review",
-    "package": "review",
-    "retrospect": "review",
-    "done": "done",
-    "iterating": "execute",
-    "escalated": "escalated",
-}
-
-
-def resolve_phase(record: dict[str, Any]) -> str | None:
-    """Return the record's phase: explicit `phase` field wins, else derive from `status`.
-
-    Returns None if neither an explicit valid `phase` nor a mappable `status` is present.
-    """
-    phase = record.get("phase")
-    if phase in PHASE:
-        return phase
-    return _STATUS_TO_PHASE.get(record.get("status"))
-
-
 MINIMALITY_RUNGS = {
     "skip",
     "delete",
@@ -96,6 +85,8 @@ MINIMALITY_RUNGS = {
     "one_liner",
     "minimal_new_code",
 }
+# Optional per-run process-tax metrics (R3). All fields are optional numbers.
+RUN_METRICS_FIELDS = {"tokens_in", "tokens_out", "cost_usd", "duration_sec"}
 COMMAND_RESULTS = {"pass", "fail", "blocked"}
 COMMAND_CLASSES = {
     "format",
@@ -120,42 +111,9 @@ NON_APPROVING_VERDICTS = {
 }
 REVIEW_VERDICTS = APPROVING_VERDICTS | NON_APPROVING_VERDICTS
 BLOCKING_SEVERITIES = {"blocking", "blocker"}
-SECRET_PATTERNS = [
-    re.compile(
-        r"(?i)(api[_-]?key|secret|token|password|passwd|pwd|credential|private[_-]?key)"
-        r"\s*[:=]\s*['\"][^'\"]{8,}['\"]"
-    ),
-    re.compile(r"-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
-    re.compile(r"ghp_[A-Za-z0-9_]{20,}"),
-    re.compile(r"AKIA[A-Z0-9]{16}"),
-    re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]{20,}"),
-    re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
-    re.compile(r"sk-[A-Za-z0-9]{20,}"),
-    re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"),
-    # OpenAI hyphenated key families (sk-live-*, sk-proj-*, sk-test-*, sk-svcacct-*).
-    # The pre-existing `sk-[A-Za-z0-9]{20,}` misses these because the char class
-    # excludes hyphens; without this line an `sk-live-<hex>` slips through the
-    # redactor and can be persisted verbatim into the lessons memory (proven
-    # in review). Ordering matters: keep this above the shorter sk- fallback
-    # only if you tighten that pattern later; the union of both is safe.
-    re.compile(r"sk-(?:live|proj|test|svcacct)-[A-Za-z0-9_-]{16,}"),
-    # Unquoted assignment - the most common .env/shell/YAML leak shape - with a
-    # placeholder guard that skips only obvious stubs (REPLACE_ME / <...> / ${...} /
-    # example / dummy). It anchors on exact stub words, NOT a 'your_' prefix, so a
-    # real value like `api_key = your_realProductionKey` is still flagged.
-    re.compile(
-        r"(?i)(api[_-]?key|secret|token|password|passwd|pwd|credential|private[_-]?key)\s*[:=]\s*"
-        r"(?!['\"]?(?:replace_me|change_me|changeme|placeholder|example|dummy|xxx+|<|\$\{))"
-        r"(?!(?:os\.|getattr|self\.|cfg\.|config\.))"
-        r"[A-Za-z0-9._~/+=:@_-]{8,}"
-    ),
-    re.compile(r"(?:sk|rk)_live_[A-Za-z0-9]{16,}"),
-    re.compile(r"gh[opusr]_[A-Za-z0-9]{20,}"),
-    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
-    re.compile(r"ASIA[A-Z0-9]{16}"),
-    re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
-    re.compile(r"AIza[0-9A-Za-z_-]{35}"),
-]
+# SECRET_PATTERNS, redact + entropy helpers, TEST_PATH_MARKERS, and
+# TEST_WEAKENING_PATTERNS moved to quality_loop_core and are re-exported at the
+# top of this module.
 DEPENDENCY_FILES = {
     "package.json",
     "package-lock.json",
@@ -175,15 +133,6 @@ DEPENDENCY_FILES = {
 }
 MIGRATION_DIR_MARKERS = {"migration", "migrations", "alembic", "prisma", "flyway", "liquibase"}
 MIGRATION_FILE_MARKERS = {"schema.sql", "schema.prisma", "changelog.xml", "db.changelog.xml"}
-# Test-weakening markers: an agent that fixes "green" by skipping/deleting tests
-# is gaming the gate. These flag added skip/xfail/.only lines in test files.
-TEST_PATH_MARKERS = ("test", "spec", "__tests__")
-TEST_WEAKENING_PATTERNS = [
-    # Match @skip / @pytest.mark.skip / @mark.skipif / @unittest.skip etc.
-    re.compile(r"^\+.*@(?:[\w.]*\.)?(?:skipif|xfail|skip)\b"),
-    re.compile(r"^\+.*\.(?:only|skip)\s*\("),
-    re.compile(r"^\+.*\b(?:it|test|describe)\.skip\b"),
-]
 
 # Risk boundaries detected from the record's own text. A self-declared low/tiny
 # tier must not let auth/payment/migration/secret/infra work bypass the heavy
@@ -240,19 +189,8 @@ BOUNDARY_PATTERNS = {
 }
 
 
-def has_evidence(value: Any) -> bool:
-    """True only for real evidence: a non-empty path/string or a non-empty object.
-
-    Bare booleans and numbers are placeholders, not evidence, and never satisfy
-    a shipping gate.
-    """
-    if isinstance(value, bool):
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, dict):
-        return bool(value)
-    return False
+# has_evidence and _nonempty moved to quality_loop_core (re-exported at top);
+# they are deliberately different predicates — see the note in the core module.
 
 
 # Required content for shipping artifacts when supplied as an inline object. Each
@@ -270,18 +208,6 @@ ARTIFACT_REQUIRED_FIELDS = {
         ("evidence", "verification", "verification_evidence", "checks"),
     ),
 }
-
-
-def _nonempty(value: Any) -> bool:
-    if isinstance(value, bool):
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, (list, dict)):
-        return bool(value)
-    if isinstance(value, (int, float)):
-        return True
-    return False
 
 
 def artifact_findings(value: Any, kind: str, base_dir: Path) -> list[str]:
@@ -385,28 +311,11 @@ def detect_risk_floor(record: dict[str, Any]) -> tuple[str, list[str]]:
     return ("high", markers) if markers else ("low", [])
 
 
-def load_json(path: Path) -> dict[str, Any]:
-    try:
-        return json.loads(path.read_text())
-    except FileNotFoundError:
-        print(f"error: file not found: {path}", file=sys.stderr)
-        raise SystemExit(2)
-    except json.JSONDecodeError as exc:
-        print(f"error: invalid JSON in {path}: {exc}", file=sys.stderr)
-        raise SystemExit(2)
-
-
-def write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", delete=False, dir=path.parent) as tmp:
-        tmp.write(json.dumps(data, indent=2) + "\n")
-        tmp_path = Path(tmp.name)
-    os.replace(tmp_path, path)
+# load_json and write_json (atomic) moved to quality_loop_core, re-exported at top.
 
 
 def init_record(args: argparse.Namespace) -> int:
     status = "intake"
-    phase = getattr(args, "phase", None) or _STATUS_TO_PHASE.get(status, "plan")
     record = {
         "task_id": args.task_id or str(uuid.uuid4()),
         "goal": args.goal,
@@ -440,14 +349,16 @@ def init_record(args: argparse.Namespace) -> int:
         "review_findings": [],
         "next_action": "Complete intake and acceptance criteria.",
         "status": status,
-        "phase": phase,
     }
     write_json(Path(args.output), record)
     print(args.output)
     # Scaffold the run-evidence allowlist next to the record so verification
     # commands can be re-executed later. Live runs showed agents never create
     # this file on their own, which turns run-evidence into a guaranteed FAIL.
-    allowlist = Path(args.output).resolve().parent / ".quality-loop" / "allowed-commands"
+    record_dir = Path(args.output).resolve().parent
+    # A record living inside .quality-loop/ must not nest a second .quality-loop/.
+    base = record_dir if record_dir.name == ".quality-loop" else record_dir / ".quality-loop"
+    allowlist = base / "allowed-commands"
     if not allowlist.exists():
         try:
             allowlist.parent.mkdir(parents=True, exist_ok=True)
@@ -495,11 +406,8 @@ def check_record(args: argparse.Namespace) -> int:
     status = record.get("status")
     if status not in STATUSES:
         errors.append("status is not a valid lifecycle state")
-    # `phase` is optional (mapped from status when absent) but must be valid
-    # when provided.
-    phase = record.get("phase")
-    if phase is not None and phase not in PHASE:
-        errors.append(f"phase is not a valid lifecycle phase (got {phase!r})")
+    # A legacy `phase` field (from the retired three-phase model) is tolerated and
+    # ignored — no gate consumes it, so its value is never validated.
 
     minimality = record.get("minimality_decision")
     if minimality is not None:
@@ -510,7 +418,7 @@ def check_record(args: argparse.Namespace) -> int:
                 errors.append("minimality_decision.rung is invalid")
             if not minimality.get("reason"):
                 errors.append("minimality_decision.reason is required")
-    if status in {"minimality_gate", "implement", "verify", "review", "package", "retrospect", "done", "iterating"} and not minimality:
+    if status in MINIMALITY_REQUIRED_STATUSES and not minimality:
         errors.append("minimality_decision is required at minimality_gate or later")
 
     for array_key in [
@@ -564,6 +472,22 @@ def check_record(args: argparse.Namespace) -> int:
     if "repeated_failure" in record and not isinstance(record.get("repeated_failure"), bool):
         errors.append("repeated_failure must be a boolean")
 
+    # Optional run_metrics (R3 process-tax instrumentation). Absent is fine; when
+    # present, every value must be a non-negative number and no unknown keys are
+    # allowed inside the object.
+    run_metrics = record.get("run_metrics")
+    if run_metrics is not None:
+        if not isinstance(run_metrics, dict):
+            errors.append("run_metrics must be an object")
+        else:
+            for key, value in run_metrics.items():
+                if key not in RUN_METRICS_FIELDS:
+                    errors.append(f"run_metrics has unknown key: {key!r}")
+                elif isinstance(value, bool) or not isinstance(value, (int, float)):
+                    errors.append(f"run_metrics.{key} must be a number")
+                elif value < 0:
+                    errors.append(f"run_metrics.{key} must be >= 0")
+
     if "implementer" in record and record["implementer"] is not None:
         if not isinstance(record["implementer"], str) or not record["implementer"].strip():
             errors.append("implementer must be a non-empty string")
@@ -579,7 +503,7 @@ def check_record(args: argparse.Namespace) -> int:
         if verdict not in REVIEW_VERDICTS:
             errors.append(f"{review_key}.verdict must be a recognized review verdict")
 
-    if status in {"plan", "minimality_gate", "implement", "verify", "review", "package", "retrospect", "done"}:
+    if status in POST_INTAKE_STATUSES:
         if not record.get("acceptance_criteria"):
             warnings.append("acceptance_criteria is empty after INTAKE")
         if not record.get("verification_plan"):
@@ -596,94 +520,8 @@ def check_record(args: argparse.Namespace) -> int:
     return 1 if warnings and args.strict else 0
 
 
-# Long, high-entropy tokens (>= this many chars) that don't match any regex are
-# still likely secrets. 28 is chosen to sit above realistic identifiers/hashes
-# users write in prose but below typical secret lengths (32+ hex, 40+ base64).
-_ENTROPY_TOKEN_MIN_LEN = 28
-_ENTROPY_MIN_BITS = 3.5  # empirical: english words ~3.0, base64/hex secrets ~4.5+
-# Split on whitespace, quotes, and common structural punctuation so we score the
-# token, not the surrounding syntax. Hyphens/underscores stay inside a token
-# because real secrets embed them (e.g. `sk-live-...`, `AKIA...`).
-_TOKEN_SPLIT_RE = re.compile(r"[\s\"'`,;<>()\[\]{}]+")
-# Recognisably non-secret shapes we should not redact even at high entropy:
-# hex-only git SHAs, uuids, semver-ish dotted paths, and file paths.
-_HEX_ONLY_RE = re.compile(r"^[0-9a-fA-F]+$")
-_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
-
-
-def _shannon_bits(s: str) -> float:
-    if not s:
-        return 0.0
-    counts: dict[str, int] = {}
-    for ch in s:
-        counts[ch] = counts.get(ch, 0) + 1
-    length = len(s)
-    return -sum((c / length) * _math.log2(c / length) for c in counts.values())
-
-
-def _looks_like_identifier(token: str) -> bool:
-    """Return True for tokens that are structurally not secrets even if long.
-
-    Keeps false positives out of the entropy scan: git SHAs (hex only), UUIDs,
-    and dotted paths (module.paths, files/with/slashes). Real secret shapes
-    (sk-live-hex, base64 tokens, JWTs) mix character classes and don't match.
-    """
-    if _HEX_ONLY_RE.match(token) or _UUID_RE.match(token):
-        return True
-    if "/" in token or ("." in token and "-" not in token and "_" not in token):
-        return True
-    return False
-
-
-def _entropy_redact(text: str) -> str:
-    """Redact long, high-entropy tokens the regex list missed.
-
-    Complementary to SECRET_PATTERNS, not a replacement. Regexes catch known
-    prefixed shapes (ghp_, AKIA, sk-live-...); this pass catches obfuscated or
-    novel keys that still exhibit the length + entropy signature of a secret.
-    """
-    def _swap(tok: str) -> str:
-        if len(tok) < _ENTROPY_TOKEN_MIN_LEN:
-            return tok
-        if _looks_like_identifier(tok):
-            return tok
-        return "[REDACTED]" if _shannon_bits(tok) >= _ENTROPY_MIN_BITS else tok
-
-    # We must preserve the exact separators to keep prose intact, so walk with a
-    # finditer-driven rebuild instead of a naive join.
-    out: list[str] = []
-    idx = 0
-    for m in _TOKEN_SPLIT_RE.finditer(text):
-        out.append(_swap(text[idx:m.start()]))
-        out.append(m.group(0))
-        idx = m.end()
-    out.append(_swap(text[idx:]))
-    return "".join(out)
-
-
-def redact(text: str) -> str:
-    redacted = text
-    for pattern in SECRET_PATTERNS:
-        redacted = pattern.sub("[REDACTED]", redacted)
-    # Second pass: entropy scan for obfuscated / unknown-shape secrets. Kept
-    # after the regex pass so labeled shapes get the recognisable redaction
-    # marker before the generic entropy sweep runs.
-    redacted = _entropy_redact(redacted)
-    return redacted
-
-
-def run_git(args: list[str]) -> str:
-    proc = subprocess.run(
-        ["git", *args],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if proc.returncode != 0:
-        print(redact(proc.stderr.strip()), file=sys.stderr)
-        raise SystemExit(proc.returncode)
-    return proc.stdout
+# The entropy helpers, redact, and run_git moved to quality_loop_core (redact and
+# run_git are re-exported at the top of this module).
 
 
 # Scaffolding the loop writes into the working tree (the record, its sidecars,
@@ -715,11 +553,10 @@ def _resolve_base(base: str) -> tuple[str, str | None]:
     fallback and tell the caller what happened.
     """
     def _resolves(ref: str) -> bool:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--verify", "--quiet", ref + "^{commit}"],
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
-        )
-        return proc.returncode == 0
+        # Route through the core git wrapper (Side B centralized all git
+        # subprocess in quality_loop_core); returncode 0 means the ref resolves.
+        code, _, _ = qlcore.git_capture(["rev-parse", "--verify", "--quiet", ref + "^{commit}"])
+        return code == 0
 
     if _resolves(base):
         return base, None
@@ -850,13 +687,11 @@ def diff_audit(args: argparse.Namespace) -> int:
             blocking.append("possible secret added in diff")
             break
 
-    test_files = [f for f in files if any(m in f.lower() for m in TEST_PATH_MARKERS)]
-    if test_files and any(
-        p.search(line) for line in patch.splitlines() for p in TEST_WEAKENING_PATTERNS
-    ):
+    weakened = qlcore.test_weakening_hits(patch)
+    if weakened:
         blocking.append(
             "possible test-weakening (added skip/xfail/.only) in test files: "
-            + ", ".join(test_files)
+            + ", ".join(weakened)
         )
 
     marker_count = sum(1 for line in patch.splitlines() if _SHORTCUT_MARKER_RE.search(line))
@@ -882,7 +717,7 @@ def diff_audit(args: argparse.Namespace) -> int:
 
 
 _EXEC_CLASSES = {"unit", "integration", "typecheck", "build", "lint"}
-_REVIEW_READY_STATUS = {"review", "package", "done"}
+_REVIEW_READY_STATUS = REVIEW_READY_STATUSES  # single-sourced in quality_loop_core
 
 # Table-driven risk-tier evidence rules. Each tier lists ordered (check, message)
 # pairs; the check name is resolved by _tier_check_fails. Keeping this as data
@@ -1026,7 +861,7 @@ def verify_gates(args: argparse.Namespace) -> int:
         # UNDERSTAND gate: the first Hard Rule (map the change before editing) is
         # only real if it is checked. By implementation, the context map must
         # locate the change and corroborate it with callers or tests.
-        if status in {"implement", "verify", "review", "package", "done", "iterating"}:
+        if status in POST_IMPLEMENT_STATUSES:
             repo_map = record.get("repo_map") or {}
             located = (repo_map.get("entry_points") or []) or (repo_map.get("likely_files") or [])
             corroborated = (repo_map.get("callers_checked") or []) or (repo_map.get("tests") or [])
@@ -1035,7 +870,7 @@ def verify_gates(args: argparse.Namespace) -> int:
                     "non-trivial work requires a substantive context map (repo_map): "
                     "entry_points/likely_files plus callers_checked or tests"
                 )
-        if status in {"package", "done"}:
+        if status in TERMINAL_STATUSES:
             if record.get("completion_record") is None:
                 findings.append(
                     f"non-trivial work at status '{status}' requires a completion_record with evidence"
@@ -1063,7 +898,7 @@ def verify_gates(args: argparse.Namespace) -> int:
             "not a repeated chat correction"
         )
 
-    if status in {"implement", "verify", "review", "package", "done", "iterating"} and not record.get("minimality_decision"):
+    if status in POST_IMPLEMENT_STATUSES and not record.get("minimality_decision"):
         findings.append("minimality_decision is required before implementation can pass gates")
 
     findings.extend(
@@ -1120,7 +955,7 @@ REQUIRED_STEPS = [
 # Single source of truth for the config schema/version. check_config rejects a
 # config that does not declare this version so the skill, config, CHANGELOG, and
 # npm package cannot silently drift apart.
-EXPECTED_CONFIG_VERSION = "4.0.0"
+EXPECTED_CONFIG_VERSION = "4.1.0"
 
 # Step model-class floor (P3.18): the planner (PLAN) and orchestrator
 # (ORCHESTRATE) steps must route to the strongest reasoning class so "the right
@@ -1224,6 +1059,7 @@ def _is_placeholder_model(model: Any) -> bool:
     if s.startswith("<") and s.endswith(">"):
         return True
     return False
+
 
 
 def check_config(args: argparse.Namespace) -> int:
@@ -1564,6 +1400,7 @@ def _check_ac_coverage(record: dict[str, Any]) -> list[str]:
 
 HELPER_MODULES = (
     "quality_loop.py",
+    "quality_loop_core.py",
     "quality_loop_memory.py",
     "quality_loop_reality.py",
     "quality_loop_routing.py",
@@ -1682,6 +1519,29 @@ def verify(args: argparse.Namespace) -> int:
         "\n".join(f"{name}: {digest}" for name, digest in sorted(integrity.items())),
     ))
 
+    # 6. Require-terminal (opt-in; the CI action passes this): work must not ship
+    #    with an unclosed loop. If the diff vs --base is non-empty and the record
+    #    status is not terminal (package/done), fail. Uses the same diff mechanism
+    #    (tracked changes + untracked non-ignored files) as the reality layer.
+    if getattr(args, "require_terminal", False):
+        rec_status = record.get("status")
+        d_code, d_out, _ = git_capture(["diff", "--name-only", base])
+        u_code, u_out, _ = git_capture(["ls-files", "--others", "--exclude-standard"])
+        diff_nonempty = (d_code == 0 and bool(d_out.strip())) or (u_code == 0 and bool(u_out.strip()))
+        if diff_nonempty and rec_status not in TERMINAL_STATUSES:
+            finding = (
+                f"work shipped without closing the loop: status is {rec_status!r} "
+                f"with a non-empty diff vs {base}"
+            )
+            all_findings.append(finding)
+            sections.append(("require-terminal", 1, finding))
+        else:
+            sections.append((
+                "require-terminal",
+                0,
+                f"status={rec_status!r}; diff_nonempty={diff_nonempty}",
+            ))
+
     # Unified report
     print("=" * 60)
     print("VERIFY — unified gate report")
@@ -1725,7 +1585,6 @@ def main() -> int:
     p_init.add_argument("--risk-tier", choices=sorted(RISK_TIERS), default="medium")
     p_init.add_argument("--task-id")
     p_init.add_argument("--output", default="agent-record.json")
-    p_init.add_argument("--phase", choices=PHASE, help="Initial phase (default: derived from status, 'plan' for a fresh record)")
     p_init.set_defaults(func=init_record)
 
     p_check = sub.add_parser("check-record", help="Validate a state record")
@@ -1750,6 +1609,7 @@ def main() -> int:
     p_verify.add_argument("record")
     p_verify.add_argument("--base", default="HEAD", help="Git base ref (default HEAD)")
     p_verify.add_argument("--red-green", action="store_true", help="Also replay red_green commands at base (expect fail) and HEAD (expect pass)")
+    p_verify.add_argument("--require-terminal", action="store_true", help="Fail if the diff vs --base is non-empty while the record status is not package/done (loop shipped unclosed)")
     p_verify.set_defaults(func=verify)
 
     p_config = sub.add_parser("check-config", help="Validate an orchestration config")

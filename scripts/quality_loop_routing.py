@@ -10,11 +10,11 @@ Pi ``/model`` commands).  Stdlib-only, no runtime dependencies.
 from __future__ import annotations
 
 import json
-import os
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
+
+import quality_loop_core as qlcore
 
 SUPPORTED_HOSTS = ("claude-code", "droid", "codex", "pi")
 MODEL_CLASSES = ("cheap_fast", "strong_reasoning", "code_specialized")
@@ -242,14 +242,9 @@ def rewrite_frontmatter(
     return "\n".join(new_lines)
 
 
-def _atomic_write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w", delete=False, dir=path.parent, encoding="utf-8"
-    ) as tmp:
-        tmp.write(text)
-        tmp_path = Path(tmp.name)
-    os.replace(tmp_path, path)
+# The atomic write lives in quality_loop_core (one implementation for the
+# package); this preserves the module-local name for existing call sites.
+_atomic_write = qlcore.atomic_write_text
 
 
 # ---------------------------------------------------------------------------
@@ -501,11 +496,6 @@ def cmd_setup_models(args: Any) -> int:
 # ---------------------------------------------------------------------------
 # Brief integration
 # ---------------------------------------------------------------------------
-
-def brief_routing_lines(cwd: Path, config_path: Path | None = None) -> list[str]:
-    info = brief_routing_info(cwd, config_path)
-    return info["lines"]
-
 
 def brief_routing_info(cwd: Path, config_path: Path | None = None) -> dict[str, Any]:
     if config_path is None:

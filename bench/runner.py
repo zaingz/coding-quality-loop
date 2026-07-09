@@ -20,6 +20,12 @@ ROOT = Path(__file__).resolve().parent
 ARMS = ["baseline", "skill", "skill_hooks"]
 ABLATION_ARMS = ["baseline", "v3-full", "v3-no-review", "v3-no-contract"]
 
+# Per-arm process-tax instrumentation the runner treats as first-class.
+# R3 (docs/critical-review-2026-07-09.md): the repo mandates recording cost per
+# live sweep (README) but no results.json ever carried a cost/token field. Every
+# run must carry these keys; live (non-fixture) runs must carry real values.
+COST_FIELDS = ("cost_usd", "tokens_in", "tokens_out", "duration_sec")
+
 
 def load_tasks(path: Path) -> list[dict[str, Any]]:
     return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(path.glob("*.json"))]
@@ -51,8 +57,53 @@ def fixture_run(task: dict[str, Any], arm: str, seed: int) -> dict[str, Any]:
         "gate_compliant": gate,
         "diff_lines": int(rng.uniform(12, 180) * (0.8 if arm in ("v3-full", "skill_hooks") else 1.0)),
         "new_dependencies": int("dependency" in task.get("trap_flags", []) and bool(trap_flags)),
+        # Fixture placeholders: zero, clearly exempt from live cost enforcement
+        # because mode == "fixture". Live runs must overwrite these with real
+        # values captured from the host CLI (see live-run-recipe.md).
         "cost_usd": 0.0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "duration_sec": 0.0,
     }
+
+
+def validate_cost_fields(runs: list[dict[str, Any]]) -> list[str]:
+    """Return ``MISSING-COST`` problems for the process-tax schema.
+
+    Every run must carry all ``COST_FIELDS`` keys. Fixture runs may leave them at
+    their zero placeholders. Live (non-fixture) runs must record real work: a run
+    that consumed zero tokens or zero wall-time was not actually instrumented, so
+    it fails loudly rather than passing silently.
+    """
+    problems: list[str] = []
+    for run in runs:
+        label = f"{run.get('task_id', '?')}:{run.get('arm', '?')}:seed{run.get('seed', '?')}"
+        missing = [f for f in COST_FIELDS if run.get(f) is None]
+        if missing:
+            problems.append(f"MISSING-COST {label}: absent fields {missing}")
+            continue
+        bad_type = [
+            f for f in COST_FIELDS
+            if not isinstance(run.get(f), (int, float)) or isinstance(run.get(f), bool) or run.get(f) < 0
+        ]
+        if bad_type:
+            problems.append(f"MISSING-COST {label}: non-numeric or negative fields {bad_type}")
+            continue
+        if run.get("mode") == "fixture":
+            continue  # zero placeholders are expected for fixtures
+        unrecorded = [f for f in ("tokens_in", "tokens_out", "duration_sec") if not run.get(f)]
+        if unrecorded:
+            problems.append(
+                f"MISSING-COST {label}: live run reports zero {unrecorded} — cost/latency not recorded"
+            )
+    return problems
+
+
+def load_runs(path: Path) -> list[dict[str, Any]]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(data, dict):
+        return data.get("runs", [])
+    return data
 
 
 def main() -> int:
@@ -63,7 +114,34 @@ def main() -> int:
     parser.add_argument("--seeds", type=int, default=3)
     parser.add_argument("--arms", nargs="*", default=ARMS)
     parser.add_argument("--ablation", action="store_true", help="Use ablation arms (baseline, v3-full, v3-no-review, v3-no-contract)")
+    parser.add_argument(
+        "--validate",
+        metavar="RESULTS.json",
+        help="Validate an existing results file for per-arm cost fields "
+        "(cost_usd/tokens_in/tokens_out/duration_sec) and exit non-zero on any "
+        "live run that omits them or reports zero tokens/duration. Fixture runs "
+        "are exempt; a run with no `mode` is treated as live (fail-closed).",
+    )
     args = parser.parse_args()
+
+    if args.validate:
+        runs = load_runs(Path(args.validate))
+        if not runs:
+            # A results file with no runs key (or an empty list) must not read
+            # as instrumented: "OK: 0 run(s)" would be a silent pass.
+            print(f"FAIL: no runs found in {args.validate} (missing or empty 'runs').")
+            return 1
+        problems = validate_cost_fields(runs)
+        if problems:
+            print(f"FAIL: {len(problems)} run(s) missing required cost instrumentation:")
+            for problem in problems:
+                print(f"  {problem}")
+            return 1
+        print(
+            f"OK: {len(runs)} run(s) carry required cost fields "
+            f"{list(COST_FIELDS)} (fixture runs exempt)."
+        )
+        return 0
 
     if args.ablation:
         args.arms = ABLATION_ARMS
@@ -75,10 +153,18 @@ def main() -> int:
         for arm in args.arms
         for seed in range(args.seeds)
     ]
+    # The runner validates what it produces: fixtures must carry the placeholder
+    # keys, and this guards against a future live mode emitting uninstrumented runs.
+    problems = validate_cost_fields(runs)
+    if problems:
+        print("FAIL: generated runs missing required cost instrumentation:")
+        for problem in problems:
+            print(f"  {problem}")
+        return 1
     result = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "mode": args.mode,
-        "note": "Fixture smoke result validates harness plumbing only; not a live agent benchmark.",
+        "note": "Fixture smoke result validates harness plumbing only; not a live agent benchmark. Per-arm cost_usd/tokens_in/tokens_out/duration_sec are zero placeholders (fixture mode is exempt from live cost enforcement).",
         "task_count": len(tasks),
         "arms": args.arms,
         "seeds": args.seeds,

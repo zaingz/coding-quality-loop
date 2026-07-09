@@ -52,39 +52,30 @@ become artifacts. That is what this loop is.
 
 ## Trends we have observed
 
-The industry is converging — fast — on the same set of moves. The loop is an attempt to package
-them coherently rather than invent them.
+The industry is converging — fast — on the same moves, and the loop packages them rather than
+invents them: **agent skills** as the portable unit of capability (progressive disclosure);
+**durable repo instructions** (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules` — short and accurate
+beats long and vague); **mission artifacts** (context map, validation contract, plan, completion
+record) for long work; **role separation**, because one context grading its own output is the
+dominant failure mode; **independent validation** as a contract checked by a fresh context;
+**hooks and policy gates** for the non-negotiables; **repo maps** over context stuffing; and
+**eval/improvement loops** that treat the harness — not the prompt — as the unit of iteration,
+pinned by regression evals. Two 2026 sharpenings: **harness engineering** is now a named
+discipline (context engineering has replaced prompt engineering), and **multi-agent works as
+capability routing, not parallel swarms** — writes stay single-threaded, extra agents contribute
+intelligence (a clean-context reviewer catches bugs the coder cannot see), and longitudinal
+continuity is files (progress file, feature list, git as memory), not machinery. Sources for
+each are in Inspirations below.
 
-- **Agent skills as the unit of capability.** Reusable `SKILL.md` workflows with triggers, steps,
-  and exit criteria, loaded via progressive disclosure (metadata first, full instructions when
-  relevant, extra files on demand) are replacing one-off prompts.
-- **Durable repo instructions.** `AGENTS.md`, `CLAUDE.md`, and `.cursor/rules` encode standing
-  behavior every run inherits — short and accurate beats long and vague.
-- **Mission artifacts for long work.** Broad work is split into focused units backed by shared
-  state: context map, validation contract, plan, logs, completion record.
-- **Role separation.** Orchestrator / worker / validator splits are emerging because one context
-  grading its own output is the dominant failure mode.
-- **Independent validation.** Verification is becoming a *contract* — each criterion paired with
-  its proof — checked by a fresh context, not the implementer's optimism.
-- **Hooks and policy gates.** Deterministic enforcement (`PreToolUse`/`PostToolUse`/`Stop`,
-  protected paths, dependency approval) is replacing trust-the-text for the non-negotiables.
-- **Repo maps and context engineering.** Concise maps of the codebase are beating context
-  stuffing on both cost and quality.
-- **Eval and improvement loops.** The harness — instructions, tools, routing, checks — is treated
-  as the unit of improvement, with regression evals pinning fixes in place.
-- **Platform-specific install surfaces.** The same skill now needs to drop cleanly into Claude
-  Code, Codex, Cursor, Pi, Droid, and generic `.agents/skills` hosts.
-- **Harness engineering as a named discipline.** The harness — instructions, tools, routing,
-  feedback sensors, and quality gates — is now treated as the engineering artifact, not the
-  prompt (OpenAI, Fowler, LangChain, 2026). Context engineering has replaced prompt engineering
-  as the durable framing (Cognition).
-- **Multi-agent as capability routing, not parallel swarms.** Cognition's April 2026 update
-  confirms: multi-agent works when writes stay single-threaded and other agents contribute
-  intelligence. A clean-context reviewer catches bugs the coder cannot see; cross-frontier
-  delegation routes to whichever model is best at the specific sub-task.
-- **Longitudinal continuity as files, not machinery.** Anthropic's long-running agent harness
-  (Nov 2025) shows that bridging context windows is a progress file, a feature list, and git as
-  memory — an initializer session plus incremental sessions that leave clean state.
+## Every gate must earn its tokens
+
+Process is not free: a diligent medium loop spends roughly 15–22k tokens of scaffolding before
+a line of the codebase is read, and the literature shows harnesses that silently double token
+spend while passing every functional check. So each gate is held to the same standard as the
+code it guards — an addition or a retention must be justified by a measured eval delta per token
+of overhead it imposes, and a deletion is a win to celebrate rather than a regression to fear
+(v3.0 cut ~40% of the surface this way and shipped stronger). Context is the scarce resource; the
+process must practice the scarcity it preaches.
 
 ## Inspirations
 
@@ -116,6 +107,11 @@ endorsements of this project, and not claims of adoption by any of them.
   and git as memory for longitudinal continuity.
 - **Skill packaging conventions** (e.g. generic `.agents/skills/` layouts) — for portability
   across hosts.
+- **YAGNI ("You Aren't Gonna Need It")** — build for the requirement in front of you, not an
+  imagined future. The Right-Size Gate is YAGNI operationalized as a pre-implementation step.
+- **DRY ("Don't Repeat Yourself")** — every rule, table, and definition lives in one canonical
+  place and is pointed to, not copied; duplication in the docs is the same debt as duplication
+  in code, and this package holds itself to it.
 
 ## How the loop translates this into a package
 
