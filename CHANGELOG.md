@@ -1,5 +1,84 @@
 # Changelog
 
+## 4.2.0
+
+The model-routing release: express a multi-harness topology in config, enforce
+reviewer independence on the model *family* across hosts, and make escalation
+an evidence trail instead of a claim. Ships the roadmap's R7 cross-CLI recipe
+and the evidence base that R5 (per-model process depth) was deferred for.
+
+**Multi-host per-role routing:**
+- A `model_routing.agents` entry may now be an object `{host, class}` to pin
+  that role to another harness (plain strings keep the v4.1 meaning: the
+  default host). New optional `main_session {host, class, model}` declares
+  where the implementer runs — nothing is rewritten for it; it feeds the
+  heterogeneity check, `brief`, and print-host output.
+- `setup-models` with no `--host` applies every host in the topology: file
+  hosts (claude-code, droid) get frontmatter rewrites, print hosts (codex, pi)
+  print behind an explicit banner — `PRINT-ONLY — settings not applied or
+  verified by CQL`. There is deliberately no "applied ✓" for print hosts, and
+  no print-host drift detection: their config lives outside the repo, so CQL
+  says "declared, not verified" instead of pretending. `--host` keeps its
+  historical retarget meaning on v4.1 single-host configs and becomes a pure
+  filter on multi-host topologies (it never drags default-host roles onto the
+  selected host); a `main_session` must resolve to a host or check-config
+  errors (a hostless one would silently skip the heterogeneity check).
+- `brief` renders routing per host and keeps drift detection for file hosts.
+
+**Reviewer heterogeneity on model family (fixes a live hole):**
+- `check-config` now compares the implementer and fresh_reviewer by resolved
+  model **family** (new optional `family` field on host_models blocks, else a
+  well-known-prefix match), across hosts. Implementer `sonnet` vs reviewer
+  `claude-sonnet-4-5` — different strings, same model family — previously
+  passed; it now fails. Unknown/BYOK/placeholder ids skip, never false-positive.
+  `allow_same_family: true` is the explicit, greppable escape hatch (same
+  *model* is never allowed). Harness diversity is not model heterogeneity.
+
+**The knob — routing variants (`assets/routing/`):**
+- Three pre-validated `model_routing` variants along the intelligence↔cost
+  dial: `max-intelligence`, `balanced`, `max-throughput`, each pinned by an
+  eval case that splices it into the example config and requires `check-config`
+  to pass with floors held (strong_reasoning tier, different-family review,
+  effort ≤ high). A dated model-menu README documents prices and supply-risk
+  notes with **no machine consumers** — stale data can never fail a build.
+  Deliberately NOT built: a machine-read model catalog, a dial/pack resolution
+  engine, escalation-chain config, a cost-report subcommand (see ROADMAP).
+
+**Escalation as evidence (R5 evidence base):**
+- New optional record fields: `models_used` (per-role host/model/attempts/cost
+  attribution) and `escalations` (model-tier escalation events). `trigger` is
+  an enum of exactly one value — `verified_failure` — and `verify-gates`
+  requires every `failing_commands` entry to match a recorded `commands_run`
+  failure carrying an evidence handle: self-report escalation is not evidence,
+  and a bare fail row is free to fabricate. The `escalated` status stays
+  the human-input valve; this gate binds only model-tier escalation.
+- A `fail` entry superseded by a later `pass` of the same command (the honest
+  RED→GREEN shape an escalation leaves behind) no longer blocks verify-gates;
+  outstanding failures still do.
+- Cost per accepted record is a documented `jq` recipe, not a subcommand — the
+  v3.0 surface reduction stays reduced.
+
+**R7 — cross-CLI orchestrator recipe:**
+- `docs/cross-cli-recipe.md`: live-verified headless commands for running the
+  loop's roles across `claude -p`, `codex exec`, and `droid exec`, with the
+  caveat that harness diversity does not guarantee model heterogeneity —
+  `check-config` stays the arbiter.
+
+**Counts and migration:**
+- Gate-case count is now **144 across 6 suites** (11 static + 44 behavioral +
+  26 memory + 23 reality + 24 routing + 16 hook); the trigger smoke fixture
+  stays a separate 10-case fixture.
+- Migration: bump the `version` string in your `quality-loop.config.json` to
+  `4.2.0` — every new config and record field is optional and additive
+  (`run_metrics` untouched; the archived v4.1.0 record passes unchanged, pinned
+  by eval). **One behavior change is deliberate:** a v4.1 config whose
+  implementer and reviewer are different models in the *same family* (e.g. an
+  all-Claude sonnet-implements/opus-reviews tiering) now fails check-config —
+  that was always the documented intent ("different model family", SKILL.md
+  §Calibration) and the code finally enforces it. The error names the fix:
+  route review to another family, or set `"allow_same_family": true` to accept
+  the risk explicitly.
+
 ## 4.1.0
 
 The trust-chain release, reconciled onto the independently shipped 4.0.0

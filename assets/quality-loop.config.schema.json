@@ -93,6 +93,7 @@
               "type": "object",
               "properties": {
                 "model": {"type": ["string", "null"]},
+                "family": {"type": ["string", "null"], "description": "Optional model family (e.g. claude, gpt, glm) for the reviewer-heterogeneity check. Wins over the well-known-prefix match; unknown families are skipped, never failed."},
                 "thinking": {"type": ["string", "null"], "enum": ["minimal", "low", "medium", "high", "xhigh", "max", null], "description": "Reasoning effort. 'high' is the routine ceiling; effort is per-step, not per-task endurance, so xhigh/max only overthink and overspend each step. check-config rejects xhigh/max unless allow_overthink is true on this block."},
                 "allow_overthink": {"type": "boolean", "description": "Set true to permit xhigh/max on this model_class for a genuinely ambiguous, architecture-sensitive case. Without it, check-config fails on xhigh/max."},
                 "note": {"type": "string"}
@@ -103,7 +104,37 @@
         },
         "agents": {
           "type": "object",
-          "additionalProperties": {"type": "string"}
+          "additionalProperties": {
+            "oneOf": [
+              {"type": "string", "enum": ["cheap_fast", "strong_reasoning", "code_specialized"]},
+              {
+                "type": "object",
+                "required": ["class"],
+                "properties": {
+                  "host": {"type": "string", "enum": ["claude-code", "droid", "codex", "pi"]},
+                  "class": {"type": "string", "enum": ["cheap_fast", "strong_reasoning", "code_specialized"]},
+                  "note": {"type": "string"}
+                },
+                "additionalProperties": true
+              }
+            ]
+          },
+          "description": "Agent file -> model_class. A plain string routes the agent on the default host (v4.1 shape); an object pins it to another host for multi-harness topologies."
+        },
+        "main_session": {
+          "type": ["object", "null"],
+          "description": "Declares where the implementer (main session) runs. Nothing is rewritten for it -- it feeds the cross-host reviewer-heterogeneity check, brief, and print-host output. Must resolve to a host: set host here or model_routing.host (check-config errors otherwise).",
+          "properties": {
+            "host": {"type": "string", "enum": ["claude-code", "droid", "codex", "pi"]},
+            "class": {"type": "string", "enum": ["cheap_fast", "strong_reasoning", "code_specialized"]},
+            "model": {"type": ["string", "null"]},
+            "note": {"type": "string"}
+          },
+          "additionalProperties": true
+        },
+        "allow_same_family": {
+          "type": "boolean",
+          "description": "Explicit escape hatch: accept implementer and fresh_reviewer resolving to the same model FAMILY (never the same model). Without it, check-config fails same-family review on medium+."
         }
       },
       "additionalProperties": true

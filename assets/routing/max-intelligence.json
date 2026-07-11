@@ -1,0 +1,49 @@
+{
+  "description": "Routing variant: max-intelligence (as_of 2026-07-11). Frontier models on every leg; routing exists to keep review in a different family, not to save cost. Paste this object over the model_routing section of your quality-loop.config.json, then run setup-models and check-config. See assets/routing/README.md for the dated model menu.",
+  "host": "claude-code",
+  "host_models": {
+    "claude-code": {
+      "cheap_fast": {
+        "model": "claude-sonnet-5",
+        "family": "claude",
+        "thinking": "low"
+      },
+      "strong_reasoning": {
+        "model": "claude-fable-5",
+        "family": "claude",
+        "thinking": "high"
+      },
+      "code_specialized": {
+        "model": "claude-fable-5",
+        "family": "claude",
+        "thinking": "high"
+      }
+    },
+    "codex": {
+      "strong_reasoning": {
+        "model": "gpt-5.6-sol",
+        "family": "gpt",
+        "thinking": "high",
+        "note": "Reviewer leg. Reviews stay advisory beneath deterministic gates; verify findings locally (see README)."
+      }
+    }
+  },
+  "agents": {
+    "quality-loop-context-mapper": "cheap_fast",
+    "quality-loop-planner": "strong_reasoning",
+    "quality-loop-reviewer": {
+      "host": "codex",
+      "class": "strong_reasoning"
+    },
+    "quality-loop-security-reviewer": {
+      "host": "codex",
+      "class": "strong_reasoning"
+    }
+  },
+  "main_session": {
+    "host": "claude-code",
+    "class": "code_specialized",
+    "note": "Implementer runs in the Claude Code main session."
+  },
+  "allow_same_family": false
+}

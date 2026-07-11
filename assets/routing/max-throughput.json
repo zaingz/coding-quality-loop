@@ -1,0 +1,60 @@
+{
+  "description": "Routing variant: max-throughput (as_of 2026-07-11). Cheapest legs that hold the floors the dial can never lower: strong_reasoning stays on a strong-tier model for plan/minimality/review classes, the reviewer stays in a different family than the implementer, and effort stays at high. Paste this object over the model_routing section of your quality-loop.config.json, then run setup-models and check-config. See assets/routing/README.md for the dated model menu.",
+  "host": "claude-code",
+  "host_models": {
+    "claude-code": {
+      "cheap_fast": {
+        "model": "claude-haiku-4-5",
+        "family": "claude",
+        "thinking": "low"
+      },
+      "strong_reasoning": {
+        "model": "claude-sonnet-5",
+        "family": "claude",
+        "thinking": "high",
+        "note": "Floor: planning and risk classes never drop below a strong-tier model."
+      },
+      "code_specialized": {
+        "model": "claude-sonnet-5",
+        "family": "claude",
+        "thinking": "high",
+        "note": "Fallback implementer when the droid leg is unavailable."
+      }
+    },
+    "droid": {
+      "code_specialized": {
+        "model": "glm-5.2-fast",
+        "family": "glm",
+        "thinking": "high",
+        "note": "Bulk executor. Open-weight GLM via Factory; see README for supply-risk note and non-Chinese fallbacks."
+      }
+    },
+    "codex": {
+      "strong_reasoning": {
+        "model": "gpt-5.6-terra",
+        "family": "gpt",
+        "thinking": "high",
+        "note": "Cheaper reviewer tier, still a different family than the implementer."
+      }
+    }
+  },
+  "agents": {
+    "quality-loop-context-mapper": "cheap_fast",
+    "quality-loop-planner": "strong_reasoning",
+    "quality-loop-reviewer": {
+      "host": "codex",
+      "class": "strong_reasoning"
+    },
+    "quality-loop-security-reviewer": {
+      "host": "codex",
+      "class": "strong_reasoning"
+    }
+  },
+  "main_session": {
+    "host": "droid",
+    "class": "code_specialized",
+    "model": "glm-5.2-fast",
+    "note": "Implementer runs on the droid leg; declared here for the cross-host heterogeneity check."
+  },
+  "allow_same_family": false
+}

@@ -120,9 +120,14 @@ never a default and never bulk work.
 ### Enforced heterogeneity
 
 `check-config` is the arbiter of independence: on medium+ work it verifies the implementer and
-the `fresh_reviewer` resolve to a **different model family**, and `verify-gates` string-compares
-reviewer ≠ implementer. Independence is enforced on the model identity, not on which CLI ran —
-see the decision note below.
+the `fresh_reviewer` resolve to a different concrete model **and** a different model **family**,
+across hosts. Family is the explicit `family` field on a `host_models` block when set, else a
+well-known-prefix match (`claude`/`sonnet`/`opus`/`haiku`/`fable` → claude, `gpt`/`sol`/`terra`/
+`luna`/`codex` → gpt, `glm`, `gemini`, `grok`); unknown or BYOK ids are skipped, never failed.
+This closes the alias hole — `sonnet` vs `claude-sonnet-4-5` is not two reviewers — and the
+cross-host hole: harness diversity is not model heterogeneity. `"allow_same_family": true` is
+the explicit, greppable escape hatch for same-family (never same-model) setups. `verify-gates`
+additionally string-compares reviewer ≠ implementer on the record.
 
 ## Advisor Pattern (default for small/medium)
 
@@ -205,6 +210,23 @@ generic (`minimal`–`max`) and mapped per host; an unsupported level is warned 
 config and the actual agent-file `model:` values for file-based hosts. Reviewers run in a fresh
 session so they do not inherit the implementer's context.
 
+**Multi-host topologies.** An `agents` entry may be an object `{"host": ..., "class": ...}` to
+pin that role to another harness, and `main_session {host, class, model}` declares where the
+implementer runs (a declaration only — nothing is rewritten for it; it feeds the heterogeneity
+check, `brief`, and print-host output; it must resolve to a host, so set `main_session.host`
+or `model_routing.host` — check-config errors on a hostless main session). `setup-models` with
+no `--host` then applies every host in the topology: file hosts get frontmatter rewrites; print
+hosts (codex, pi) print behind an explicit `PRINT-ONLY — settings not applied or verified by
+CQL` banner, and there is no print-host drift detection because their config lives outside the
+repo — `brief` says "declared, not verified" instead of pretending. `--host` splits by config
+shape: on a v4.1 single-host config it keeps its historical meaning (retarget the default host);
+on a multi-host topology it is a pure filter — it applies only that host's slice and never drags
+default-host roles onto the selected host. Three pre-validated variants along the
+intelligence↔cost dial (`max-intelligence` / `balanced` / `max-throughput`) ship in
+`assets/routing/` with a dated model-menu README; each is pinned by an eval case that requires
+`check-config` to pass with the floors held (strong-reasoning tier for plan/review classes,
+different-family review, effort at the `high` ceiling).
+
 ### Per-host role wiring
 
 Roles, prompts, and routing ship as files any host consumes without a custom runtime; each host
@@ -246,8 +268,8 @@ gives you model heterogeneity, because a harness can host another vendor's model
 Claude models). Harness difference is not a proxy for model difference: `check-config` remains
 the arbiter, comparing the resolved model families, not the CLIs.
 
-A one-page cross-CLI review recipe (claude ⇄ codex ⇄ droid headless commands with verified
-flags) is tracked separately; this note is the topology rationale behind it.
+The one-page cross-CLI recipe (claude ⇄ codex ⇄ droid headless commands with verified flags)
+lives at `docs/cross-cli-recipe.md`; this note is the topology rationale behind it.
 
 ## Appendix: host-provided patterns the package does not execute
 

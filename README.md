@@ -14,10 +14,10 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-4.1.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-4.2.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-130%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-144%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-111111?style=flat-square)](#install--use-matrix)
@@ -195,7 +195,7 @@ Every claim on this page is checkable on a clean checkout with no dependencies. 
 
 <div align="center">
 
-<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard — 130 offline gate cases across 6 suites (11 static, 39 behavioral, 26 memory, 23 reality, 15 routing, 16 hook), plus a 10-case trigger smoke fixture; per-agent code-quality lift excluding process artifacts: Droid/GLM-5.2 +8.0, Claude Code +6.67 (webapp) and +4.5 (Sudoku), Codex +1.0 (Sudoku) and −1.11 (webapp); zero runtime dependencies; five supported hosts; five published eval runs." width="900">
+<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard — 144 offline gate cases across 6 suites (11 static, 44 behavioral, 26 memory, 23 reality, 24 routing, 16 hook), plus a 10-case trigger smoke fixture; per-agent code-quality lift excluding process artifacts: Droid/GLM-5.2 +8.0, Claude Code +6.67 (webapp) and +4.5 (Sudoku), Codex +1.0 (Sudoku) and −1.11 (webapp); zero runtime dependencies; five supported hosts; five published eval runs." width="900">
 
 </div>
 
@@ -212,7 +212,7 @@ python3 evals/run_routing_evals.py                                              
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 10. bench fixture smoke
 ```
 
-Current result: **11/11 static** + **39/39 behavioral** + **26/26 memory** + **23/23 reality** + **15/15 routing** + **16/16 hook** = **130 gate cases** across 6 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). A separate **10-case trigger smoke** fixture runs locally (step 8 above): its default grader is keyword-overlap and structurally cannot fail, so it is excluded from the gate count — a real activation check needs `--judge-command` with an LLM judge.
+Current result: **11/11 static** + **44/44 behavioral** + **26/26 memory** + **23/23 reality** + **24/24 routing** + **16/16 hook** = **144 gate cases** across 6 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). A separate **10-case trigger smoke** fixture runs locally (step 8 above): its default grader is keyword-overlap and structurally cannot fail, so it is excluded from the gate count — a real activation check needs `--judge-command` with an LLM judge.
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -336,7 +336,7 @@ Release 1.6 adds first-class host wiring without making any host mandatory:
 - `action.yml` and `hosts/github/quality-loop-example.yml` provide CI wiring.
 - `scripts/install.py` installs host wiring idempotently and prints what is enforced vs advisory.
 
-**Config-based model routing** — the `model_routing` section in `quality-loop.config.json` maps each model class to a real model per host. `python3 scripts/quality_loop.py setup-models --host <host>` applies it: it rewrites `model:` frontmatter for Claude Code (`.claude/agents/*.md`) and Droid (`.factory/droids/*.md`), or prints the Codex `config.toml` / Pi `/model` settings to apply. `brief` shows the active routing and flags drift. Agent files ship with `model: inherit` so they are host-neutral at rest. Route reasoning effort at **`high`**: `check-config` rejects `xhigh`/`max` unless a model-class block sets `"allow_overthink": true`, because effort is per-step, not per-task endurance — above `high`, models overthink and overspend each step. See the [model capability glossary](references/agentic-orchestration.md#model-capability-glossary) (intelligence / taste / cost, the effort ceiling, and the escalation policy) and [config-driven model setup](references/agentic-orchestration.md#config-driven-model-setup).
+**Config-based model routing** — the `model_routing` section in `quality-loop.config.json` maps each model class to a real model per host. `python3 scripts/quality_loop.py setup-models --host <host>` applies it: it rewrites `model:` frontmatter for Claude Code (`.claude/agents/*.md`) and Droid (`.factory/droids/*.md`), or prints the Codex `config.toml` / Pi `/model` settings to apply. Multi-host topologies are first-class: an `agents` entry may pin a role to another harness (`{"host": "codex", "class": "strong_reasoning"}`), `main_session` declares where the implementer runs, and one `setup-models` run applies every host — print hosts (codex, pi) are labeled `PRINT-ONLY — settings not applied or verified by CQL`. Reviewer independence is enforced on the resolved model **family** across hosts (`family` field or well-known prefix; unknown ids skip; `allow_same_family` is the explicit escape hatch). Three pre-validated variants along the intelligence↔cost dial ship in [`assets/routing/`](assets/routing/). `brief` shows the active routing per host and flags drift on file hosts. Agent files ship with `model: inherit` so they are host-neutral at rest. Route reasoning effort at **`high`**: `check-config` rejects `xhigh`/`max` unless a model-class block sets `"allow_overthink": true`, because effort is per-step, not per-task endurance — above `high`, models overthink and overspend each step. See the [model capability glossary](references/agentic-orchestration.md#model-capability-glossary) (intelligence / taste / cost, the effort ceiling, and the escalation policy) and [config-driven model setup](references/agentic-orchestration.md#config-driven-model-setup).
 
 A repo can opt into required edit-before-plan blocking with `.quality-loop/config.json`:
 
@@ -492,11 +492,11 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   provenance is not hand-faked.
 - **Skills Hub publish checklist.** Before publishing to the
   [agentskills.io](https://agentskills.io) Skills Hub:
-  1. Bump `packages/npm/package.json` and tag a release (`git tag v4.1.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
+  1. Bump `packages/npm/package.json` and tag a release (`git tag v4.2.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all 6 gate suites green: 11 static + 39 behavioral + 26 memory + 23 reality + 15 routing + 16 hook = 130 gate cases, plus the 10-case trigger smoke fixture).
+     and the full eval suite (all 6 gate suites green: 11 static + 44 behavioral + 26 memory + 23 reality + 24 routing + 16 hook = 144 gate cases, plus the 10-case trigger smoke fixture).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules

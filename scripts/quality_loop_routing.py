@@ -10,6 +10,7 @@ Pi ``/model`` commands).  Stdlib-only, no runtime dependencies.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -69,10 +70,93 @@ AGENT_ROLE_NOTES = {
     "quality-loop-security-reviewer": "Security review at risk boundaries (fresh session)",
 }
 
+# Reviewer heterogeneity is enforced on the model FAMILY, not the CLI (harness
+# diversity does not guarantee model heterogeneity). Family is best-effort: an
+# explicit "family" field on a host_models class block always wins; otherwise
+# the model id is tokenized and matched against this table. A miss or an
+# ambiguous match degrades to None and callers SKIP the check -- unknown ids
+# (BYOK custom:<id>, proxies) must never false-positive.
+WELL_KNOWN_FAMILIES = {
+    "claude": "claude",
+    "sonnet": "claude",
+    "opus": "claude",
+    "haiku": "claude",
+    "fable": "claude",
+    "gpt": "gpt",
+    "codex": "gpt",
+    "sol": "gpt",
+    "terra": "gpt",
+    "luna": "gpt",
+    "glm": "glm",
+    "gemini": "gemini",
+    "grok": "grok",
+}
+
+PRINT_ONLY_BANNER = (
+    "PRINT-ONLY -- settings not applied or verified by CQL; "
+    "heterogeneity for this leg is config-declared, not observed"
+)
+
+
+def is_placeholder_model(model: Any) -> bool:
+    """True for model identifiers that are not real concrete models.
+
+    Used by reviewer-heterogeneity and family checks so an unfilled config
+    (null / inherit / angle-bracket placeholders like ``<strong-reasoning-model>``)
+    does not false-positive before the user supplies real model ids.
+    """
+    if not isinstance(model, str):
+        return True  # null / None / unset
+    s = model.strip()
+    if not s or s == "inherit":
+        return True
+    if s.startswith("<") and s.endswith(">"):
+        return True
+    return False
+
+
+def model_family(model: Any, declared: Any = None) -> str | None:
+    """Best-effort model family for heterogeneity checks.
+
+    An explicit declared family wins. Otherwise the id is lowercased, split on
+    non-alphanumerics, and token-matched against WELL_KNOWN_FAMILIES so aliases
+    (``sonnet``) and channel ids (``anthropic/claude-sonnet-5``) meet in the
+    same family. Placeholder, unknown, or ambiguous (tokens matching more than
+    one family) ids return None -- callers must skip, never fail.
+    """
+    if isinstance(declared, str) and declared.strip():
+        return declared.strip().lower()
+    if is_placeholder_model(model):
+        return None
+    tokens = re.split(r"[^a-z0-9]+", model.strip().lower())
+    families = {WELL_KNOWN_FAMILIES[t] for t in tokens if t in WELL_KNOWN_FAMILIES}
+    if len(families) == 1:
+        return families.pop()
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
+
+def _agent_entry(value: Any) -> dict[str, Any] | None:
+    """Normalize an agents-map value to ``{"host": str|None, "class": str}``.
+
+    v4.1 shape (plain model_class string) and the multi-host object form
+    (``{"host": ..., "class": ...}``) are both valid; anything else is None.
+    """
+    if isinstance(value, str):
+        return {"host": None, "class": value}
+    if isinstance(value, dict):
+        cls = value.get("class")
+        host = value.get("host")
+        if not isinstance(cls, str):
+            return None
+        if host is not None and not isinstance(host, str):
+            return None
+        return {"host": host, "class": cls}
+    return None
+
 
 def validate_model_routing(section: Any) -> list[str]:
     errors: list[str] = []
@@ -121,6 +205,11 @@ def validate_model_routing(section: Any) -> list[str]:
                     errors.append(
                         f"model_routing.host_models.{hname}.{cname}.allow_overthink must be a boolean"
                     )
+                family = cblock.get("family")
+                if family is not None and not isinstance(family, str):
+                    errors.append(
+                        f"model_routing.host_models.{hname}.{cname}.family must be a string or null"
+                    )
                 if thinking in OVERTHINK_LEVELS and allow_overthink is not True:
                     errors.append(
                         f"model_routing.host_models.{hname}.{cname}.thinking={thinking!r} exceeds the "
@@ -134,21 +223,74 @@ def validate_model_routing(section: Any) -> list[str]:
     if not isinstance(agents, dict):
         errors.append("model_routing.agents must be an object")
     else:
-        for aname, aclass in agents.items():
-            if aclass not in MODEL_CLASSES:
+        for aname, aval in agents.items():
+            entry = _agent_entry(aval)
+            if entry is None:
                 errors.append(
-                    f"model_routing.agents.{aname} references unknown model_class: {aclass!r}"
+                    f"model_routing.agents.{aname} must be a model_class string or an "
+                    f"object {{host, class}}, got {aval!r}"
                 )
-    if (
-        host is not None
-        and isinstance(host_models, dict)
-        and host in host_models
-        and isinstance(agents, dict)
-    ):
-        for aname, aclass in agents.items():
-            if isinstance(host_models[host], dict) and aclass not in host_models[host]:
+                continue
+            if entry["class"] not in MODEL_CLASSES:
                 errors.append(
-                    f"model_routing.agents.{aname} -> {aclass!r} is not defined in host_models.{host}"
+                    f"model_routing.agents.{aname} references unknown model_class: "
+                    f"{entry['class']!r}"
+                )
+            if entry["host"] is not None and entry["host"] not in SUPPORTED_HOSTS:
+                errors.append(
+                    f"model_routing.agents.{aname}.host must be one of "
+                    f"{list(SUPPORTED_HOSTS)}, got {entry['host']!r}"
+                )
+    main_session = section.get("main_session")
+    if main_session is not None:
+        if not isinstance(main_session, dict):
+            errors.append("model_routing.main_session must be an object")
+        else:
+            ms_host = main_session.get("host")
+            if ms_host is not None and ms_host not in SUPPORTED_HOSTS:
+                errors.append(
+                    f"model_routing.main_session.host must be one of "
+                    f"{list(SUPPORTED_HOSTS)}, got {ms_host!r}"
+                )
+            ms_class = main_session.get("class")
+            if ms_class is not None and ms_class not in MODEL_CLASSES:
+                errors.append(
+                    f"model_routing.main_session.class must be one of "
+                    f"{list(MODEL_CLASSES)}, got {ms_class!r}"
+                )
+            ms_model = main_session.get("model")
+            if ms_model is not None and not isinstance(ms_model, str):
+                errors.append("model_routing.main_session.model must be a string or null")
+            if main_session.get("host") is None and host is None:
+                errors.append(
+                    "model_routing.main_session needs a host: set main_session.host or "
+                    "model_routing.host -- a hostless main_session cannot be resolved and "
+                    "would silently skip the reviewer-heterogeneity check"
+                )
+    allow_same_family = section.get("allow_same_family")
+    if allow_same_family is not None and not isinstance(allow_same_family, bool):
+        errors.append("model_routing.allow_same_family must be a boolean")
+    if isinstance(host_models, dict) and isinstance(agents, dict):
+        for aname, aval in agents.items():
+            entry = _agent_entry(aval)
+            if entry is None:
+                continue
+            if entry["host"] is not None and entry["host"] not in host_models:
+                # An explicit pin to a host with no host_models block is a config
+                # mistake, not an unfilled default: the role would resolve to
+                # nothing and heterogeneity would silently skip.
+                errors.append(
+                    f"model_routing.agents.{aname} is pinned to host {entry['host']!r} "
+                    f"but host_models.{entry['host']} is not defined"
+                )
+                continue
+            ahost = entry["host"] or host
+            if ahost is None or ahost not in host_models:
+                continue
+            if isinstance(host_models[ahost], dict) and entry["class"] not in host_models[ahost]:
+                errors.append(
+                    f"model_routing.agents.{aname} -> {entry['class']!r} is not defined "
+                    f"in host_models.{ahost}"
                 )
     return errors
 
@@ -159,19 +301,98 @@ def validate_model_routing(section: Any) -> list[str]:
 
 def resolve_routing(
     config: dict[str, Any], host_override: str | None = None
-) -> tuple[str | None, dict[str, dict[str, Any]], dict[str, str]]:
+) -> dict[str, Any]:
+    """Resolve the model_routing section into a topology.
+
+    Returns a dict with:
+      - ``default_host``: ``host_override`` or ``model_routing.host`` (may be None).
+      - ``host_models``: the full per-host class-settings map.
+      - ``agents``: agent name -> ``{"host": resolved_host, "class": model_class}``.
+        v4.1 string entries resolve to the default host, so ``--host X`` keeps its
+        historical meaning (retarget the default) while object entries stay pinned.
+      - ``main_session``: ``{"host", "class", "model"}`` or None -- a declaration of
+        where the implementer runs; nothing is ever rewritten for it.
+      - ``allow_same_family``: bool escape hatch for the family heterogeneity check.
+      - ``hosts_in_use``: hosts (SUPPORTED_HOSTS order) with at least one resolved
+        agent or the main session.
+    """
+    empty = {
+        "default_host": None,
+        "host_models": {},
+        "agents": {},
+        "main_session": None,
+        "allow_same_family": False,
+        "hosts_in_use": [],
+    }
     section = config.get("model_routing", {})
     if not isinstance(section, dict):
-        return None, {}, {}
-    host = host_override or section.get("host")
-    if host is None:
-        return None, {}, {}
+        return empty
+    # --host semantics split by config shape: a v4.1 single-host config keeps the
+    # historical meaning (retarget the default host, so the same config can be
+    # applied to another host); a multi-host topology (object agents or a
+    # main_session) treats --host as a pure FILTER -- overriding the default
+    # there would silently drag default-host roles onto the selected host.
+    raw_agents_probe = section.get("agents")
+    uses_topology = isinstance(section.get("main_session"), dict) or (
+        isinstance(raw_agents_probe, dict)
+        and any(isinstance(v, dict) for v in raw_agents_probe.values())
+    )
+    if uses_topology:
+        default_host = section.get("host")
+    else:
+        default_host = host_override or section.get("host")
     host_models = section.get("host_models", {})
-    class_settings = host_models.get(host, {}) if isinstance(host_models, dict) else {}
-    agents = section.get("agents", DEFAULT_AGENTS)
-    if not isinstance(agents, dict):
-        agents = dict(DEFAULT_AGENTS)
-    return host, dict(class_settings), dict(agents)
+    if not isinstance(host_models, dict):
+        host_models = {}
+    raw_agents = section.get("agents", DEFAULT_AGENTS)
+    if not isinstance(raw_agents, dict):
+        raw_agents = dict(DEFAULT_AGENTS)
+    agents: dict[str, dict[str, Any]] = {}
+    for aname, aval in raw_agents.items():
+        entry = _agent_entry(aval)
+        if entry is None:
+            continue
+        agents[aname] = {"host": entry["host"] or default_host, "class": entry["class"]}
+    main_session = section.get("main_session")
+    if isinstance(main_session, dict):
+        main_session = {
+            "host": main_session.get("host") or default_host,
+            "class": main_session.get("class"),
+            "model": main_session.get("model"),
+        }
+        if main_session["host"] is None:
+            main_session = None
+    else:
+        main_session = None
+    used = {e["host"] for e in agents.values() if e["host"]}
+    if main_session:
+        used.add(main_session["host"])
+    if default_host:
+        # A configured default host is in use even with zero resolved agents
+        # (v4.1 allowed agents: {}): setup-models reports "nothing to rewrite"
+        # and brief shows its classes instead of claiming "not configured".
+        used.add(default_host)
+    return {
+        "default_host": default_host,
+        "host_models": host_models,
+        "agents": agents,
+        "main_session": main_session,
+        "allow_same_family": section.get("allow_same_family") is True,
+        "hosts_in_use": [h for h in SUPPORTED_HOSTS if h in used],
+    }
+
+
+def class_block(
+    host_models: dict[str, Any], host: str | None, cname: str | None
+) -> dict[str, Any]:
+    """The ``host_models[host][cname]`` block, or ``{}`` when unresolvable."""
+    if not host or not cname or not isinstance(host_models, dict):
+        return {}
+    hblock = host_models.get(host)
+    if not isinstance(hblock, dict):
+        return {}
+    cblock = hblock.get(cname)
+    return cblock if isinstance(cblock, dict) else {}
 
 
 def _find_config(cwd: Path) -> Path | None:
@@ -278,11 +499,32 @@ def _setup_files_host(
     target: Path,
     dry_run: bool,
     json_out: bool,
-) -> int:
+    main_session: dict[str, Any] | None = None,
+) -> tuple[int, dict[str, Any]]:
     spec = HOSTS[host]
     agent_dir = target / spec["agent_dir"]
     thinking_key = spec["thinking_key"]
     warnings = _thinking_warnings(host, class_settings)
+    if not agents:
+        note = f"no agent files assigned to {host}; nothing to rewrite"
+        if main_session and main_session.get("host") == host:
+            cls = main_session.get("class") or "code_specialized"
+            cblock = class_settings.get(cls, {})
+            if not isinstance(cblock, dict):
+                cblock = {}
+            model = main_session.get("model") or cblock.get("model") or f"<{cls}-model>"
+            note += (
+                f"; main session (implementer) declared here: model={model} -- "
+                f"apply it in the {host} session (see docs/cross-cli-recipe.md)"
+            )
+        if not json_out:
+            print(f"setup-models for {host} (target: {target})")
+            print(f"  {note}")
+        for w in warnings:
+            print(f"warning: {w}", file=sys.stderr)
+        return (1 if warnings else 0), {
+            "host": host, "changed": 0, "results": [], "note": note, "warnings": warnings,
+        }
     if not agent_dir.is_dir():
         print(f"error: agent directory not found: {agent_dir}", file=sys.stderr)
         if host == "droid":
@@ -290,7 +532,7 @@ def _setup_files_host(
                 "hint: run `python3 scripts/install.py --host droid` to copy the example droids first",
                 file=sys.stderr,
             )
-        return 2
+        return 2, {"host": host, "error": f"agent directory not found: {agent_dir}"}
     results: list[dict[str, Any]] = []
     changed_count = 0
     for aname, aclass in agents.items():
@@ -330,14 +572,8 @@ def _setup_files_host(
                 "thinking": thinking,
             }
         )
-    if json_out:
-        print(
-            json.dumps(
-                {"host": host, "changed": changed_count, "results": results, "warnings": warnings},
-                indent=2,
-            )
-        )
-    else:
+    payload = {"host": host, "changed": changed_count, "results": results, "warnings": warnings}
+    if not json_out:
         prefix = "[dry-run] " if dry_run else ""
         print(f"{prefix}setup-models for {host} (target: {target})")
         for r in results:
@@ -355,24 +591,31 @@ def _setup_files_host(
         verb = "would change" if dry_run else "updated"
         unchanged = len([r for r in results if r["status"] == "unchanged"])
         print(f"\n{changed_count} agent file(s) {verb}; {unchanged} unchanged")
-    return 1 if warnings else 0
+    return (1 if warnings else 0), payload
 
 
 def _render_codex(
-    class_settings: dict[str, dict[str, Any]], agents: dict[str, str]
+    class_settings: dict[str, dict[str, Any]],
+    agents: dict[str, str],
+    main: dict[str, Any],
 ) -> str:
     supported = HOSTS["codex"]["supported_thinking"]
-    main = class_settings.get("code_specialized", {})
-    main_model = main.get("model") or "<code-specialized-model>"
-    main_thinking = main.get("thinking")
     lines = [
         "# Codex model routing -- add to ~/.codex/config.toml",
         "# (or a trusted project .codex/config.toml).",
-        "# Main session (implementer) uses the code_specialized model:",
-        f'model = "{main_model}"',
     ]
-    if main_thinking and main_thinking in supported:
-        lines.append(f'model_reasoning_effort = "{main_thinking}"')
+    if main.get("elsewhere"):
+        lines.append(
+            f"# Main session (implementer) runs on host {main['elsewhere']!r} -- "
+            f"see that host's section."
+        )
+    else:
+        main_model = main.get("model") or "<code-specialized-model>"
+        main_thinking = main.get("thinking")
+        lines.append("# Main session (implementer):")
+        lines.append(f'model = "{main_model}"')
+        if main_thinking and main_thinking in supported:
+            lines.append(f'model_reasoning_effort = "{main_thinking}"')
     lines.append("")
     lines.append("# Per-role subagent routing:")
     layers: list[tuple[str, str, str | None]] = []
@@ -402,7 +645,9 @@ def _render_codex(
 
 
 def _render_pi(
-    class_settings: dict[str, dict[str, Any]], agents: dict[str, str]
+    class_settings: dict[str, dict[str, Any]],
+    agents: dict[str, str],
+    main: dict[str, Any],
 ) -> str:
     supported = HOSTS["pi"]["supported_thinking"]
     lines = [
@@ -410,12 +655,17 @@ def _render_pi(
         "# The implementer is the main session; reviewers run in a fresh session.",
         "",
     ]
-    main = class_settings.get("code_specialized", {})
-    main_model = main.get("model") or "<code-specialized-model>"
-    lines.append("# Main session (implementer, code_specialized):")
-    lines.append(f"/model {main_model}")
-    if main.get("thinking") and main.get("thinking") in supported:
-        lines.append(f"# thinking: {main['thinking']}")
+    if main.get("elsewhere"):
+        lines.append(
+            f"# Main session (implementer) runs on host {main['elsewhere']!r} -- "
+            f"see that host's section."
+        )
+    else:
+        main_model = main.get("model") or "<code-specialized-model>"
+        lines.append("# Main session (implementer):")
+        lines.append(f"/model {main_model}")
+        if main.get("thinking") and main.get("thinking") in supported:
+            lines.append(f"# thinking: {main['thinking']}")
     lines.append("")
     for aname, aclass in agents.items():
         cblock = class_settings.get(aclass, {})
@@ -445,18 +695,35 @@ def _setup_print_host(
     target: Path,
     dry_run: bool,
     json_out: bool,
-) -> int:
+    main_session: dict[str, Any] | None = None,
+) -> tuple[int, dict[str, Any]]:
     warnings = _thinking_warnings(host, class_settings)
-    text = _render_codex(class_settings, agents) if host == "codex" else _render_pi(class_settings, agents)
-    if json_out:
-        print(json.dumps({"host": host, "output": text, "warnings": warnings}, indent=2))
+    if main_session and main_session.get("host") == host:
+        cls = main_session.get("class") or "code_specialized"
+        cblock = class_settings.get(cls, {})
+        if not isinstance(cblock, dict):
+            cblock = {}
+        main = {
+            "model": main_session.get("model") or cblock.get("model") or f"<{cls}-model>",
+            "thinking": cblock.get("thinking"),
+        }
+    elif main_session:
+        main = {"elsewhere": main_session.get("host")}
     else:
+        cblock = class_settings.get("code_specialized", {})
+        if not isinstance(cblock, dict):
+            cblock = {}
+        main = {"model": cblock.get("model"), "thinking": cblock.get("thinking")}
+    render = _render_codex if host == "codex" else _render_pi
+    text = f"# {host}: {PRINT_ONLY_BANNER}\n" + render(class_settings, agents, main)
+    payload = {"host": host, "output": text, "warnings": warnings}
+    if not json_out:
         if dry_run:
             print("[dry-run] setup-models for {} (print-only host, no files written)".format(host))
         print(text)
     for w in warnings:
         print(f"warning: {w}", file=sys.stderr)
-    return 1 if warnings else 0
+    return (1 if warnings else 0), payload
 
 
 def cmd_setup_models(args: Any) -> int:
@@ -474,23 +741,55 @@ def cmd_setup_models(args: Any) -> int:
     except (json.JSONDecodeError, OSError) as exc:
         print(f"error: could not read config {config_path}: {exc}", file=sys.stderr)
         return 2
-    host, class_settings, agents = resolve_routing(config, getattr(args, "host", None))
-    if host is None:
+    host_filter = getattr(args, "host", None)
+    topo = resolve_routing(config, host_filter)
+    hosts = list(topo["hosts_in_use"])
+    if host_filter:
+        if host_filter not in HOSTS:
+            print(f"error: unsupported host {host_filter!r}", file=sys.stderr)
+            return 2
+        hosts = [host_filter]
+    if not hosts:
         print(
-            "error: no host selected. Set model_routing.host in the config or pass --host.",
+            "error: no host selected. Set model_routing.host, give agents a host, "
+            "or pass --host.",
             file=sys.stderr,
         )
         return 2
-    if host not in HOSTS:
-        print(f"error: unsupported host {host!r}", file=sys.stderr)
-        return 2
-    if HOSTS[host]["kind"] == "files":
-        return _setup_files_host(
-            host, class_settings, agents, target, args.dry_run, args.json
-        )
-    return _setup_print_host(
-        host, class_settings, agents, target, args.dry_run, args.json
-    )
+    for h in hosts:
+        if h not in HOSTS:
+            print(f"error: unsupported host {h!r}", file=sys.stderr)
+            return 2
+    overall = 0
+    payloads: list[dict[str, Any]] = []
+    host_models = topo["host_models"]
+    for idx, h in enumerate(hosts):
+        if idx and not args.json:
+            print()
+        agents_for_host = {
+            name: entry["class"]
+            for name, entry in topo["agents"].items()
+            if entry["host"] == h
+        }
+        class_settings = host_models.get(h, {})
+        if not isinstance(class_settings, dict):
+            class_settings = {}
+        if HOSTS[h]["kind"] == "files":
+            rc, payload = _setup_files_host(
+                h, class_settings, agents_for_host, target, args.dry_run, args.json,
+                main_session=topo["main_session"],
+            )
+        else:
+            rc, payload = _setup_print_host(
+                h, class_settings, agents_for_host, target, args.dry_run, args.json,
+                main_session=topo["main_session"],
+            )
+        overall = max(overall, rc)
+        payloads.append(payload)
+    if args.json:
+        out = payloads[0] if len(payloads) == 1 else {"hosts": payloads}
+        print(json.dumps(out, indent=2))
+    return overall
 
 
 # ---------------------------------------------------------------------------
@@ -516,8 +815,10 @@ def brief_routing_info(cwd: Path, config_path: Path | None = None) -> dict[str, 
             "configured": False,
             "lines": ["Model routing: config unreadable (" + str(config_path) + ")"],
         }
-    host, class_settings, agents = resolve_routing(config, None)
-    if not host:
+    topo = resolve_routing(config, None)
+    hosts = list(topo["hosts_in_use"])
+    default_host = topo["default_host"]
+    if not hosts:
         return {
             "configured": False,
             "host": None,
@@ -526,23 +827,61 @@ def brief_routing_info(cwd: Path, config_path: Path | None = None) -> dict[str, 
                 "  Set model_routing.host and run: python3 scripts/quality_loop.py setup-models",
             ],
         }
-    lines = [f"Model routing: host={host}"]
+    host_models = topo["host_models"]
+    multi = len(hosts) > 1
+    if multi:
+        parts = [h + " (default)" if h == default_host else h for h in hosts]
+        lines = ["Model routing: hosts=" + ", ".join(parts)]
+    else:
+        lines = [f"Model routing: host={hosts[0]}"]
     classes: dict[str, Any] = {}
-    for cname in MODEL_CLASSES:
-        cblock = class_settings.get(cname, {})
+    for h in hosts:
+        class_settings = host_models.get(h, {})
+        if not isinstance(class_settings, dict):
+            class_settings = {}
+        if multi:
+            used = {e["class"] for e in topo["agents"].values() if e["host"] == h}
+            ms = topo["main_session"]
+            if ms and ms.get("host") == h and ms.get("class"):
+                used.add(ms["class"])
+            shown = [c for c in MODEL_CLASSES if c in used] or list(MODEL_CLASSES)
+            suffix = "" if HOSTS.get(h, {}).get("kind") == "files" else " (print-only: declared, not verified)"
+            lines.append(f"  {h}:{suffix}")
+            indent = "    "
+        else:
+            shown = list(MODEL_CLASSES)
+            indent = "  "
+        for cname in shown:
+            cblock = class_settings.get(cname, {})
+            if not isinstance(cblock, dict):
+                cblock = {}
+            model = cblock.get("model") or "(not set)"
+            thinking = cblock.get("thinking")
+            t = f" thinking={thinking}" if thinking else ""
+            lines.append(f"{indent}{cname}: model={model}{t}")
+            if h == (default_host or hosts[0]):
+                classes[cname] = {"model": model, "thinking": thinking}
+    ms = topo["main_session"]
+    if ms:
+        cblock = host_models.get(ms.get("host"), {})
+        cblock = cblock.get(ms.get("class"), {}) if isinstance(cblock, dict) else {}
         if not isinstance(cblock, dict):
             cblock = {}
-        model = cblock.get("model") or "(not set)"
-        thinking = cblock.get("thinking")
-        t = f" thinking={thinking}" if thinking else ""
-        lines.append(f"  {cname}: model={model}{t}")
-        classes[cname] = {"model": model, "thinking": thinking}
+        model = ms.get("model") or cblock.get("model") or "(not set)"
+        lines.append(f"  main session (implementer): host={ms.get('host')} model={model}")
     drift: list[str] = []
-    spec = HOSTS.get(host, {})
-    if spec.get("kind") == "files":
+    for h in hosts:
+        spec = HOSTS.get(h, {})
+        if spec.get("kind") != "files":
+            continue
+        class_settings = host_models.get(h, {})
+        if not isinstance(class_settings, dict):
+            continue
         agent_dir = cwd / spec["agent_dir"]
-        for aname, aclass in agents.items():
-            cblock = class_settings.get(aclass, {})
+        for aname, entry in topo["agents"].items():
+            if entry["host"] != h:
+                continue
+            cblock = class_settings.get(entry["class"], {})
             if not isinstance(cblock, dict):
                 continue
             expected = cblock.get("model")
@@ -560,7 +899,8 @@ def brief_routing_info(cwd: Path, config_path: Path | None = None) -> dict[str, 
         lines.append("  " + "\n  ".join(drift))
     return {
         "configured": True,
-        "host": host,
+        "host": default_host or hosts[0],
+        "hosts": hosts,
         "classes": classes,
         "drift": drift,
         "lines": lines,

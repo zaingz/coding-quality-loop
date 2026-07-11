@@ -35,7 +35,7 @@
 | **Diff-grounded reality layer** (record vs `git diff`) | ✅ | ❌ | ❌ | ❌ |
 | **Zero runtime dependencies** (stdlib-only helper) | ✅ | ❌ | ◐ | ✅ |
 | **Portable across hosts** (Claude, Codex, Cursor, Pi, Droid, standalone) | ✅ | Claude-first | Claude-first | Claude-first |
-| **Offline eval suite** (proves the gates actually fire) | ✅ (130 gate cases across 6 suites) | ◐ | ❌ | ❌ |
+| **Offline eval suite** (proves the gates actually fire) | ✅ (144 gate cases across 6 suites) | ◐ | ❌ | ❌ |
 | **Public benchmark harness** with trap tasks | ✅ (`bench/`) | ❌ | ❌ | ❌ |
 
 Legend: ✅ first-class · ◐ partial or advisory · ❌ not a goal
