@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "4.1.0"
+  version: "4.2.0"
 ---
 
 # Coding Quality Loop
@@ -42,7 +42,8 @@ The scaffold–model interaction is **model-specific, not a strength gradient**.
 - **Strong models** (frontier-class): skip ceremony on tiny/small. For medium+, write the validation contract and run independent review, but do not over-constrain the plan. Add an explicit anti-compression rule: the right-size gate is about diff size and dependency minimality, not about collapsing architecture into fewer files. Do not monolith.
 - **Weaker models**: run full scaffolding. The validation contract and context map prevent the most common failure: wrong-layer fixes and unmapped blast radius.
 - **Independent review is waivable only on small/low work.** A frontier model on a tiny or small, low-risk change may run the loop solo. Medium-or-higher tasks and any risk boundary always require an independent reviewer — model strength does not waive it (this is Hard Rule 4). A migration always does.
-- **Cross-frontier routing works as a capability router.** Route review to a different model family than implementation; route planning to the strongest reasoning model available. The implementer and validator must not be the same model on medium+.
+- **Cross-frontier routing works as a capability router.** Route review to a different model family than implementation; route planning to the strongest reasoning model available. The implementer and validator must not be the same model on medium+ — `check-config` enforces this on the resolved model **family**, across hosts (a different CLI or a different alias is not a different reviewer). Pre-validated multi-host routing variants live in `assets/routing/`.
+- **Escalate on verified failure only.** When the implementer fails the same check twice, escalate it a model tier and redo — but the trigger is a recorded failing command, never the model's own "stuck"/"done" self-report (confident-wrong is the dominant failure mode at every tier). Record per-role models in `models_used` and the event in `escalations` citing the failing commands; `verify-gates` rejects escalations that cite no recorded failing check.
 - **Process artifacts alone do not buy product quality.** In the webapp eval (2026-07-07), CQL lifted Codex +7.5 total but −1.1 on code quality once artifacts were excluded, while Claude gained on both. For user-facing tasks the validation contract must include a product floor: keyboard operability, labeled inputs, no `prompt()`/`confirm()` for primary flows, and a test floor appropriate to the task class. The reviewer scores product/UX fitness, not just diff correctness.
 
 ## Right-Size Gate

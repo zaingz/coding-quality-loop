@@ -1,0 +1,351 @@
+{
+  "task_id": "v4.2-model-routing",
+  "goal": "Multi-host model routing: per-agent host assignment, family-aware reviewer heterogeneity, routing variants, escalation evidence fields, R7 cross-CLI recipe (v4.2.0)",
+  "acceptance_criteria": [
+    {
+      "criterion": "Back-compat: a v4.1-shaped single-host model_routing (string agents values, host as sole host) validates and applies byte-identically; new eval case proves it",
+      "proving_command": "python3 evals/run_routing_evals.py"
+    },
+    {
+      "criterion": "Multi-host: agents entries accept {host, class} objects and main_session declares the implementer leg; setup-models with no --host rewrites file hosts and prints codex/pi sections with the PRINT-ONLY banner; --host filter unchanged",
+      "proving_command": "python3 evals/run_routing_evals.py"
+    },
+    {
+      "criterion": "Family-aware heterogeneity: cross-host implementer/reviewer same-family errors unless allow_same_family; same concrete model always errors; unknown/placeholder/BYOK ids skip; sonnet vs claude-sonnet-4-5 alias hole caught",
+      "proving_command": "python3 evals/run_routing_evals.py"
+    },
+    {
+      "criterion": "Routing variants: assets/routing/{max-intelligence,balanced,max-throughput}.json each splice into the example config check-config-clean",
+      "proving_command": "python3 evals/run_routing_evals.py"
+    },
+    {
+      "criterion": "Escalation evidence: models_used/escalations shape-validate; an escalation citing no failing recorded command yields a finding; escalated status without failing commands yields a finding; archived v4.1.0 record fixture still passes",
+      "proving_command": "python3 evals/run_reality_evals.py"
+    },
+    {
+      "criterion": "Whole gate suite green with CANONICAL_GATE_CASES and README counts updated",
+      "proving_command": "python3 evals/run_evals.py"
+    },
+    {
+      "criterion": "Example config validates at version 4.2.0",
+      "proving_command": "python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json"
+    }
+  ],
+  "constraints": [
+    "stdlib-only, no runtime dependencies",
+    "All new config and record fields are optional/additive; run_metrics untouched (additionalProperties:false would break old validators)",
+    "No new subcommands; no report machinery (v3.0 archived the stats surface)",
+    "Every feature works in >=2 hosts; never print an applied-checkmark for print hosts",
+    "Version sync at 5 sites: SKILL.md frontmatter, example config version, EXPECTED_CONFIG_VERSION, CHANGELOG, packages/npm/package.json"
+  ],
+  "non_goals": [
+    "Machine-read model catalog / tier floors",
+    "Dial or pack-resolution engine (variants are the knob)",
+    "Escalation chains config or next-model helper (CQL is routing data, not a runtime)",
+    "report-costs subcommand",
+    "OpenRouter/Hermes hosts, learned router, per-prompt classifier",
+    "R5 process_depth config (this release ships its evidence base only)",
+    "Print-host drift detection (impossible; labeled honestly instead)"
+  ],
+  "assumptions": [
+    "4.2.0 is free: git tags and npm both at 4.1.0, verified 2026-07-11",
+    "No parallel release stream in flight (git log clean at 9a5aa38)",
+    "Implementer is claude-fable-5 on claude-code; independent review routes to a different family (GPT-5.6 via codex)"
+  ],
+  "risk_tier": "medium",
+  "task_class": "medium",
+  "implementer": "claude-fable-5 (claude-code)",
+  "security_sensitive": false,
+  "verification_plan": [
+    "python3 evals/run_routing_evals.py",
+    "python3 evals/run_reality_evals.py",
+    "python3 evals/run_evals.py",
+    "python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json",
+    "python3 scripts/quality_loop.py setup-models --dry-run against a multi-host fixture",
+    "python3 scripts/quality_loop.py brief (per-host rendering)",
+    "R7 recipe commands each run live once; CLI versions stamped in the doc"
+  ],
+  "validation_contract": {
+    "goal": "Multi-host model routing with family-enforced review independence and escalation evidence, shipped as one additive 4.2.0 release",
+    "acceptance_criteria": [
+      "Back-compat: a v4.1-shaped single-host model_routing (string agents values, host as sole host) validates and applies byte-identically; new eval case proves it",
+      "Multi-host: agents entries accept {host, class} objects and main_session declares the implementer leg; setup-models with no --host rewrites file hosts and prints codex/pi sections with the PRINT-ONLY banner; --host filter unchanged",
+      "Family-aware heterogeneity: cross-host implementer/reviewer same-family errors unless allow_same_family; same concrete model always errors; unknown/placeholder/BYOK ids skip; sonnet vs claude-sonnet-4-5 alias hole caught",
+      "Routing variants: assets/routing/{max-intelligence,balanced,max-throughput}.json each splice into the example config check-config-clean",
+      "Escalation evidence: models_used/escalations shape-validate; an escalation citing no failing recorded command yields a finding; escalated status without failing commands yields a finding; archived v4.1.0 record fixture still passes",
+      "Whole gate suite green with CANONICAL_GATE_CASES and README counts updated",
+      "Example config validates at version 4.2.0"
+    ],
+    "evidence": [
+      "python3 evals/run_evals.py -> 44/44",
+      "python3 evals/run_routing_evals.py -> 24/24",
+      "python3 evals/run_reality_evals.py -> 23/23",
+      "python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json -> config ok",
+      "R7 recipe commands verified live (claude -p / codex exec / droid exec -> OK)"
+    ],
+    "regression_risks": [
+      "breaking shipped v4.1 configs (guarded: back-compat byte-identity eval case)",
+      "false-positive heterogeneity on unfilled/placeholder/BYOK configs (guarded: skip-philosophy cases)",
+      "eval count lint drift across docs (guarded: case_doc_counts_match_canonical)",
+      "install.py/npm asset drift for assets/routing/ (guarded: install copy-list + prepack wholesale copy)"
+    ],
+    "caveat": "This change edits the gate scripts themselves, so verify runs against the modified gates; the offline eval suites plus fresh-context different-family review are the compensating evidence."
+  },
+  "independent_review": {
+    "reviewer": "gpt-5.6-sol (codex-exec --mode review, fresh context, read-only sandbox)",
+    "validator": "4-dimension fresh-context swarm (claude-fable-5) with adversarial verification, 24 agents",
+    "fresh_context": true,
+    "patched": false,
+    "ran_checks": true,
+    "verdict": "approve",
+    "findings": [
+      "Round 1 (codex, 6 findings) + swarm (20 raised, 16 confirmed by adversarial verifiers, 2 rejected as intended documented behavior, 2 accepted as out-of-scope cosmetic): all confirmed in-scope findings fixed and pinned by eval - see record.review_findings",
+      "Round 2 (codex re-review of fix delta, 1 finding): profile-level same-model comparison was case-sensitive - fixed (casefold), verified by direct probe",
+      "Reviewer note honored: codex findings verified against code before acting; two swarm claims refuted by adversarial verification were not acted on"
+    ],
+    "diff_sha256": "91f219f1e6718abc54d78c9c4a535e41a6dca4df13af9a1eacc4bf7a25aeaaaa",
+    "attested_at": "2026-07-12T00:50:52"
+  },
+  "security_review": null,
+  "completion_record": {
+    "goal": "Multi-host model routing: per-agent host assignment, family-aware reviewer heterogeneity, routing variants, escalation evidence fields, R7 cross-CLI recipe (v4.2.0)",
+    "acceptance_criteria": [
+      "Back-compat: a v4.1-shaped single-host model_routing (string agents values, host as sole host) validates and applies byte-identically; new eval case proves it",
+      "Multi-host: agents entries accept {host, class} objects and main_session declares the implementer leg; setup-models with no --host rewrites file hosts and prints codex/pi sections with the PRINT-ONLY banner; --host filter unchanged",
+      "Family-aware heterogeneity: cross-host implementer/reviewer same-family errors unless allow_same_family; same concrete model always errors; unknown/placeholder/BYOK ids skip; sonnet vs claude-sonnet-4-5 alias hole caught",
+      "Routing variants: assets/routing/{max-intelligence,balanced,max-throughput}.json each splice into the example config check-config-clean",
+      "Escalation evidence: models_used/escalations shape-validate; an escalation citing no failing recorded command yields a finding; escalated status without failing commands yields a finding; archived v4.1.0 record fixture still passes",
+      "Whole gate suite green with CANONICAL_GATE_CASES and README counts updated",
+      "Example config validates at version 4.2.0"
+    ],
+    "implementation_summary": "Multi-host per-role routing (object agents entries + main_session declaration; setup-models applies every host with PRINT-ONLY banners for codex/pi; --host = retarget on v4.1 shape, pure filter on topologies); family-aware cross-host reviewer heterogeneity (family field + WELL_KNOWN_FAMILIES token match, unknown skips, allow_same_family escape hatch, case-insensitive same-model, agents entry is the effective reviewer with a step-class disagreement error); three eval-pinned routing variants + dated menu README (assets/routing/); escalation evidence fields models_used/escalations with a verify-gates rule requiring evidenced recorded failures (resolved RED->GREEN failures no longer block; None/cmd-less entries never excused); R7 cross-CLI recipe live-verified (claude 2.1.207 / codex 0.144.1 / droid 0.170.0); version 4.2.0 at 5 synced sites; gate count 130->144 with dashboard PNG regenerated.",
+    "files_changed": [
+      "scripts/quality_loop_routing.py",
+      "scripts/quality_loop.py",
+      "scripts/install.py",
+      "assets/quality-loop.config.schema.json",
+      "assets/quality-loop.config.example.json",
+      "assets/agent-record.schema.json",
+      "assets/routing/ (new: 3 variants + README)",
+      "docs/cross-cli-recipe.md (new)",
+      "references/agentic-orchestration.md",
+      "SKILL.md",
+      "ROADMAP.md",
+      "CHANGELOG.md",
+      "README.md",
+      "docs/README.md",
+      "docs/comparison.md",
+      "docs/launch-kit.md",
+      "docs/images/src/README.md",
+      "docs/images/src/evidence_dashboard.py",
+      "docs/images/evidence-dashboard.png",
+      "evals/run_evals.py",
+      "evals/run_routing_evals.py",
+      "evals/README.md",
+      "packages/npm/package.json"
+    ],
+    "right_size_decision": "minimal_new_code: extends existing resolve/validate/frontmatter machinery in place; the knob ships as data (variants), zero resolution code; catalog/dial/chains/report deliberately not built (adversarial plan review, recorded in ROADMAP 'Not on the roadmap, on purpose')",
+    "evidence": [
+      "python3 evals/run_evals.py -> 44/44",
+      "python3 evals/run_routing_evals.py -> 24/24",
+      "python3 evals/run_reality_evals.py -> 23/23",
+      "python3 evals/run_memory_evals.py -> 26/26",
+      "python3 evals/run_hook_evals.py -> 16/16",
+      "python3 scripts/quality_loop.py eval-cases evals/cases -> 11/11",
+      "check-config example config -> config ok at 4.2.0",
+      "independent review: codex/gpt-5.6-sol (2 rounds) + 24-agent fresh-context swarm with adversarial verification -> approve after fixes",
+      "R7 recipe commands each run live once (outputs: OK)"
+    ],
+    "risks_rollback": "All new config/record fields optional; one deliberate behavior change (same-family v4.1 configs now fail check-config) disclosed in CHANGELOG with remedy. Rollback: revert the branch; downstream configs revert version string to 4.1.0. Residual risks: variant model IDs are dated snapshots (documentation-only by design); escalation evidence remains self-reported at its ceiling (run-evidence is the backstop; gate is a floor, not proof); .pi mirror stale at 3.0.0 (pre-existing).",
+    "follow_ups": [
+      "Regenerate .pi/skills/coding-quality-loop mirror (stale at 3.0.0, predates this change)",
+      "setup-models --json error payload shape differs from success payload (cosmetic, nit)",
+      "Print-host main-session fallback renders host-local code_specialized when no main_session declared (v4.1 behavior; topologies should declare main_session)",
+      "Accumulate models_used/escalations across repos -> R5 replication at n>=3 -> process_depth config",
+      "Release actions (merge to main, tag v4.2.0, npm publish) await Zain's go-ahead"
+    ]
+  },
+  "repair_attempts": 0,
+  "repeated_failure": false,
+  "harness_update": null,
+  "repo_map": {
+    "entry_points": [
+      "scripts/quality_loop_routing.py: resolve_routing, cmd_setup_models, brief_routing_info, validate_model_routing, _setup_files_host, _render_codex/_render_pi",
+      "scripts/quality_loop.py: check_config (1065), _reviewer_heterogeneity (967), _is_placeholder_model (1047), EXPECTED_CONFIG_VERSION (958), setup-models argparse (1680)"
+    ],
+    "likely_files": [
+      "scripts/quality_loop_routing.py",
+      "scripts/quality_loop.py",
+      "scripts/install.py",
+      "assets/quality-loop.config.schema.json",
+      "assets/quality-loop.config.example.json",
+      "assets/agent-record.schema.json",
+      "assets/routing/README.md",
+      "assets/routing/balanced.json",
+      "assets/routing/max-intelligence.json",
+      "assets/routing/max-throughput.json",
+      "docs/cross-cli-recipe.md",
+      "references/agentic-orchestration.md",
+      "SKILL.md",
+      "ROADMAP.md",
+      "CHANGELOG.md",
+      "README.md",
+      "docs/README.md",
+      "docs/comparison.md",
+      "docs/launch-kit.md",
+      "docs/images/src/README.md",
+      "evals/run_routing_evals.py",
+      "evals/run_evals.py",
+      "evals/README.md",
+      "packages/npm/package.json",
+      "agent-record.json"
+    ],
+    "callers_checked": [
+      "check_config -> qlroute.validate_model_routing + _reviewer_heterogeneity",
+      "brief -> qlroute.brief_routing_info",
+      "setup-models parser wires qlroute.cmd_setup_models with --host/--dry-run/--json",
+      "install.py copies example config only (routing assets need explicit entries); npm prepack.mjs copies assets/ wholesale"
+    ],
+    "tests": [
+      "evals/run_routing_evals.py (15 cases, CLI-path against temp dirs)",
+      "evals/run_reality_evals.py (record/reality gates)",
+      "evals/run_evals.py (CANONICAL_GATE_CASES=130 count lint + behavioral cases)"
+    ],
+    "patterns_to_follow": [
+      "_is_placeholder_model skip philosophy: unknown never false-positives",
+      "allow_overthink explicit greppable escape hatch (mirror for allow_same_family)",
+      "atomic_write via quality_loop_core; line-based frontmatter editing, no YAML dep",
+      "warnings to stderr with exit 1, errors with exit 2 in setup-models; check-config errors exit 1"
+    ]
+  },
+  "minimality_decision": {
+    "rung": "minimal_new_code",
+    "reason": "Multi-host expression, family comparison, and evidence fields are new semantics no existing rung covers; implementation extends the existing resolve/validate/frontmatter machinery in place rather than adding modules, and the knob ships as data (variants) with zero resolution code.",
+    "rejected_lower_rungs": [
+      {
+        "rung": "reuse",
+        "why": "single-host assumption is baked into resolve_routing's signature and _reviewer_heterogeneity; no existing path expresses per-agent hosts"
+      },
+      {
+        "rung": "one_liner",
+        "why": "touches config semantics, validation, application, and record gates coherently"
+      },
+      {
+        "rung": "delete",
+        "why": "nothing to delete; the adversarial plan pass already cut catalog/dial/chains/report before implementation"
+      }
+    ],
+    "safety_exceptions_checked": [
+      "back-compat of shipped v4.1 configs (byte-identity eval case)",
+      "gate-script integrity: change is to the gates themselves, disclosed in validation_contract; offline suites + independent review compensate"
+    ]
+  },
+  "plan": [
+    "Slice A: quality_loop_routing.py - agents string|object parsing, main_session, model_family()+WELL_KNOWN_FAMILIES, validation for new fields, multi-host setup-models loop with PRINT-ONLY banner, per-host brief rendering",
+    "Slice B: quality_loop.py - _reviewer_heterogeneity cross-host + family-aware + allow_same_family; models_used/escalations record gates; EXPECTED_CONFIG_VERSION 4.2.0",
+    "Slice C: schemas - config schema (agents string|object, main_session, allow_same_family, family), example config at 4.2.0 with multi-host example, agent-record schema (models_used, escalations)",
+    "Slice D: assets/routing/ - three variants + dated README menu; install.py copy list",
+    "Slice E: docs - docs/cross-cli-recipe.md (R7, live-verified), agentic-orchestration.md heterogeneity truth + link, SKILL.md lines, ROADMAP checkoffs, CHANGELOG 4.2.0, README counts",
+    "Slice F: evals - ~8 routing cases + ~4 record-gate cases, CANONICAL_GATE_CASES 130->~142, npm package.json version"
+  ],
+  "commands_run": [
+    {
+      "cmd": "python3 -m py_compile scripts/quality_loop.py scripts/quality_loop_core.py scripts/quality_loop_memory.py scripts/quality_loop_reality.py scripts/quality_loop_routing.py",
+      "class": "build",
+      "result": "pass",
+      "evidence": "PYCOMPILE-OK, no output"
+    },
+    {
+      "cmd": "python3 evals/run_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "44/44 eval cases passed (5 new: models_used shape, escalations shape, escalation-evidence gate, resolved RED->GREEN, v4.1 fixture)"
+    },
+    {
+      "cmd": "python3 evals/run_routing_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "24/24 routing eval cases passed (9 new: back-compat byte-identity, multi-host apply, host filter, cross-host family, alias hole, unknown-skip, topology validation, brief multi-host, variants)"
+    },
+    {
+      "cmd": "python3 evals/run_reality_evals.py",
+      "class": "integration",
+      "result": "pass",
+      "evidence": "23/23 reality eval cases passed"
+    },
+    {
+      "cmd": "python3 evals/run_memory_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "26/26 memory eval cases passed"
+    },
+    {
+      "cmd": "python3 evals/run_hook_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "16/16 hook eval cases passed"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "11/11 eval cases passed"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json",
+      "class": "lint",
+      "result": "pass",
+      "evidence": "config ok at version 4.2.0"
+    }
+  ],
+  "open_risks": [
+    "Variant model IDs are July-2026 snapshots; staleness is documentation-only by design (no machine consumers)",
+    "R7 recipe verified with Claude Code 2.1.207 / codex-cli 0.144.1 / droid 0.170.0; flags may move on CLI upgrades",
+    ".pi/skills/coding-quality-loop mirror is stale at 3.0.0 (predates this change; follow-up, out of scope)"
+  ],
+  "review_findings": [
+    "codex (gpt-5.6-sol): --host retargeted string agents onto the selected host on multi-host configs -> FIXED (filter semantics on topology configs, retarget preserved for v4.1 shape, eval extended)",
+    "codex: escalation gate satisfiable by bare fabricated fail rows -> STRENGTHENED (cited fail entries must carry evidence handles; residual self-report ceiling documented)",
+    "codex: hostless main_session silently vanished, bypassing heterogeneity -> FIXED (check-config error, eval added)",
+    "codex: same-model comparison was case-sensitive -> FIXED (case-insensitive, eval pins uppercase variant)",
+    "codex: dashboard PNG/generator stale at 130; README said 144 -> FIXED (generator updated, PNG regenerated via scratch matplotlib venv)",
+    "codex: release checklist said git tag v4.1.0 -> FIXED (4.2.0)",
+    "swarm (fable, fresh-context x4 + adversarial verify): reviewer-heterogeneity blind spot -- host-less agents reviewer entry applied by setup-models but ignored by the gate -> FIXED (agents entry is the effective reviewer; disagreement error when step class and entry resolve to different concrete models; eval added)",
+    "swarm: CHANGELOG migration note undisclosed breaking behavior for same-family v4.1 topologies -> FIXED (explicit disclosure + remedy)",
+    "swarm: agents:{} v4.1 config regressed to 'no host selected'/'not configured' -> FIXED (default_host counts as in use; eval extended)",
+    "swarm: None==None cmd match excused cmd-less failures -> FIXED (non-empty string cmd required; eval extended)",
+    "swarm: main_session with explicit distinct model false-positived same-class branch, and block family wrongly applied to the override -> FIXED (distinct_override + declared-family scoping; eval added)",
+    "swarm: agents pinned to host with no host_models block passed validation silently -> FIXED (named error; eval added)",
+    "swarm: routing README overclaimed check-config enforcement of two floors -> FIXED (precise attribution: enforced vs by-construction+eval)",
+    "swarm: jq cost recipe misattributed multi-model record costs -> FIXED (per-entry attribution)",
+    "swarm: config-schema agents oneOf diverged from validator both directions; new record-schema strings lacked minLength -> FIXED",
+    "swarm: empty-agents files-host path swallowed thinking warnings (rc 0) -> FIXED (warnings printed, rc 1)",
+    "ACCEPTED (out of scope, cosmetic): setup-models --json error payload shape on missing agent dir differs from success payload; print-host main-session fallback renders host-local code_specialized when no main_session is declared (v4.1 behavior, topologies should declare main_session)",
+    "REJECTED by adversarial verification (intended, documented): resolved RED->GREEN failure exemption as 'gaming vector'; absence of escalations field escaping audit (pre-v4.2 status quo; shape errors owned by check-record)"
+  ],
+  "status": "done",
+  "next_action": "Release: merge v4.2-model-routing, tag v4.2.0, npm publish (human-gated).",
+  "models_used": [
+    {
+      "role": "implementer",
+      "host": "claude-code",
+      "model": "claude-fable-5",
+      "thinking": "high",
+      "attempts": 1
+    },
+    {
+      "role": "fresh_reviewer",
+      "host": "codex",
+      "model": "gpt-5.6-sol",
+      "thinking": "high",
+      "attempts": 2
+    },
+    {
+      "role": "fresh_reviewer_swarm",
+      "host": "claude-code",
+      "model": "claude-fable-5",
+      "thinking": "high",
+      "attempts": 1
+    }
+  ]
+}

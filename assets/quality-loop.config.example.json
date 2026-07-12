@@ -1,6 +1,6 @@
 {
   "$schema": "./quality-loop.config.schema.json",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "description": "Agentic routing data for the Coding Quality Loop. Map each profile to a real model on your platform. Models are placeholders; replace with your provider's identifiers. This is routing DATA consumed by hosts (Claude subagents, Droid droids, Codex subagents, Pi providers) \u2014 it is not a runtime. Per-role model routing is the host's job via the config profiles and the harness-agnostic role pack in assets/prompts/ and .claude/agents/. orchestrator and security_reviewer are mission/boundary roles, not per-step profiles.",
   "profiles": {
     "orchestrator": {
@@ -308,15 +308,17 @@
     "recall_budget_chars": 1500
   },
   "model_routing": {
-    "description": "Per-model-class routing applied by setup-models. Copy this file to quality-loop.config.json at your repo root, set host to your platform, adjust your host's block, then run: python3 scripts/quality_loop.py setup-models. Hosts that use frontmatter (claude-code, droid) get their agent .md files rewritten; codex and pi print the settings to apply. model_class values (cheap_fast, strong_reasoning, code_specialized) match the steps[].model_class field above. Capability annotations: cheap_fast = map, package, summarize, verify-orchestration; strong_reasoning = plan, review, debug, risk-assess; code_specialized = implement, test. check-config enforces reviewer heterogeneity: implementer and fresh_reviewer must not resolve to the same model on medium+ tasks. Effort ceiling: route at 'high' -- reasoning effort is per-step, not per-task endurance, so xhigh/max only overthink and overspend each step; check-config rejects xhigh/max unless a block sets allow_overthink:true for a genuinely ambiguous, architecture-sensitive case.",
+    "description": "Per-model-class routing applied by setup-models. Copy this file to quality-loop.config.json at your repo root, set host to your platform, adjust your host's block, then run: python3 scripts/quality_loop.py setup-models. Hosts that use frontmatter (claude-code, droid) get their agent .md files rewritten; codex and pi print the settings to apply (PRINT-ONLY: never applied or verified by CQL). model_class values (cheap_fast, strong_reasoning, code_specialized) match the steps[].model_class field above. Capability annotations: cheap_fast = map, package, summarize, verify-orchestration; strong_reasoning = plan, review, debug, risk-assess; code_specialized = implement, test. Multi-host topologies: an agents entry may be an object {host, class} to pin that role to another harness, and main_session {host, class, model} declares where the implementer runs -- see assets/routing/ for three pre-validated variants (max-intelligence / balanced / max-throughput). check-config enforces reviewer heterogeneity across hosts on the model FAMILY (explicit family field or well-known prefix; unknown skips): implementer and fresh_reviewer must not resolve to the same model, nor the same family unless allow_same_family:true, on medium+ tasks. Effort ceiling: route at 'high' -- reasoning effort is per-step, not per-task endurance, so xhigh/max only overthink and overspend each step; check-config rejects xhigh/max unless a block sets allow_overthink:true for a genuinely ambiguous, architecture-sensitive case.",
     "host": null,
     "host_models": {
       "claude-code": {
         "cheap_fast": {
-          "model": "haiku"
+          "model": "haiku",
+          "family": "claude"
         },
         "strong_reasoning": {
-          "model": "sonnet"
+          "model": "sonnet",
+          "family": "claude"
         },
         "code_specialized": {
           "model": "inherit"
@@ -325,7 +327,7 @@
       "droid": {
         "cheap_fast": {
           "model": "inherit",
-          "note": "Replace with a Factory model id (docs.factory.ai/models) or custom:<id> for BYOK."
+          "note": "Replace with a Factory model id (docs.factory.ai/models) or custom:<id> for BYOK; set family for BYOK ids the prefix match cannot classify."
         },
         "strong_reasoning": {
           "model": "inherit"
@@ -336,15 +338,18 @@
       },
       "codex": {
         "cheap_fast": {
-          "model": "gpt-5.5",
+          "model": "gpt-5.6-luna",
+          "family": "gpt",
           "thinking": "low"
         },
         "strong_reasoning": {
-          "model": "gpt-5.5",
+          "model": "gpt-5.6-sol",
+          "family": "gpt",
           "thinking": "high"
         },
         "code_specialized": {
-          "model": "gpt-5.5",
+          "model": "gpt-5.6-terra",
+          "family": "gpt",
           "thinking": "high"
         }
       },

@@ -35,6 +35,43 @@
       "additionalProperties": false
     },
     "harness_update": {"type": ["string", "object", "null"], "minLength": 1},
+    "models_used": {
+      "type": "array",
+      "description": "Optional per-role model attribution (v4.2 routing evidence): which model on which host ran each role, with attempts and optional cost. This is the R5 evidence base; cost per accepted record = sum(cost_usd) over records with status done and an approving independent_review.",
+      "items": {
+        "type": "object",
+        "required": ["role", "model"],
+        "properties": {
+          "role": {"type": "string", "minLength": 1, "description": "implementer | fresh_reviewer | planner | context_mapper | security_reviewer | ..."},
+          "host": {"type": "string", "description": "Harness the role ran on (claude-code, droid, codex, pi)"},
+          "model": {"type": "string", "minLength": 1, "description": "Full pinned model id (aliases invite silent fallback)"},
+          "thinking": {"type": "string"},
+          "attempts": {"type": "integer", "minimum": 1},
+          "tokens_in": {"type": "number", "minimum": 0},
+          "tokens_out": {"type": "number", "minimum": 0},
+          "cost_usd": {"type": "number", "minimum": 0}
+        },
+        "additionalProperties": true
+      }
+    },
+    "escalations": {
+      "type": "array",
+      "description": "Optional model-tier escalation events (v4.2). CQL never triggers an escalation -- the host escalates; these entries make it auditable. verify-gates requires every failing_commands entry to match a commands_run entry with result=fail that carries an evidence handle: self-report escalation is not evidence, and a bare fail row is free to fabricate. Distinct from status=escalated, which is the human-input valve.",
+      "items": {
+        "type": "object",
+        "required": ["step", "from_model", "to_model", "trigger", "failing_commands"],
+        "properties": {
+          "step": {"type": "string", "minLength": 1},
+          "from_model": {"type": "string", "minLength": 1},
+          "to_model": {"type": "string", "minLength": 1},
+          "trigger": {"type": "string", "enum": ["verified_failure"], "description": "Enum of one on purpose: the only recordable escalation is one backed by failing check evidence."},
+          "failing_commands": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "attempts": {"type": "integer", "minimum": 1},
+          "at": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
     "independent_review": {
       "type": ["object", "null"],
       "required": ["verdict"],

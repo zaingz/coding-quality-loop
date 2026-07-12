@@ -4,9 +4,32 @@
 > commitment; the loop's non-negotiable is that we ship the smallest correct change,
 > and that includes the roadmap itself.
 
-Last updated: 2026-07-09.
+Last updated: 2026-07-12.
 
-## Now — landed in v3.0
+## Now — landed in v4.2.0
+
+- ✅ **Multi-host model routing.** `agents: {name: {host, class}}` + `main_session`
+  express a multi-harness topology (e.g. Claude Code plans, Droid/GLM implements,
+  Codex reviews); one `setup-models` run applies every host, with an explicit
+  PRINT-ONLY banner for hosts CQL cannot verify (codex, pi) — no fake "applied ✓",
+  no pretend drift detection for print hosts.
+- ✅ **Family-aware reviewer heterogeneity.** `check-config` compares resolved model
+  families across hosts (`family` field or well-known prefix; unknown ids skip).
+  Closes the alias hole (`sonnet` vs `claude-sonnet-4-5`) and the cross-host hole;
+  `allow_same_family` is the explicit escape hatch.
+- ✅ **Routing variants (the intelligence↔cost knob).** Three pre-validated
+  `model_routing` blocks in `assets/routing/` + a dated model-menu README with no
+  machine consumers. Eval-pinned floors: strong-reasoning tier for plan/review
+  classes, different-family review, effort ≤ high.
+- ✅ **Escalation as evidence (the R5 evidence base).** Optional `models_used` and
+  `escalations` record fields; `verify-gates` requires escalations to cite recorded
+  failing commands (self-report is not evidence); RED→GREEN-resolved failures no
+  longer block. Cost per accepted record stays a documented `jq` recipe.
+- ✅ **Cross-CLI orchestrator recipe (critical-review R7).** `docs/cross-cli-recipe.md`:
+  live-verified `claude -p` / `codex exec` / `droid exec` commands per role, with
+  the caveat that harness diversity ≠ model heterogeneity.
+
+## Landed in v3.0
 
 - ✅ **Outcome-grounded harness.** Rewrote SKILL.md (477 → 172 lines) with a
   model-adaptive Calibration section citing own eval data. The Right-Size Gate
@@ -26,7 +49,7 @@ Last updated: 2026-07-09.
   artifact dimensions.
 - ✅ **40% surface reduction.** Archived legacy adapters, local orchestration,
   v2.4 ceremony surfaces, and stats reporting. Scripts 4,600 → 3,300 lines.
-  130 gate cases across 6 suites (plus a 10-case trigger smoke fixture).
+  144 gate cases across 6 suites (plus a 10-case trigger smoke fixture).
 
 ## Landed earlier — v2.4
 
@@ -78,11 +101,8 @@ Still open from the same findings:
   to model profiles once the model-specific interaction (Codex flat-to-negative,
   Claude largest lifts) replicates at n≥3 seeds with cost capture. Deliberately
   deferred from v3.2: config before evidence would be calibration theater.
-- **Cross-CLI orchestrator recipe (critical-review R7).** One page of verified
-  headless commands (`claude -p --safe-mode`, `codex exec -s workspace-write`,
-  `droid exec`) for running the loop's roles across harnesses, with the caveat
-  that harness diversity does not guarantee model heterogeneity — `check-config`
-  stays the arbiter.
+  v4.2.0 shipped the evidence base (`models_used`/`escalations` per-role model,
+  attempts, and cost capture in records); the config still waits on replication.
 
 ## Later — exploring, no ETA
 
@@ -105,3 +125,16 @@ Still open from the same findings:
   hosts before it lands.
 - **A benchmark to grade a specific model.** `bench/` is a repeatable protocol;
   it does not produce marketing numbers.
+- **A machine-read model catalog.** Prices/tiers/risk flags in a data file that
+  gates consume turn third-party staleness into gate wrongness, in a repo whose
+  portability story is vendor-neutrality. The dated menu in `assets/routing/README.md`
+  is documentation with no machine consumers, on purpose.
+- **A dial/pack resolution engine.** With the reasoning floor, security pinning,
+  and family heterogeneity enforced, a dial moves ~1.5 real knobs — the three
+  pre-validated variants deliver the same choice at zero code.
+- **Escalation-chain config or a `next-model` helper.** CQL is routing data, not
+  a runtime: it validates recorded escalations against failing-check evidence;
+  it never triggers them. Rung ordering is a calibration claim that needs R5's
+  evidence first.
+- **A cost report subcommand.** The stats surface was archived in v3.0 for a
+  reason; `jq` over completion records is the report.

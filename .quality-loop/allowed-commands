@@ -1,0 +1,11 @@
+# Commands run-evidence may re-execute (one per line, globs ok).
+python3 evals/run_evals.py
+python3 evals/run_hook_evals.py
+python3 evals/run_memory_evals.py
+python3 evals/run_reality_evals.py
+python3 evals/run_routing_evals.py
+python3 evals/run_trigger_evals.py
+python3 scripts/quality_loop.py eval-cases evals/cases
+python3 -m py_compile scripts/quality_loop.py scripts/quality_loop_core.py scripts/quality_loop_memory.py scripts/quality_loop_reality.py scripts/quality_loop_routing.py
+python3 bench/runner.py --mode fixture*
+python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json

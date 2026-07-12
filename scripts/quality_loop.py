@@ -492,6 +492,74 @@ def check_record(args: argparse.Namespace) -> int:
         if not isinstance(record["implementer"], str) or not record["implementer"].strip():
             errors.append("implementer must be a non-empty string")
 
+    # Optional multi-model routing evidence (v4.2): per-role model attribution
+    # and escalation events. Absent is fine; when present the shape must hold so
+    # the R5 evidence base stays machine-readable.
+    models_used = record.get("models_used")
+    if models_used is not None:
+        if not isinstance(models_used, list):
+            errors.append("models_used must be an array")
+        else:
+            for idx, entry in enumerate(models_used):
+                if not isinstance(entry, dict):
+                    errors.append(f"models_used[{idx}] must be an object")
+                    continue
+                for req in ("role", "model"):
+                    val = entry.get(req)
+                    if not isinstance(val, str) or not val.strip():
+                        errors.append(f"models_used[{idx}].{req} must be a non-empty string")
+                attempts = entry.get("attempts")
+                if attempts is not None and (
+                    isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1
+                ):
+                    errors.append(f"models_used[{idx}].attempts must be an integer >= 1")
+                for num_key in ("tokens_in", "tokens_out", "cost_usd"):
+                    val = entry.get(num_key)
+                    if val is not None and (
+                        isinstance(val, bool) or not isinstance(val, (int, float)) or val < 0
+                    ):
+                        errors.append(f"models_used[{idx}].{num_key} must be a non-negative number")
+    escalations = record.get("escalations")
+    if escalations is not None:
+        if not isinstance(escalations, list):
+            errors.append("escalations must be an array")
+        else:
+            for idx, entry in enumerate(escalations):
+                if not isinstance(entry, dict):
+                    errors.append(f"escalations[{idx}] must be an object")
+                    continue
+                for req in ("step", "from_model", "to_model"):
+                    val = entry.get(req)
+                    if not isinstance(val, str) or not val.strip():
+                        errors.append(f"escalations[{idx}].{req} must be a non-empty string")
+                if entry.get("trigger") != "verified_failure":
+                    errors.append(
+                        f"escalations[{idx}].trigger must be 'verified_failure' -- the only "
+                        f"recordable escalation is one backed by failing check evidence"
+                    )
+                failing = entry.get("failing_commands")
+                if (
+                    not isinstance(failing, list)
+                    or not failing
+                    or not all(isinstance(c, str) and c.strip() for c in failing)
+                ):
+                    errors.append(
+                        f"escalations[{idx}].failing_commands must be a non-empty array of "
+                        f"command strings"
+                    )
+                from_model = entry.get("from_model")
+                to_model = entry.get("to_model")
+                if (
+                    isinstance(from_model, str) and isinstance(to_model, str)
+                    and from_model.strip() and from_model == to_model
+                ):
+                    errors.append(f"escalations[{idx}]: from_model and to_model must differ")
+                attempts = entry.get("attempts")
+                if attempts is not None and (
+                    isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1
+                ):
+                    errors.append(f"escalations[{idx}].attempts must be an integer >= 1")
+
     for review_key in ("independent_review", "security_review"):
         review = record.get(review_key)
         if review is None:
@@ -823,7 +891,22 @@ def verify_gates(args: argparse.Namespace) -> int:
 
     command_classes = {cmd.get("class") for cmd in commands if cmd.get("result") == "pass"}
     blocked = [cmd for cmd in commands if cmd.get("result") == "blocked"]
-    failed = [cmd for cmd in commands if cmd.get("result") == "fail"]
+    # A fail entry superseded by a LATER pass of the same command is a resolved
+    # failure (the honest RED->GREEN shape an escalation leaves behind), not an
+    # outstanding one. Only outstanding failures block. The command string must
+    # be a real, non-empty match -- two entries that both omit `cmd` are not
+    # "the same command" (None == None must never excuse a failure).
+    failed = [
+        cmd for idx, cmd in enumerate(commands)
+        if cmd.get("result") == "fail"
+        and not (
+            isinstance(cmd.get("cmd"), str) and cmd.get("cmd", "").strip()
+            and any(
+                later.get("cmd") == cmd.get("cmd") and later.get("result") == "pass"
+                for later in commands[idx + 1:]
+            )
+        )
+    ]
     missing_class = [cmd for cmd in commands if not cmd.get("class")]
 
     non_trivial = (
@@ -898,6 +981,35 @@ def verify_gates(args: argparse.Namespace) -> int:
             "not a repeated chat correction"
         )
 
+    # Escalation evidence gate (v4.2 model routing): a recorded model escalation
+    # is legitimate only when it cites deterministic failing evidence already in
+    # commands_run. Model self-report ("it looked stuck", "tests pass") is not
+    # evidence -- confident-wrong is the dominant failure mode on cheap and
+    # frontier models alike. (The `escalated` status stays a human-input valve
+    # governed by escalation_reason; this gate binds only model-tier escalation.)
+    escalations = record.get("escalations")
+    escalations = escalations if isinstance(escalations, list) else []
+    # Only fail entries that carry an evidence handle can back an escalation: a
+    # bare {"result": "fail"} row is free to fabricate. Still a floor, not proof
+    # (all rows are self-reported); run-evidence re-execution is the backstop.
+    failed_cmds = {
+        c.get("cmd") for c in commands
+        if c.get("result") == "fail" and isinstance(c.get("cmd"), str)
+        and has_evidence(c.get("evidence"))
+    }
+    for esc in escalations:
+        if not isinstance(esc, dict):
+            continue  # shape errors are check-record's job
+        cited = esc.get("failing_commands")
+        cited = [c for c in cited if isinstance(c, str)] if isinstance(cited, list) else []
+        unmatched = [c for c in cited if c not in failed_cmds]
+        if not cited or unmatched:
+            detail = f" (unmatched or unevidenced: {', '.join(unmatched)})" if unmatched else ""
+            findings.append(
+                f"escalation to {esc.get('to_model')!r} cites no evidenced failing "
+                f"check in commands_run{detail}; self-report escalation is not evidence"
+            )
+
     if status in POST_IMPLEMENT_STATUSES and not record.get("minimality_decision"):
         findings.append("minimality_decision is required before implementation can pass gates")
 
@@ -955,7 +1067,7 @@ REQUIRED_STEPS = [
 # Single source of truth for the config schema/version. check_config rejects a
 # config that does not declare this version so the skill, config, CHANGELOG, and
 # npm package cannot silently drift apart.
-EXPECTED_CONFIG_VERSION = "4.1.0"
+EXPECTED_CONFIG_VERSION = "4.2.0"
 
 # Step model-class floor (P3.18): the planner (PLAN) and orchestrator
 # (ORCHESTRATE) steps must route to the strongest reasoning class so "the right
@@ -970,11 +1082,17 @@ def _reviewer_heterogeneity(
     """Return errors if the implementer and validator collapse to one model.
 
     medium+ tasks require an independent reviewer, which is meaningless if the
-    same model both writes and reviews the diff. Two checks: (1) the profile
-    ``model`` fields, and (2) if model_routing is configured, the resolved
-    per-host model for the IMPLEMENT_SLICE and REVIEW model_classes. Placeholder
-    models (null / inherit / ``<...>``) are skipped so an unfilled config does
-    not false-positive.
+    same model both writes and reviews the diff. Three checks: (1) the profile
+    ``model`` fields, (2) if model_routing is configured, the resolved model for
+    the implementer leg (``main_session`` or the default host's IMPLEMENT_SLICE
+    class) vs the reviewer leg (the ``quality-loop-reviewer`` agent entry or the
+    default host's REVIEW class) -- across hosts, and (3) the resolved model
+    FAMILIES (explicit ``family`` field or well-known-prefix match), because a
+    different id is not a different reviewer when both ids are the same model
+    behind aliases (``sonnet`` vs ``claude-sonnet-4-5``). Placeholder models and
+    unknown families are skipped so an unfilled config does not false-positive;
+    ``allow_same_family: true`` is the explicit escape hatch for same-family
+    (never same-model) setups.
     """
     errors: list[str] = []
 
@@ -984,7 +1102,8 @@ def _reviewer_heterogeneity(
     rev_model = rev_profile.get("model") if isinstance(rev_profile, dict) else None
     if (
         isinstance(impl_model, str) and isinstance(rev_model, str)
-        and impl_model and rev_model and impl_model == rev_model
+        and impl_model and rev_model
+        and impl_model.strip().lower() == rev_model.strip().lower()
         and not _is_placeholder_model(impl_model)
     ):
         errors.append(
@@ -995,13 +1114,9 @@ def _reviewer_heterogeneity(
 
     if not isinstance(routing, dict):
         return errors
-    host = routing.get("host")
-    host_models = routing.get("host_models", {})
-    if not (isinstance(host_models, dict) and host and host in host_models):
-        return errors
-    hblock = host_models.get(host, {})
-    if not isinstance(hblock, dict):
-        return errors
+    topo = qlroute.resolve_routing({"model_routing": routing})
+    host_models = topo["host_models"]
+    default_host = topo["default_host"]
 
     impl_class = None
     rev_class = None
@@ -1012,53 +1127,119 @@ def _reviewer_heterogeneity(
             impl_class = step.get("model_class")
         elif step.get("step") == "REVIEW":
             rev_class = step.get("model_class")
-    if not (impl_class and rev_class):
+
+    main_session = topo["main_session"]
+    if main_session:
+        impl_host = main_session.get("host")
+        impl_cls = main_session.get("class") or impl_class
+        impl_block = qlroute.class_block(host_models, impl_host, impl_cls)
+        impl_resolved = main_session.get("model") or impl_block.get("model")
+        # The block's declared family describes the block's model; it must not
+        # be applied to an explicit main_session.model override.
+        impl_declared_family = (
+            impl_block.get("family") if not main_session.get("model") else None
+        )
+    else:
+        impl_host = default_host
+        impl_cls = impl_class
+        impl_block = qlroute.class_block(host_models, impl_host, impl_cls)
+        impl_resolved = impl_block.get("model")
+        impl_declared_family = impl_block.get("family")
+
+    # The `quality-loop-reviewer` agents entry (string or object) is what
+    # setup-models actually writes into the reviewer's agent file, so it is the
+    # effective reviewer; the REVIEW step's model_class is doctrine. When both
+    # are concrete and resolve to different models the config disagrees with
+    # itself -- flag it rather than silently trusting either.
+    rev_agent_entry = topo["agents"].get("quality-loop-reviewer")
+    step_block = qlroute.class_block(host_models, default_host, rev_class)
+    step_resolved = step_block.get("model")
+    if rev_agent_entry and rev_agent_entry.get("class"):
+        rev_host = rev_agent_entry.get("host")
+        rev_cls = rev_agent_entry.get("class")
+        if (
+            rev_class and rev_cls != rev_class
+            and not _is_placeholder_model(step_resolved)
+        ):
+            entry_block = qlroute.class_block(host_models, rev_host, rev_cls)
+            entry_resolved = entry_block.get("model")
+            if (
+                not _is_placeholder_model(entry_resolved)
+                and entry_resolved.strip().lower() != step_resolved.strip().lower()
+            ):
+                errors.append(
+                    f"reviewer heterogeneity: steps.REVIEW model_class={rev_class!r} "
+                    f"resolves to {step_resolved!r} but model_routing.agents."
+                    f"quality-loop-reviewer ({rev_cls!r} on host {rev_host!r}) "
+                    f"resolves to {entry_resolved!r}; align them -- the agents "
+                    f"entry is what setup-models applies"
+                )
+    else:
+        rev_host = default_host
+        rev_cls = rev_class
+    rev_block = qlroute.class_block(host_models, rev_host, rev_cls)
+    rev_resolved = rev_block.get("model")
+
+    if not (impl_host and rev_host and impl_cls and rev_cls):
         return errors
 
-    impl_resolved = hblock.get(impl_class, {}).get("model")
-    rev_resolved = hblock.get(rev_class, {}).get("model")
-    if impl_class == rev_class:
-        # Same model_class on IMPLEMENT_SLICE and REVIEW means the same model on
-        # medium+ routing.
-        if not (
+    # An explicit distinct main_session.model breaks the "same class => same
+    # model" implication, so the same-class branch must not fire over it.
+    ms_model = (
+        main_session.get("model")
+        if main_session and isinstance(main_session.get("model"), str)
+        else None
+    )
+    if impl_host == rev_host and impl_cls == rev_cls:
+        distinct_override = (
+            ms_model and isinstance(rev_resolved, str) and rev_resolved.strip()
+            and ms_model.strip().lower() != rev_resolved.strip().lower()
+        )
+        if not distinct_override and not (
             _is_placeholder_model(impl_resolved) or _is_placeholder_model(rev_resolved)
         ):
             errors.append(
                 f"reviewer heterogeneity: IMPLEMENT_SLICE and REVIEW both "
-                f"use model_class={impl_class!r} on host {host!r}; medium+ "
+                f"use model_class={impl_cls!r} on host {impl_host!r}; medium+ "
                 f"tasks require a different model for review (use a different "
                 f"model or model_class)"
             )
-    elif (
-        isinstance(impl_resolved, str) and isinstance(rev_resolved, str)
-        and impl_resolved and rev_resolved and impl_resolved == rev_resolved
-        and not (
-            _is_placeholder_model(impl_resolved) or _is_placeholder_model(rev_resolved)
+        if not distinct_override:
+            return errors
+
+    if _is_placeholder_model(impl_resolved) or _is_placeholder_model(rev_resolved):
+        return errors
+
+    # Case-insensitive: `GPT-5.6-SOL` vs `gpt-5.6-sol` is one model, not two.
+    if impl_resolved.strip().lower() == rev_resolved.strip().lower():
+        errors.append(
+            f"reviewer heterogeneity: implementer ({impl_resolved!r} on host "
+            f"{impl_host!r}) and fresh_reviewer ({rev_resolved!r} on host "
+            f"{rev_host!r}) resolve to the same model; use a different model "
+            f"for review"
         )
+        return errors
+
+    impl_family = qlroute.model_family(impl_resolved, impl_declared_family)
+    rev_family = qlroute.model_family(rev_resolved, rev_block.get("family"))
+    if (
+        impl_family and rev_family and impl_family == rev_family
+        and not topo["allow_same_family"]
     ):
         errors.append(
-            f"reviewer heterogeneity: implementer (model_class={impl_class!r}) "
-            f"and fresh_reviewer (model_class={rev_class!r}) both resolve to "
-            f"{impl_resolved!r} on host {host!r}; use a different model for review"
+            f"reviewer heterogeneity: implementer ({impl_resolved!r} on host "
+            f"{impl_host!r}) and fresh_reviewer ({rev_resolved!r} on host "
+            f"{rev_host!r}) resolve to the same model family {impl_family!r}; "
+            f"harness diversity does not guarantee model heterogeneity -- use a "
+            f"different family for review, or set \"allow_same_family\": true "
+            f"to accept the risk explicitly"
         )
     return errors
 
 
-def _is_placeholder_model(model: Any) -> bool:
-    """True for model identifiers that are not real concrete models.
-
-    Used by reviewer-heterogeneity checks so an unfilled config (null / inherit
-    / angle-bracket placeholders like ``<strong-reasoning-model>``) does not
-    false-positive before the user supplies real model ids.
-    """
-    if not isinstance(model, str):
-        return True  # null / None / unset
-    s = model.strip()
-    if not s or s == "inherit":
-        return True
-    if s.startswith("<") and s.endswith(">"):
-        return True
-    return False
+# One implementation for the package (family checks in the routing module need
+# it too); this preserves the module-local name for existing call sites.
+_is_placeholder_model = qlroute.is_placeholder_model
 
 
 
@@ -1679,7 +1860,7 @@ def main() -> int:
 
     p_setup = sub.add_parser("setup-models", help="Apply model_routing config to host agent files (claude-code/droid) or print settings (codex/pi)")
     p_setup.add_argument("--config", help="Path to quality-loop.config.json (auto-detected in target if omitted)")
-    p_setup.add_argument("--host", choices=sorted(qlroute.SUPPORTED_HOSTS), help="Override model_routing.host")
+    p_setup.add_argument("--host", choices=sorted(qlroute.SUPPORTED_HOSTS), help="Single-host configs: override model_routing.host (retarget). Multi-host topologies (object agents / main_session): apply only this host's slice (pure filter)")
     p_setup.add_argument("--target", default=".", help="Project root (default .)")
     p_setup.add_argument("--dry-run", action="store_true", help="Show what would change without writing files")
     p_setup.add_argument("--json", action="store_true", help="Machine-readable JSON output")

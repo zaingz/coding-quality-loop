@@ -50,9 +50,9 @@ SCRIPT = ROOT / "scripts" / "quality_loop.py"
 # evals/run_trigger_evals.py, evals/README.md).
 #
 # BUMP THIS whenever a gate suite's case count changes. Current breakdown:
-#   11 static + 39 behavioral + 26 memory + 23 reality + 15 routing + 16 hook = 130
+#   11 static + 44 behavioral + 26 memory + 23 reality + 24 routing + 16 hook = 144
 # (behavioral is this file: len(CASES); run it to confirm the number.)
-CANONICAL_GATE_CASES = 130
+CANONICAL_GATE_CASES = 144
 
 sys.path.insert(0, str(ROOT / "scripts"))
 import quality_loop  # noqa: E402  (SECRET_PATTERNS reused by the untracked-secret case)
@@ -983,6 +983,156 @@ def case_bench_validate_requires_cost_fields(tmp: Path) -> tuple[bool, str]:
     return ok, f"fixture_validates={fixture_ok}; live_missing_cost_fails={live_fails}"
 
 
+def case_models_used_shape(tmp: Path) -> tuple[bool, str]:
+    """Optional models_used (v4.2 routing evidence) validates when present."""
+    good = base_record(models_used=[
+        {"role": "implementer", "host": "droid", "model": "glm-5.2-fast",
+         "thinking": "high", "attempts": 2, "cost_usd": 0.42},
+        {"role": "fresh_reviewer", "host": "codex", "model": "gpt-5.6-sol"},
+    ])
+    code_good, out_good = check_record(tmp, good)
+
+    bad = base_record(models_used=[
+        {"host": "droid"},                                # missing role + model
+        {"role": "implementer", "model": "x", "attempts": 0},   # attempts < 1
+        {"role": "implementer", "model": "x", "cost_usd": -1},  # negative cost
+    ])
+    code_bad, out_bad = check_record(tmp, bad)
+    flagged = (
+        code_bad == 1
+        and "models_used[0].role" in out_bad
+        and "models_used[1].attempts" in out_bad
+        and "models_used[2].cost_usd" in out_bad
+    )
+    ok = code_good == 0 and flagged
+    return ok, f"good(exit={code_good}); bad(exit={code_bad},flagged={flagged})"
+
+
+def case_escalations_shape(tmp: Path) -> tuple[bool, str]:
+    """Optional escalations entries validate: trigger is the enum-of-one
+    'verified_failure', failing_commands is non-empty, from != to."""
+    good = base_record(escalations=[
+        {"step": "IMPLEMENT_SLICE", "from_model": "glm-5.2-fast", "to_model": "claude-opus-4-8",
+         "trigger": "verified_failure", "failing_commands": ["pytest -x"], "attempts": 2},
+    ])
+    code_good, out_good = check_record(tmp, good)
+
+    bad = base_record(escalations=[
+        {"step": "IMPLEMENT_SLICE", "from_model": "a", "to_model": "b",
+         "trigger": "looked_stuck", "failing_commands": ["x"]},
+        {"step": "IMPLEMENT_SLICE", "from_model": "a", "to_model": "a",
+         "trigger": "verified_failure", "failing_commands": ["x"]},
+        {"step": "IMPLEMENT_SLICE", "from_model": "a", "to_model": "b",
+         "trigger": "verified_failure", "failing_commands": []},
+    ])
+    code_bad, out_bad = check_record(tmp, bad)
+    flagged = (
+        code_bad == 1
+        and "escalations[0].trigger" in out_bad
+        and "from_model and to_model must differ" in out_bad
+        and "escalations[2].failing_commands" in out_bad
+    )
+    ok = code_good == 0 and flagged
+    return ok, f"good(exit={code_good}); bad(exit={code_bad},flagged={flagged})"
+
+
+def case_escalation_requires_failing_evidence(tmp: Path) -> tuple[bool, str]:
+    """verify-gates: an escalation must cite a commands_run entry with
+    result=fail; citing a passing or absent command is self-report, not
+    evidence."""
+    esc = {
+        "step": "IMPLEMENT_SLICE", "from_model": "glm-5.2-fast",
+        "to_model": "claude-opus-4-8", "trigger": "verified_failure",
+        "failing_commands": ["pytest -x tests/test_auth.py"], "attempts": 2,
+    }
+    cmds_with_red_green = [
+        {"cmd": "pytest -x tests/test_auth.py", "class": "unit", "result": "fail",
+         "evidence": "2 failed"},
+        {"cmd": "pytest -x tests/test_auth.py", "class": "unit", "result": "pass",
+         "evidence": "12 passed"},
+    ]
+    legit = base_record(escalations=[dict(esc)], commands_run=list(cmds_with_red_green))
+    code1, out1 = verify_gates(tmp, legit)
+    legit_clean = "self-report escalation" not in out1
+
+    unmatched = base_record(
+        escalations=[dict(esc)],
+        commands_run=[{"cmd": "pytest other", "class": "unit", "result": "pass", "evidence": "ok"}],
+    )
+    code2, out2 = verify_gates(tmp, unmatched)
+    unmatched_flagged = "self-report escalation is not evidence" in out2 and "claude-opus-4-8" in out2
+
+    cited_but_passing = base_record(
+        escalations=[dict(esc)],
+        commands_run=[{"cmd": "pytest -x tests/test_auth.py", "class": "unit", "result": "pass", "evidence": "ok"}],
+    )
+    code3, out3 = verify_gates(tmp, cited_but_passing)
+    passing_flagged = "self-report escalation is not evidence" in out3
+
+    # A bare {"result": "fail"} row with no evidence handle is free to
+    # fabricate; it cannot back an escalation.
+    unevidenced_fail = base_record(
+        escalations=[dict(esc)],
+        commands_run=[
+            {"cmd": "pytest -x tests/test_auth.py", "class": "unit", "result": "fail"},
+            {"cmd": "pytest -x tests/test_auth.py", "class": "unit", "result": "pass", "evidence": "12 passed"},
+        ],
+    )
+    code4, out4 = verify_gates(tmp, unevidenced_fail)
+    unevidenced_flagged = "self-report escalation is not evidence" in out4
+
+    ok = legit_clean and unmatched_flagged and passing_flagged and unevidenced_flagged
+    return ok, (
+        f"legit_clean={legit_clean}; unmatched_flagged={unmatched_flagged}; "
+        f"passing_cite_flagged={passing_flagged}; unevidenced_fail_flagged={unevidenced_flagged}"
+    )
+
+
+def case_resolved_failures_dont_block(tmp: Path) -> tuple[bool, str]:
+    """A fail entry superseded by a later pass of the same command (the honest
+    RED->GREEN shape an escalation leaves behind) is resolved, not outstanding;
+    an unsuperseded fail still blocks."""
+    resolved = base_record(commands_run=[
+        {"cmd": "pytest -x", "class": "unit", "result": "fail", "evidence": "1 failed"},
+        {"cmd": "pytest -x", "class": "unit", "result": "pass", "evidence": "12 passed"},
+    ])
+    code1, out1 = verify_gates(tmp, resolved)
+    resolved_clean = "command(s) failed" not in out1
+
+    outstanding = base_record(commands_run=[
+        {"cmd": "pytest -x", "class": "unit", "result": "fail", "evidence": "1 failed"},
+        {"cmd": "mypy .", "class": "types", "result": "pass", "evidence": "clean"},
+    ])
+    code2, out2 = verify_gates(tmp, outstanding)
+    outstanding_flagged = "1 verification command(s) failed" in out2
+
+    # Two entries that both omit `cmd` are not "the same command": None == None
+    # must never excuse a failure.
+    cmdless = base_record(commands_run=[
+        {"class": "unit", "result": "fail", "evidence": "1 failed"},
+        {"class": "unit", "result": "pass", "evidence": "ok"},
+    ])
+    code3, out3 = verify_gates(tmp, cmdless)
+    cmdless_flagged = "verification command(s) failed" in out3
+
+    ok = resolved_clean and outstanding_flagged and cmdless_flagged
+    return ok, (
+        f"resolved_clean={resolved_clean}; outstanding_flagged={outstanding_flagged}; "
+        f"cmdless_not_excused={cmdless_flagged}"
+    )
+
+
+def case_v41_record_fixture_passes(tmp: Path) -> tuple[bool, str]:
+    """The archived v4.1.0 dogfood record (predates models_used/escalations)
+    still passes check-record: the v4.2 fields are strictly additive."""
+    fixture = ROOT / "docs" / "records" / "v4.1.0-agent-record.json"
+    if not fixture.is_file():
+        return False, f"fixture missing: {fixture}"
+    code, out, err = run_cli("check-record", str(fixture))
+    ok = code == 0
+    return ok, f"exit={code}; {(out + err).strip()!r}"
+
+
 CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
     ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
@@ -1023,6 +1173,11 @@ CASES = [
     ("verify --require-terminal is a no-op at done status", case_require_terminal_noop_when_done),
     ("public docs state the canonical gate-case count (numbers-consistency lint)", case_doc_counts_match_canonical),
     ("bench --validate requires cost fields on live runs (exempts fixtures)", case_bench_validate_requires_cost_fields),
+    ("optional models_used entries validate shape, attempts, and costs", case_models_used_shape),
+    ("escalations entries require verified_failure trigger and differing models", case_escalations_shape),
+    ("escalation must cite a recorded failing command (self-report is not evidence)", case_escalation_requires_failing_evidence),
+    ("resolved RED->GREEN failures don't block; outstanding failures do", case_resolved_failures_dont_block),
+    ("archived v4.1.0 record passes untouched (v4.2 fields are additive)", case_v41_record_fixture_passes),
 ]
 
 
