@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CQL Control Plane</title>
+<!-- Self-contained by contract: no external scripts, styles, fonts, or images.
+     Served by quality_loop_control.py on 127.0.0.1; reads the GET-only JSON API. -->
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef1f4; --border: #dfe4ea;
+  --text: #1a2230; --muted: #5e6b7c; --accent: #2f7e97; --accent-soft: #e3eff3;
+  --ok: #2e8f54; --warn: #b07f24; --err: #c14848;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116; --surface: #161b22; --surface-2: #1d242e; --border: #232b36;
+    --text: #e8edf2; --muted: #8b98a8; --accent: #5aa8c2; --accent-soft: #16303a;
+    --ok: #46b070; --warn: #d0a04a; --err: #d96a6a;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef1f4; --border: #dfe4ea;
+  --text: #1a2230; --muted: #5e6b7c; --accent: #2f7e97; --accent-soft: #e3eff3;
+  --ok: #2e8f54; --warn: #b07f24; --err: #c14848;
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #161b22; --surface-2: #1d242e; --border: #232b36;
+  --text: #e8edf2; --muted: #8b98a8; --accent: #5aa8c2; --accent-soft: #16303a;
+  --ok: #46b070; --warn: #d0a04a; --err: #d96a6a;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; }
+body {
+  font-family: var(--sans); font-size: 14px; line-height: 1.45;
+  background: var(--bg); color: var(--text);
+  display: grid; grid-template-columns: 200px 1fr;
+}
+nav {
+  border-right: 1px solid var(--border); background: var(--surface);
+  padding: 14px 10px; display: flex; flex-direction: column; gap: 2px;
+  position: sticky; top: 0; height: 100vh;
+}
+.brand { font-size: 13px; font-weight: 650; letter-spacing: .04em; padding: 4px 10px 12px; }
+.brand small { display: block; color: var(--muted); font-weight: 400; letter-spacing: .08em; text-transform: uppercase; font-size: 10px; margin-top: 2px; }
+nav button {
+  font: inherit; text-align: left; padding: 7px 10px; border: 0; border-radius: 6px;
+  background: none; color: var(--muted); cursor: pointer;
+}
+nav button:hover { background: var(--surface-2); color: var(--text); }
+nav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+nav button:focus-visible, .themebtn:focus-visible, a:focus-visible, td button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+nav .spacer { flex: 1; }
+.themebtn {
+  font: inherit; font-size: 12px; color: var(--muted); background: none;
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer;
+}
+.foot { font-size: 11px; color: var(--muted); padding: 10px 10px 0; }
+main { padding: 22px 26px 60px; min-width: 0; }
+h1 { font-size: 19px; font-weight: 650; margin-bottom: 4px; }
+.sub { color: var(--muted); font-size: 12.5px; margin-bottom: 18px; }
+h2 { font-size: 13px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 26px 0 10px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.tile .v { font-family: var(--mono); font-size: 20px; font-variant-numeric: tabular-nums; }
+.tile .k { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
+.tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; position: sticky; top: 0; background: var(--surface); }
+td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+td .mono, .mono { font-family: var(--mono); font-size: 12.5px; }
+tbody tr.rowlink { cursor: pointer; }
+tbody tr.rowlink:hover { background: var(--surface-2); }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; border: 1px solid transparent; }
+.pill.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.pill.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.pill.err { color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
+.pill.mut { color: var(--muted); background: var(--surface-2); }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.dot.ok { background: var(--ok); } .dot.err { background: var(--err); } .dot.sent { background: var(--muted); }
+.bar { height: 8px; border-radius: 4px; background: var(--accent); opacity: .85; min-width: 2px; }
+.barwrap { display: flex; align-items: center; gap: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; margin-bottom: 12px; }
+.seg button { font: inherit; font-size: 12.5px; border: 0; background: var(--surface); color: var(--muted); padding: 6px 14px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.empty { color: var(--muted); padding: 26px; text-align: center; }
+.empty code { font-family: var(--mono); background: var(--surface-2); padding: 2px 6px; border-radius: 4px; }
+a { color: var(--accent); }
+canvas { width: 100%; height: 130px; display: block; }
+pre { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; overflow-x: auto; }
+.back { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; margin-bottom: 12px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13px; }
+.kv dt { color: var(--muted); } .kv dd { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; white-space: normal; }
+.wrap td { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  body { grid-template-columns: 1fr; }
+  nav { position: static; height: auto; flex-direction: row; flex-wrap: wrap; }
+  .brand { width: 100%; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  nav button, .seg button { transition: background .12s ease; }
+}
+</style>
+</head>
+<body>
+<nav aria-label="Sections">
+  <div class="brand">CQL Control Plane<small>coding-quality-loop</small></div>
+  <button data-view="overview">Overview</button>
+  <button data-view="sessions">Sessions</button>
+  <button data-view="spend">Spend</button>
+  <button data-view="records">Records</button>
+  <button data-view="routing">Routing</button>
+  <button data-view="memory">Memory</button>
+  <button data-view="events">Events</button>
+  <div class="spacer"></div>
+  <button class="themebtn" id="themebtn" aria-label="Cycle color theme">theme: auto</button>
+  <div class="foot" id="foot">local · read-only</div>
+</nav>
+<main id="main" aria-live="polite"></main>
+<script>
+"use strict";
+/* ---------- utilities ---------- */
+const $ = (sel, el = document) => el.querySelector(sel);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = n => n == null ? "–" : Number(n).toLocaleString("en-US");
+// Model labels: drop the redundant "claude-" prefix, keep other families (gpt-…) whole.
+const shortModel = m => { m = String(m); return m.startsWith("claude-") ? m.slice(7) : m; };
+// Render a distinct-model list (comma string or array) as badges; hides the
+// <synthetic>/unknown placeholders so the row shows only real models used.
+const modelPills = models => {
+  const list = (Array.isArray(models) ? models : (models ? String(models).split(",") : []))
+    .filter(m => m && m !== "<synthetic>" && m !== "unknown");
+  return [...new Set(list)].map(m => `<span class="pill mut mono" title="${esc(m)}">${esc(shortModel(m))}</span>`).join(" ");
+};
+const compact = n => {
+  if (n == null) return "–";
+  n = Number(n);
+  if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(2) + "B";
+  if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(2) + "M";
+  if (Math.abs(n) >= 1e4) return (n / 1e3).toFixed(1) + "k";
+  return String(n);
+};
+const usd = n => n == null ? "" : "$" + Number(n).toFixed(n < 10 ? 4 : 2);
+const when = ts => {
+  if (!ts) return "–";
+  const d = new Date(ts);
+  return isNaN(d) ? esc(ts) : d.toLocaleString(undefined, {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
+};
+async function api(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(path + " -> " + res.status);
+  return res.json();
+}
+/* ---------- theme ---------- */
+const THEMES = ["auto", "light", "dark"];
+let theme = localStorage.getItem("cql-theme") || "auto";
+function applyTheme() {
+  if (theme === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", theme);
+  $("#themebtn").textContent = "theme: " + theme;
+}
+$("#themebtn").addEventListener("click", () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  localStorage.setItem("cql-theme", theme);
+  applyTheme();
+});
+applyTheme();
+/* ---------- router ---------- */
+const main = $("#main");
+let current = "overview", spendBy = "model", timer = null, renderSeq = 0;
+function navigate(view) {
+  location.hash = "#/" + view;
+}
+function userIsInteracting() {
+  // A poll re-render replaces main's DOM; never yank focus or a text
+  // selection out from under the user.
+  const sel = getSelection();
+  if (sel && !sel.isCollapsed && main.contains(sel.anchorNode)) return true;
+  return main.contains(document.activeElement) && document.activeElement !== main;
+}
+function route(fromPoll) {
+  if (fromPoll && userIsInteracting()) return;
+  const hash = location.hash.replace(/^#\//, "") || "overview";
+  const parts = hash.split("/");
+  const view = parts[0];
+  let arg = parts.slice(1).join("/");
+  try { arg = decodeURIComponent(arg); } catch (e) { /* keep raw */ }
+  current = view;
+  document.querySelectorAll("nav [data-view]").forEach(b =>
+    b.classList.toggle("active", b.dataset.view === view));
+  render(view, arg).catch(err => {
+    main.innerHTML = `<div class="card"><span class="pill err">unreachable</span>
+      <p style="margin-top:8px">Could not reach the control-plane API (${esc(err.message)}).
+      Is the server running? <span class="mono">python3 scripts/quality_loop.py control-serve</span></p></div>`;
+  });
+  clearInterval(timer);
+  timer = setInterval(() => { if (!document.hidden) route(true); }, 5000);
+}
+document.querySelectorAll("nav [data-view]").forEach(b =>
+  b.addEventListener("click", () => navigate(b.dataset.view)));
+window.addEventListener("hashchange", () => route(false));
+/* ---------- views ---------- */
+const VIEWS = {overview, sessions, spend: spendView, records, routing, memory, events};
+async function render(view, arg) {
+  // Monotonic token: a stale async completion (slow fetch overtaken by a
+  // newer navigation or poll tick) must not overwrite the newer view.
+  const seq = ++renderSeq;
+  const stale = () => seq !== renderSeq;
+  if (view === "sessions" && arg) return sessionView(arg, stale);
+  const fn = Object.prototype.hasOwnProperty.call(VIEWS, view) ? VIEWS[view] : overview;
+  return fn(stale);
+}
+function tokensCell(row) {
+  return `<td class="num" title="${fmt(row.input_tokens)} in">${compact(row.input_tokens)}</td>
+          <td class="num" title="${fmt(row.output_tokens)} out">${compact(row.output_tokens)}</td>`;
+}
+async function overview(stale) {
+  const o = await api("/api/overview");
+  if (stale && stale()) return;
+  const t = o.totals;
+  const days = [...o.by_day].filter(d => d.key !== "unknown").sort((a, b) => a.key < b.key ? -1 : 1).slice(-21);
+  main.innerHTML = `
+    <h1>Overview</h1>
+    <div class="sub">last indexed ${when(o.last_index_at)}${o.skipped_lines ? ` · <span class="pill warn">${fmt(o.skipped_lines)} unparsed lines skipped</span>` : ""}</div>
+    <div class="tiles">
+      <div class="tile"><div class="v">${fmt(t.sessions)}</div><div class="k">sessions</div></div>
+      <div class="tile"><div class="v">${fmt(t.model_calls)}</div><div class="k">model calls</div></div>
+      <div class="tile"><div class="v">${fmt(t.tool_calls)}</div><div class="k">tool calls</div></div>
+      <div class="tile"><div class="v" title="${fmt(t.input_tokens)}">${compact(t.input_tokens)}</div><div class="k">input tokens</div></div>
+      <div class="tile"><div class="v" title="${fmt(t.output_tokens)}">${compact(t.output_tokens)}</div><div class="k">output tokens</div></div>
+      <div class="tile"><div class="v" title="${fmt(t.cache_read_tokens)}">${compact(t.cache_read_tokens)}</div><div class="k">cache read</div></div>
+      ${t.cost_usd != null ? `<div class="tile"><div class="v">${usd(t.cost_usd)}</div><div class="k">est. spend (your prices)</div></div>` : ""}
+    </div>
+    <h2>Output tokens by day</h2>
+    <div class="card">${days.length ? '<canvas id="chart" height="130"></canvas>' : '<div class="empty">no indexed activity yet — run <code>control-index</code></div>'}</div>
+    <h2>By model</h2>
+    ${spendTable(o.by_model, "model")}`;
+  if (days.length) drawBars($("#chart"), days.map(d => d.output_tokens), days.map(d => d.key.slice(5)));
+}
+function drawBars(canvas, values, labels) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = 130;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  const css = getComputedStyle(document.documentElement);
+  const accent = css.getPropertyValue("--accent").trim();
+  const muted = css.getPropertyValue("--muted").trim();
+  const max = Math.max(...values, 1);
+  const n = values.length, gap = 6, bw = Math.max((w - gap * (n - 1)) / n, 4);
+  ctx.font = "10px " + css.getPropertyValue("--mono");
+  values.forEach((v, i) => {
+    const bh = Math.max((v / max) * (h - 26), 2);
+    const x = i * (bw + gap);
+    ctx.fillStyle = accent;
+    ctx.globalAlpha = .85;
+    ctx.fillRect(x, h - 14 - bh, bw, bh);
+    ctx.globalAlpha = 1;
+    if (n <= 24) { ctx.fillStyle = muted; ctx.fillText(labels[i], x, h - 3); }
+  });
+}
+function spendTable(rows, by) {
+  if (!rows || !rows.length) return '<div class="card"><div class="empty">nothing indexed yet</div></div>';
+  const max = Math.max(...rows.map(r => r.output_tokens || 0), 1);
+  const hasCost = rows.some(r => r.cost_usd != null);
+  return `<div class="tablewrap"><table>
+    <thead><tr><th>${esc(by)}</th><th>share</th><th class="num">calls</th><th class="num">in</th><th class="num">out</th><th class="num">cache read</th>${hasCost ? '<th class="num">est. usd</th>' : ""}</tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td class="mono">${by === "session" ? sessionLink(r.key) : esc(r.key)}</td>
+      <td style="min-width:120px"><div class="barwrap"><div class="bar" style="width:${Math.round((r.output_tokens || 0) / max * 100)}%"></div></div></td>
+      <td class="num">${fmt(r.calls)}</td>${tokensCell(r)}
+      <td class="num" title="${fmt(r.cache_read_tokens)}">${compact(r.cache_read_tokens)}</td>
+      ${hasCost ? `<td class="num">${usd(r.cost_usd)}</td>` : ""}
+    </tr>`).join("")}</tbody></table></div>
+    ${hasCost ? "" : '<p class="sub" style="margin-top:8px">Costs appear when you set <span class="mono">control_plane.prices</span> in quality-loop.config.json — this tool ships no vendor price data.</p>'}`;
+}
+function sessionLink(id) {
+  return `<a href="#/sessions/${esc(encodeURIComponent(id))}">${esc(String(id).slice(0, 8))}</a>`;
+}
+async function sessions(stale) {
+  const data = await api("/api/sessions?limit=300");
+  if (stale && stale()) return;
+  const rows = data.sessions;
+  main.innerHTML = `
+    <h1>Sessions</h1>
+    <div class="sub">${rows.length} indexed session(s) — transcripts for this repo plus hook-reported sessions</div>
+    ${rows.length ? `<div class="tablewrap"><table>
+      <thead><tr><th>session</th><th>title</th><th>agent</th><th>host</th><th>models</th><th>started</th><th>last active</th><th class="num">model calls</th><th class="num">tools</th><th class="num">in</th><th class="num">out</th></tr></thead>
+      <tbody>${rows.map(s => `<tr class="rowlink" tabindex="0" data-id="${esc(s.id)}">
+        <td class="mono">${esc(s.id.slice(0, 8))}</td>
+        <td style="max-width:340px;overflow:hidden;text-overflow:ellipsis">${esc(s.title || "")}</td>
+        <td>${s.agent_name ? `<span class="pill mut">${esc(s.agent_name)}</span>` : ""}</td>
+        <td class="mono">${esc(s.host)}</td>
+        <td>${modelPills(s.models)}</td>
+        <td>${when(s.started_at)}</td><td>${when(s.last_activity_at)}</td>
+        <td class="num">${fmt(s.model_calls)}</td><td class="num">${fmt(s.tool_calls)}</td>${tokensCell(s)}
+      </tr>`).join("")}</tbody></table></div>`
+    : '<div class="card"><div class="empty">no sessions yet — run <code>python3 scripts/quality_loop.py control-index</code></div></div>'}`;
+  main.querySelectorAll("tr.rowlink").forEach(tr => {
+    const go = () => navigate("sessions/" + encodeURIComponent(tr.dataset.id));
+    tr.addEventListener("click", go);
+    tr.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  });
+}
+async function sessionView(id, stale) {
+  const d = await api("/api/session?id=" + encodeURIComponent(id));
+  if (stale && stale()) return;
+  const s = d.session;
+  main.innerHTML = `
+    <button class="back" onclick="navigate('sessions')">&larr; all sessions</button>
+    <h1>${esc(s.title || s.agent_name || s.id.slice(0, 8))}</h1>
+    <div class="sub mono">${esc(s.id)} · ${esc(s.host)} · ${esc(s.git_branch || "")}</div>
+    <div class="card"><dl class="kv">
+      <dt>started</dt><dd>${when(s.started_at)}</dd>
+      <dt>last active</dt><dd>${when(s.last_activity_at)}</dd>
+      ${s.ended_at ? `<dt>ended</dt><dd>${when(s.ended_at)}</dd>` : ""}
+      ${s.agent_name ? `<dt>agent</dt><dd>${esc(s.agent_name)}</dd>` : ""}
+      ${s.cwd ? `<dt>cwd</dt><dd>${esc(s.cwd)}</dd>` : ""}
+      ${s.app_version ? `<dt>client</dt><dd>${esc(s.app_version)}</dd>` : ""}
+      ${modelPills(d.models.map(m => m.key)) ? `<dt>models</dt><dd>${modelPills(d.models.map(m => m.key))}</dd>` : ""}
+      ${d.parent ? `<dt>spawned by</dt><dd><a href="#" class="mono" data-goto="${esc(d.parent.id)}">${esc(d.parent.agent_name || (d.parent.title || "").slice(0, 48) || d.parent.id.slice(0, 8))}</a></dd>` : ""}
+    </dl></div>
+    ${d.subagents && d.subagents.length ? `<h2>Sub-agents <span class="pill mut">${d.subagents.length}</span></h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>agent</th><th>models</th><th>host</th><th class="num">calls</th><th class="num">out</th><th>started</th></tr></thead>
+      <tbody>${d.subagents.map(a => `<tr class="rowlink" tabindex="0" data-id="${esc(a.id)}">
+        <td>${a.agent_name ? `<span class="pill mut">${esc(a.agent_name)}</span>` : `<span class="mono">${esc(a.id.slice(0, 8))}</span>`}</td>
+        <td>${modelPills(a.models)}</td>
+        <td class="mono">${esc(a.host)}</td>
+        <td class="num">${fmt(a.model_calls)}</td>
+        <td class="num" title="${fmt(a.output_tokens)}">${compact(a.output_tokens)}</td>
+        <td>${when(a.started_at)}</td>
+      </tr>`).join("")}</tbody></table></div>` : ""}
+    <h2>Model usage</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>model</th><th>agent</th><th class="num">calls</th><th class="num">in</th><th class="num">out</th><th class="num">cache read</th><th class="num">est. usd</th></tr></thead>
+      <tbody>${d.models.map(m => `<tr><td class="mono">${esc(m.key)}</td>
+        <td>${m.agent === "main" ? "" : `<span class="pill mut">${esc(m.agent)}</span>`}</td>
+        <td class="num">${fmt(m.calls)}</td>${tokensCell(m)}
+        <td class="num" title="${fmt(m.cache_read_tokens)}">${compact(m.cache_read_tokens)}</td>
+        <td class="num">${usd(m.cost_usd)}</td></tr>`).join("")}</tbody></table></div>
+    <h2>Recent tool calls</h2>
+    ${d.tools.length ? `<div class="tablewrap"><table>
+      <thead><tr><th>when</th><th>tool</th><th>target</th><th>status</th></tr></thead>
+      <tbody>${d.tools.map(t => `<tr class="wrap">
+        <td>${when(t.ts)}</td><td class="mono">${esc(t.tool)}${t.agent ? ` <span class="pill mut">${esc(t.agent)}</span>` : ""}</td>
+        <td class="mono" style="max-width:480px">${esc(t.target || "")}</td>
+        <td><span class="dot ${t.status === "ok" ? "ok" : t.status === "error" ? "err" : "sent"}"></span>${esc(t.status)}</td>
+      </tr>`).join("")}</tbody></table></div>` : '<div class="card"><div class="empty">no tool calls recorded</div></div>'}
+    ${d.events.length ? `<h2>Hook events</h2><div class="tablewrap"><table>
+      <thead><tr><th>when</th><th>event</th><th>detail</th></tr></thead>
+      <tbody>${d.events.map(e => `<tr><td>${when(e.ts)}</td><td class="mono">${esc(e.name)}</td><td class="mono">${esc(e.detail || "")}</td></tr>`).join("")}</tbody></table></div>` : ""}`;
+  main.querySelectorAll("tr.rowlink").forEach(tr => {
+    const go = () => navigate("sessions/" + encodeURIComponent(tr.dataset.id));
+    tr.addEventListener("click", go);
+    tr.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  });
+  main.querySelectorAll("[data-goto]").forEach(el => el.addEventListener("click", e => {
+    e.preventDefault(); navigate("sessions/" + encodeURIComponent(el.dataset.goto));
+  }));
+}
+async function spendView(stale) {
+  const d = await api("/api/spend?by=" + spendBy);
+  if (stale && stale()) return;
+  main.innerHTML = `
+    <h1>Token spend</h1>
+    <div class="sub">grouped from indexed model calls; totals are exact token counts from the host transcript</div>
+    <div class="seg" role="tablist">${["model", "day", "session", "agent"].map(b =>
+      `<button role="tab" aria-selected="${b === spendBy}" class="${b === spendBy ? "active" : ""}" data-by="${b}">${b}</button>`).join("")}</div>
+    ${spendTable(spendBy === "day" ? [...d.rows].sort((a, b) => a.key < b.key ? 1 : -1) : d.rows, spendBy)}`;
+  main.querySelectorAll(".seg button").forEach(b =>
+    b.addEventListener("click", () => { spendBy = b.dataset.by; spendView(); }));
+}
+function pillFor(v) {
+  const s = String(v || "").toLowerCase();
+  if (["done", "approve", "approved", "pass"].some(x => s.includes(x))) return "ok";
+  if (["fail", "reject", "block", "high"].some(x => s.includes(x))) return "err";
+  return "warn";
+}
+async function records(stale) {
+  const d = await api("/api/records");
+  if (stale && stale()) return;
+  const bySource = {};
+  d.artifacts.forEach(a => (bySource[a.source_path] = bySource[a.source_path] || []).push(a));
+  const sources = Object.keys(bySource).sort((a, b) => (a.startsWith(".quality-loop") ? -1 : 1) - (b.startsWith(".quality-loop") ? -1 : 1) || b.localeCompare(a));
+  main.innerHTML = `
+    <h1>Records &amp; reviews</h1>
+    <div class="sub">completion records, independent reviews, minimality decisions, plans, escalations — from .quality-loop/ and docs/records/</div>
+    ${sources.length ? sources.map(src => {
+      const arts = bySource[src];
+      const rec = arts.find(a => a.kind === "record");
+      const review = arts.find(a => a.kind === "review");
+      const decision = arts.find(a => a.kind === "decision");
+      const plan = arts.find(a => a.kind === "plan");
+      const escalations = arts.filter(a => a.kind === "escalation");
+      const used = arts.filter(a => a.kind === "models_used");
+      const det = rec ? rec.detail : {};
+      return `<div class="card">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <strong>${esc(rec ? rec.title : src)}</strong>
+          ${det.live ? '<span class="pill warn">live</span>' : ""}
+          ${det.status ? `<span class="pill ${pillFor(det.status)}">${esc(det.status)}</span>` : ""}
+          ${det.risk_tier ? `<span class="pill mut">risk: ${esc(det.risk_tier)}</span>` : ""}
+          ${det.task_class ? `<span class="pill mut">${esc(det.task_class)}</span>` : ""}
+          <span class="sub" style="margin:0">${esc(src)}</span>
+        </div>
+        ${det.goal ? `<p style="margin:8px 0 0">${esc(det.goal)}</p>` : ""}
+        <dl class="kv" style="margin-top:10px">
+          ${decision ? `<dt>minimality</dt><dd>${esc(decision.detail.rung)} — ${esc(decision.detail.reason || "")}</dd>` : ""}
+          ${review ? `<dt>review</dt><dd><span class="pill ${pillFor(review.detail.verdict)}">${esc(review.detail.verdict)}</span>
+            by ${esc(review.detail.reviewer || "?")} · ${review.detail.attested ? "attested" : "not attested"} · ${fmt(review.detail.findings)} finding(s)</dd>` : ""}
+          ${plan ? `<dt>plan</dt><dd>${(plan.detail.steps || []).map(esc).join("<br>")}</dd>` : ""}
+          ${escalations.map(e => `<dt>escalation</dt><dd>${esc(e.title)} (${esc(e.detail.trigger || "?")}: ${(e.detail.failing_commands || []).map(esc).join(", ")})</dd>`).join("")}
+          ${used.length ? `<dt>models used</dt><dd>${used.map(u => esc(`${u.detail.role || "?"} = ${u.detail.model || "?"}${u.detail.host ? " @ " + u.detail.host : ""}`)).join("<br>")}</dd>` : ""}
+          ${det.commands_run != null ? `<dt>evidence</dt><dd>${fmt(det.commands_run)} command(s) recorded</dd>` : ""}
+        </dl>
+      </div>`;
+    }).join("") : '<div class="card"><div class="empty">no records indexed — records appear once .quality-loop/agent-record.json or docs/records/*.json exist</div></div>'}`;
+}
+async function routing(stale) {
+  const d = await api("/api/routing");
+  if (stale && stale()) return;
+  const topo = d.topology;
+  main.innerHTML = `
+    <h1>Model routing</h1>
+    <div class="sub">resolved from quality-loop.config.json (read-only view; apply with <span class="mono">setup-models</span>)</div>
+    <div class="card"><pre>${d.lines.map(esc).join("\n") || "not configured"}</pre></div>
+    ${topo ? `<h2>Topology</h2><div class="card"><dl class="kv">
+      <dt>default host</dt><dd>${esc(topo.default_host || "–")}</dd>
+      <dt>hosts in use</dt><dd>${(topo.hosts_in_use || []).map(esc).join(", ") || "–"}</dd>
+      ${topo.main_session ? `<dt>main session</dt><dd>${esc(JSON.stringify(topo.main_session))}</dd>` : ""}
+      ${Object.entries(topo.agents || {}).map(([name, a]) =>
+        `<dt>${esc(name)}</dt><dd>${esc(a.class || "?")} @ ${esc(a.host || "default")}</dd>`).join("")}
+      <dt>allow_same_family</dt><dd>${topo.allow_same_family ? "true" : "false"}</dd>
+    </dl></div>` : ""}`;
+}
+async function memory(stale) {
+  const d = await api("/api/memory");
+  if (stale && stale()) return;
+  main.innerHTML = `
+    <h1>Project memory</h1>
+    <div class="sub">distilled lessons from .quality-loop/memory/ plus session progress</div>
+    ${d.lessons.length ? `<div class="tablewrap"><table>
+      <thead><tr><th>lesson</th><th>kind</th><th>when</th></tr></thead>
+      <tbody>${d.lessons.map(l => `<tr class="wrap"><td style="max-width:560px">${esc(l.title)}</td>
+        <td>${l.detail.kind ? `<span class="pill mut">${esc(l.detail.kind)}</span>` : ""}</td>
+        <td>${when(l.ts)}</td></tr>`).join("")}</tbody></table></div>`
+    : '<div class="card"><div class="empty">no lessons committed yet — <code>memory-commit</code> writes them at RETROSPECT</div></div>'}
+    ${d.progress ? `<h2>Progress</h2><div class="card"><pre>${esc(d.progress.detail.body || "")}</pre></div>` : ""}`;
+}
+async function events(stale) {
+  const d = await api("/api/events?limit=300");
+  if (stale && stale()) return;
+  main.innerHTML = `
+    <h1>Hook events</h1>
+    <div class="sub">SessionStart / SessionEnd and other host hook events (requires <span class="mono">control_plane.enabled: true</span>)</div>
+    ${d.events.length ? `<div class="tablewrap"><table>
+      <thead><tr><th>when</th><th>event</th><th>host</th><th>session</th><th>detail</th></tr></thead>
+      <tbody>${d.events.map(e => `<tr>
+        <td>${when(e.ts)}</td><td class="mono">${esc(e.name)}</td><td class="mono">${esc(e.host || "")}</td>
+        <td class="mono">${e.session_id ? sessionLink(e.session_id) : ""}</td>
+        <td class="mono">${esc(e.detail || "")}</td></tr>`).join("")}</tbody></table></div>`
+    : '<div class="card"><div class="empty">no hook events yet — enable <code>control_plane.enabled</code> and install the host hooks</div></div>'}`;
+}
+/* ---------- boot ---------- */
+api("/healthz").then(h => { $("#foot").textContent = "local · read-only · " + fmt(h.sessions) + " sessions"; }).catch(() => {});
+window.navigate = navigate;
+route();
+</script>
+</body>
+</html>

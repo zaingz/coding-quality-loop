@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "4.2.0"
+  version: "4.3.0"
 ---
 
 # Coding Quality Loop
@@ -133,6 +133,10 @@ Recall distilled lessons at INTAKE (`memory-recall`); commit at RETROSPECTIVE (`
 
 At session start, run `brief` to get up to speed. At PACKAGE/RETROSPECT, update `.quality-loop/progress.md`. Resume from the surfaced next step.
 
+## Control Plane (optional, observability)
+
+A local dashboard over sessions, model calls (exact tokens), tool calls, spend, routing, and every loop artifact: `control-index` builds a disposable SQLite cache under `.quality-loop/control/`; `control-serve` serves it read-only on 127.0.0.1. Opt-in hooks (`control_plane.enabled` in config) record session start/end and autostart the server. It is an index over evidence, never a gate — no gate reads it, and deleting the directory loses nothing rebuildable (only recorded hook events live solely in the cache). See `docs/control-plane.md`.
+
 ## Helper Commands
 
 **Primary verification (one command):**
@@ -141,7 +145,7 @@ python3 scripts/quality_loop.py verify agent-record.json --base origin/main --re
 ```
 `verify` runs record-shape gates, diff-grounded reality checks, evidence re-execution, and AC-to-command coverage in one pass. If `--base` is missing/unresolvable it prints a hint and falls back (`origin/main` → `main` → `HEAD` → empty tree).
 
-The full command catalog (init-record, verify-gates, diff-audit, run-evidence, attest-review, brief, check-config, setup-models, eval-cases, and the `memory-*` commands) is in `references/tool-contracts.md`.
+The full command catalog (init-record, verify-gates, diff-audit, run-evidence, attest-review, brief, check-config, setup-models, eval-cases, and the `memory-*` / `control-*` commands) is in `references/tool-contracts.md`.
 
 ## Minimal Drop-In Prompt
 

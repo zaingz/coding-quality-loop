@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Byte-compile helper and eval harness
-        run: python3 -m py_compile scripts/*.py evals/*.py
+        run: python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py
       - name: Validate example orchestration config
         run: python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
       - name: Run static eval cases
@@ -29,6 +29,8 @@ jobs:
         run: python3 evals/run_hook_evals.py
       - name: Run model routing eval harness
         run: python3 evals/run_routing_evals.py
+      - name: Run control plane eval harness
+        run: python3 evals/run_control_evals.py
       - name: Run benchmark fixture smoke
         run: python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json
       - name: Gate example records (showcase must pass its own gate)

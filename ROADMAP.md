@@ -6,7 +6,21 @@
 
 Last updated: 2026-07-12.
 
-## Now — landed in v4.2.0
+## Now — landed in v4.3.0
+
+- ✅ **Control plane (local observability).** One dashboard for sessions, model
+  calls with exact token usage, tool calls, token spend, routing, hook events,
+  and every loop artifact (records, reviews, decisions, plans, escalations,
+  memory). `control-index` builds a disposable SQLite cache under
+  `.quality-loop/control/` from sources of truth (Claude Code transcripts + CQL
+  artifacts); `control-serve` renders a self-contained HTML dashboard on a
+  GET-only 127.0.0.1 server; opt-in `SessionStart`/`SessionEnd` hooks
+  (claude-code + codex wiring) record events and autostart the server. Stdlib
+  only, no message bodies stored, no vendor prices shipped (USD only from a
+  user-supplied `control_plane.prices`). 20 new gate cases. See
+  [docs/control-plane.md](docs/control-plane.md).
+
+## Landed in v4.2.0
 
 - ✅ **Multi-host model routing.** `agents: {name: {host, class}}` + `main_session`
   express a multi-harness topology (e.g. Claude Code plans, Droid/GLM implements,
@@ -49,7 +63,7 @@ Last updated: 2026-07-12.
   artifact dimensions.
 - ✅ **40% surface reduction.** Archived legacy adapters, local orchestration,
   v2.4 ceremony surfaces, and stats reporting. Scripts 4,600 → 3,300 lines.
-  144 gate cases across 6 suites (plus a 10-case trigger smoke fixture).
+  164 gate cases across 7 suites (plus a 10-case trigger smoke fixture).
 
 ## Landed earlier — v2.4
 
@@ -117,6 +131,9 @@ Still open from the same findings:
 ## Not on the roadmap, on purpose
 
 - **A hosted service.** The loop stays local files, git, and stdlib Python.
+  The v4.3.0 control plane does not change this: it is a stdlib server
+  hard-bound to 127.0.0.1 over a disposable local cache — nothing leaves the
+  machine, and no gate depends on it.
 - **A test runner.** `run-evidence` re-executes recorded commands; it does not
   become pytest.
 - **A secret scanner replacement.** `diff-audit` and `scan-text` are coarse
@@ -137,4 +154,7 @@ Still open from the same findings:
   it never triggers them. Rung ordering is a calibration claim that needs R5's
   evidence first.
 - **A cost report subcommand.** The stats surface was archived in v3.0 for a
-  reason; `jq` over completion records is the report.
+  reason; `jq` over completion records is the report format. The v4.3.0
+  control plane renders token spend in a local UI, but it is an index over
+  evidence with no gate consumers and no shipped prices — the deliberate line
+  is: dashboards may visualize, only records and gates decide.

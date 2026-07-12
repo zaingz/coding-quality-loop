@@ -1,5 +1,76 @@
 # Changelog
 
+## 4.3.0
+
+The control-plane release: one local dashboard to monitor, observe, and learn
+what the agents are doing — sessions, model calls with exact token usage, tool
+calls, token spend, routing, hook events, and every loop artifact (records,
+reviews, minimality decisions, plans, escalations, memory lessons, progress).
+
+**Control plane (new):**
+- `scripts/quality_loop_control.py` + five subcommands: `control-index`
+  (incremental SQLite index at `.quality-loop/control/control.db`, built from
+  Claude Code transcripts and CQL artifacts; per-file byte offsets, uuid
+  dedupe — a full rescan never double counts; unparsable lines are counted and
+  skipped, never fatal), `control-serve` (GET-only JSON API + self-contained
+  HTML dashboard on a hard-coded `127.0.0.1` bind; non-GET → 405), `control-status`,
+  `control-stop`, and `control-ingest` (hook entry point; **always exits 0** —
+  a broken observability plane must never break a session; errors go to
+  `.quality-loop/control/ingest-errors.log`).
+- Multi-host coverage: alongside claude-code transcripts, the index reads
+  **Codex** rollouts (`~/.codex/sessions`, `host='codex'` — gpt models with
+  exact per-call token deltas, cwd-scoped) and **Droid/GLM** runs (the
+  `droid-glm-exec` wrapper log, `host='droid'` — model + run counts; Droid does
+  not expose token usage, so those calls carry none). Each adapter mirrors the
+  transcript adapter's offset/rewrite/dedupe safety.
+- Sub-agent tree: a session's detail lists the sub-agents it spawned (agent
+  name, model, calls) and links back to the parent — resolved from claude's
+  `teamName` and codex's `parent_thread_id` (matched by full id, since codex's
+  time-ordered ids share prefixes).
+- Dashboard (`assets/control-plane/dashboard.html`): overview with exact token
+  tiles and a by-day chart, sessions with per-agent attribution and drill-down
+  timelines, spend by model/day/session/agent, records & reviews (verdict,
+  attestation, escalations, `models_used`), routing snapshot (reuses
+  `brief_routing_info`), memory, live hook events. Single file, zero external
+  requests (eval-pinned), light/dark, keyboard navigable.
+- Hooks: new `hosts/claude-code/control_plane.py` shim wired for
+  `SessionStart`/`SessionEnd` in both claude-code `settings.json` and codex
+  `hooks.json` (the ≥2-hosts rule). **Opt-in**: with no `control_plane.enabled:
+  true` in the repo config the hooks write nothing and start nothing; with it,
+  events are recorded and `autostart` launches the server behind a pidfile
+  guard (never double-starts).
+- Config: optional `control_plane` block (`enabled`, `autostart`, `port`,
+  `retention_days`, `prices`) validated by `check-config` (typo-proof: unknown
+  keys error). `prices` is YOUR price table (USD per million tokens, substring
+  match) — the repo ships no vendor price data; without it the dashboard
+  reports tokens only.
+- Doctrine line drawn in ROADMAP: dashboards may visualize, only records and
+  gates decide. The DB is a disposable cache over sources of truth; deleting
+  `.quality-loop/control/` (self-gitignored, outside the attestation hash)
+  loses nothing rebuildable (only recorded hook events live solely in the
+  cache), and a schema bump rebuilds it automatically.
+
+**Privacy posture:** metadata only — model ids, token counts, tool names,
+truncated tool targets (≤200 chars), timestamps, and a short session title
+(≤160 chars of the first prompt or the host's summary); beyond those two
+deliberate excerpts, conversation content is never copied into the index.
+
+**Evals:** new 20-case `evals/run_control_evals.py` suite (token math,
+incremental/rescan dedupe, malformed-line resilience, subagent attribution,
+artifact ingestion, price arithmetic, API endpoint contract, localhost-only
+bind, GET-only enforcement, dashboard self-containment, disabled no-op,
+garbage-stdin exit 0, pidfile guard, real autostart round-trip, config
+validation, installer wiring), wired into CI. Gate-case count is now **164
+across 7 suites** (11 static + 44 behavioral + 26 memory + 23 reality + 24
+routing + 16 hook + 20 control).
+
+**Migration from 4.2.0:** bump the `version` string in your
+`quality-loop.config.json` to `4.3.0` — the `control_plane` block is optional
+and everything is off without it. Re-run `scripts/install.py` (or copy
+`scripts/`, `hosts/claude-code/`, and `assets/control-plane/`) to get the new
+module, shim, and dashboard; the settings merge adds the new hook entries
+idempotently.
+
 ## 4.2.0
 
 The model-routing release: express a multi-harness topology in config, enforce

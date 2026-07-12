@@ -30,6 +30,13 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
 
 Memory: `memory-recall`, `memory-commit`, `memory-prune`, `memory-status`.
 
+Control plane (local observability; see `docs/control-plane.md`): `control-index`
+(incremental SQLite index of host transcripts + loop artifacts under
+`.quality-loop/control/`), `control-serve` (dashboard + GET-only JSON API on
+127.0.0.1), `control-status`, `control-stop`, `control-ingest --event NAME`
+(hook entry point; no-op unless `control_plane.enabled`, always exits 0).
+Contract: the index is a disposable cache over evidence — no gate reads it.
+
 ## Tool Surface Guidance
 
 - **Minimum:** read, search, edit, shell, run tests, `git diff` / branch / commit / PR.

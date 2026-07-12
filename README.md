@@ -14,10 +14,10 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-4.2.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-4.3.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-144%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-164%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-111111?style=flat-square)](#install--use-matrix)
@@ -195,7 +195,7 @@ Every claim on this page is checkable on a clean checkout with no dependencies. 
 
 <div align="center">
 
-<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard — 144 offline gate cases across 6 suites (11 static, 44 behavioral, 26 memory, 23 reality, 24 routing, 16 hook), plus a 10-case trigger smoke fixture; per-agent code-quality lift excluding process artifacts: Droid/GLM-5.2 +8.0, Claude Code +6.67 (webapp) and +4.5 (Sudoku), Codex +1.0 (Sudoku) and −1.11 (webapp); zero runtime dependencies; five supported hosts; five published eval runs." width="900">
+<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard — 164 offline gate cases across 7 suites (11 static, 44 behavioral, 26 memory, 23 reality, 24 routing, 16 hook, 20 control), plus a 10-case trigger smoke fixture; per-agent code-quality lift excluding process artifacts: Droid/GLM-5.2 +8.0, Claude Code +6.67 (webapp) and +4.5 (Sudoku), Codex +1.0 (Sudoku) and −1.11 (webapp); zero runtime dependencies; five supported hosts; five published eval runs." width="900">
 
 </div>
 
@@ -212,7 +212,7 @@ python3 evals/run_routing_evals.py                                              
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 10. bench fixture smoke
 ```
 
-Current result: **11/11 static** + **44/44 behavioral** + **26/26 memory** + **23/23 reality** + **24/24 routing** + **16/16 hook** = **144 gate cases** across 6 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). A separate **10-case trigger smoke** fixture runs locally (step 8 above): its default grader is keyword-overlap and structurally cannot fail, so it is excluded from the gate count — a real activation check needs `--judge-command` with an LLM judge.
+Current result: **11/11 static** + **44/44 behavioral** + **26/26 memory** + **23/23 reality** + **24/24 routing** + **16/16 hook** + **20/20 control** = **164 gate cases** across 7 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). A separate **10-case trigger smoke** fixture runs locally (step 8 above): its default grader is keyword-overlap and structurally cannot fail, so it is excluded from the gate count — a real activation check needs `--judge-command` with an LLM judge.
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -396,6 +396,8 @@ python3 scripts/quality_loop.py scan-text --stdin < suspicious-file.txt
 python3 scripts/quality_loop.py brief
 python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
 python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
+python3 scripts/quality_loop.py control-index    # build the local observability index
+python3 scripts/quality_loop.py control-serve    # dashboard + JSON API on 127.0.0.1
 ```
 
 `diff-audit` exits non-zero on warnings: possible secrets, dependency edits, migrations, large diffs/file counts. Treat it as a coarse guardrail, not a substitute for gitleaks/trufflehog on high-risk work.
@@ -419,6 +421,21 @@ python3 scripts/quality_loop.py memory-commit agent-record.json
 The default backend is **stdlib-only and checked-in**: `.quality-loop/memory/`, git-diffable and team-shared.
 
 See [`references/memory.md`](references/memory.md) for the memory contract.
+
+---
+
+## Control plane
+
+One local dashboard to monitor, observe, and learn what the agents are doing — every session, every model call with **exact token counts**, tool calls, token spend, routing, and every loop artifact (records, reviews, minimality decisions, plans, escalations, memory). New in v4.3.0.
+
+```bash
+python3 scripts/quality_loop.py control-index   # SQLite index from transcripts + CQL artifacts
+python3 scripts/quality_loop.py control-serve   # dashboard at http://127.0.0.1:4477/
+```
+
+<img src="docs/images/control-plane.png" alt="Control plane dashboard — overview with session totals, model calls, exact input/output/cache token tiles, an output-tokens-by-day bar chart, and a per-model breakdown table" width="900">
+
+It is an **index over evidence, never a gate**: a disposable SQLite cache under `.quality-loop/control/` (self-gitignored, excluded from attestation) rebuilt from sources of truth — host transcripts and loop artifacts. Local-only by construction: stdlib `http.server` hard-bound to `127.0.0.1`, GET-only API, zero dependencies, no conversation bodies stored beyond a 160-char title line and truncated tool targets. Spend is reported in tokens; USD appears only if you supply your own `control_plane.prices` — no vendor price data ships. Opt-in hooks (`control_plane.enabled`) record session start/end and autostart the server; the ingest path always exits 0, so a broken observability plane can never break a session. A 20-case eval suite pins the whole surface. See [`docs/control-plane.md`](docs/control-plane.md).
 
 ---
 
@@ -492,11 +509,11 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   provenance is not hand-faked.
 - **Skills Hub publish checklist.** Before publishing to the
   [agentskills.io](https://agentskills.io) Skills Hub:
-  1. Bump `packages/npm/package.json` and tag a release (`git tag v4.2.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
+  1. Bump `packages/npm/package.json` and tag a release (`git tag v4.3.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all 6 gate suites green: 11 static + 44 behavioral + 26 memory + 23 reality + 24 routing + 16 hook = 144 gate cases, plus the 10-case trigger smoke fixture).
+     and the full eval suite (all 7 gate suites green: 11 static + 44 behavioral + 26 memory + 23 reality + 24 routing + 16 hook + 20 control = 164 gate cases, plus the 10-case trigger smoke fixture).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules

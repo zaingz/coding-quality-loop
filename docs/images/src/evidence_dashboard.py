@@ -1,7 +1,7 @@
 """Evidence dashboard — one graphic summarizing the proof.
 
 Sections:
-  - 144 offline gate cases (broken down across 6 gate suites; the 10-case trigger
+  - 164 offline gate cases (broken down across 7 gate suites; the 10-case trigger
     smoke fixture is excluded because its default grader cannot fail)
   - Zero runtime deps
   - Per-agent code-quality lift (honest split incl. Codex -1.11)
@@ -32,6 +32,7 @@ SUITES = [
     ("Reality", 23),
     ("Routing", 24),
     ("Hook", 16),
+    ("Control", 20),
 ]
 
 # Honest per-agent code-quality lift (excluding process artifacts)
@@ -87,14 +88,14 @@ def main():
         ha="left", va="center", fontsize=12, color=MUTED, family="DejaVu Sans",
     )
 
-    # Big number: 144
+    # Big number: 164
     card(ax, 5, 62, 38, 22, "OFFLINE GATE CASES")
     ax.text(
-        24, 74, "144", ha="center", va="center",
+        24, 74, "164", ha="center", va="center",
         fontsize=64, color=ACCENT, fontweight="bold", family="DejaVu Sans",
     )
     ax.text(
-        24, 66, "across 6 gate suites, re-run on every push",
+        24, 66, "across 7 gate suites, re-run on every push",
         ha="center", va="center", fontsize=11, color=MUTED, family="DejaVu Sans",
     )
 

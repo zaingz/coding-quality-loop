@@ -75,7 +75,11 @@ def install_runtime(target: Path, dry_run: bool) -> list[str]:
     for src in sorted((ROOT / "assets" / "routing").glob("*")):
         if src.is_file():
             copy_file(src, target / "assets" / "routing" / src.name, dry_run)
-    return ["Runtime: copied stdlib Quality Loop scripts, host hook shims, example config, and routing variants"]
+    # Control-plane dashboard: control-serve looks for it next to scripts/.
+    for src in sorted((ROOT / "assets" / "control-plane").glob("*")):
+        if src.is_file():
+            copy_file(src, target / "assets" / "control-plane" / src.name, dry_run)
+    return ["Runtime: copied stdlib Quality Loop scripts, host hook shims, example config, routing variants, and the control-plane dashboard"]
 
 
 def merge_hooks(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:

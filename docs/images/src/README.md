@@ -21,7 +21,7 @@ Requires: Python 3.10+, `matplotlib`, `Pillow`. No other dependencies.
 
 - `banner_v2.py` — headline copy sourced from `README.md` value prop; the
   three phases match `SKILL.md` §Lifecycle (PLAN → EXECUTE → REVIEW).
-- `evidence_dashboard.py` — 144 offline gate cases and the 6-suite breakdown are
+- `evidence_dashboard.py` — 164 offline gate cases and the 7-suite breakdown are
   the same numbers `README.md` publishes and `evals/` pins (the trigger smoke
   fixture is excluded). Per-agent lift values come from
   `examples/sudoku-agent-eval-2026-07-01/README.md` and
@@ -39,7 +39,7 @@ Requires: Python 3.10+, `matplotlib`, `Pillow`. No other dependencies.
 If you change a source-of-truth number in the repo, update the generator
 and re-run it — the media should stay in sync with the record.
 
-> Regenerated 2026-07-12 for v4.2.0 (144 gate cases / 6 suites / 5 published
+> Regenerated 2026-07-12 for v4.3.0 (164 gate cases / 7 suites / 5 published
 > eval runs) via a scratch matplotlib venv. If you change a count, re-run
 > `python3 docs/images/src/evidence_dashboard.py` so the PNG stays in sync —
 > the numbers-consistency lint now covers this file.

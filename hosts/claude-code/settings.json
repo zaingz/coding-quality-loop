@@ -12,6 +12,31 @@
             "statusMessage": "Loading Quality Loop context"
           }
         ]
+      },
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PROJECT_DIR}/hosts/claude-code/control_plane.py", "SessionStart"],
+            "timeout": 10,
+            "statusMessage": "Starting Quality Loop control plane"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PROJECT_DIR}/hosts/claude-code/control_plane.py", "SessionEnd"],
+            "timeout": 10,
+            "statusMessage": "Recording session end"
+          }
+        ]
       }
     ],
     "PreToolUse": [

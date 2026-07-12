@@ -1,15 +1,24 @@
 # Progress
 
-## 2026-07-12 — v4.2.0 model routing (branch v4.2-model-routing) — DONE, release pending
-- Shipped: multi-host per-role routing (agents {host,class} + main_session), family-aware
-  cross-host reviewer heterogeneity (fixes the sonnet/claude-sonnet-4-5 alias hole),
-  three eval-pinned routing variants + dated menu (assets/routing/), escalation evidence
-  fields (models_used/escalations) with the evidenced-failing-command gate, R7 cross-CLI
-  recipe (live-verified), version 4.2.0 at 5 synced sites, gate count 130 -> 144.
-- Reviewed: codex/gpt-5.6-sol (2 rounds) + 24-agent fresh-context swarm with adversarial
-  verification; 17 confirmed findings fixed and eval-pinned; review attested
-  (diff sha in record), verify umbrella PASS.
-- Record: .quality-loop/agent-record.json (status done). Archive to
-  docs/records/v4.2.0-agent-record.json as a follow-up commit after release.
-- NEXT (human-gated): merge v4.2-model-routing -> main, git tag v4.2.0, npm publish.
-  Follow-ups list lives in the record's completion_record.
+## 2026-07-12 — v4.3.0 control plane (branch v4.3-control-plane) — IN REVIEW
+- Shipped: local observability control plane — scripts/quality_loop_control.py
+  (incremental SQLite index over Claude Code transcripts + CQL artifacts; GET-only
+  127.0.0.1 server), assets/control-plane/dashboard.html (self-contained UI:
+  overview/sessions/spend/records/routing/memory/events), control-* subcommands,
+  SessionStart/SessionEnd hook shim with opt-in autostart (claude-code + codex
+  wiring), control_plane config block + check-config validation, 20-case eval
+  suite, gate count 144 -> 164 (7 suites), docs/control-plane.md, version 4.3.0
+  at 5 synced sites.
+- Hardened pre-review: bind-before-index (double-start race), sqlite busy_timeout,
+  Windows-safe _pid_alive (os.kill(pid,0) kills on nt), healthz-verified
+  control-stop (pid recycling), per-model cost attribution in mixed groups.
+- Verified: all 7 suites green (164/164), live smoke on this repo's real
+  transcripts (25+ sessions, 3.7k model calls), dashboard screenshots in both
+  themes via Playwright/Chrome.
+- In flight: codex-exec review, 8-dimension adversarial swarm, security reviewer.
+- NEXT: fix confirmed findings -> re-verify -> attest -> commit -> release train
+  (push main + v4.2.0 + v4.3.0 tags -> npm publish workflow) -> archive record.
+
+## 2026-07-12 — v4.2.0 model routing — DONE, merged to main + tagged locally
+- Merged as 2a3e499 (Merge v4.2-model-routing), tag v4.2.0 local; push rides the
+  v4.3.0 release train. Record archived at docs/records/v4.2.0-agent-record.json.

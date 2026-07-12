@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 try:
+    import quality_loop_control as qlctl
     import quality_loop_core as qlcore
     import quality_loop_memory as qlmem
     import quality_loop_reality as qlreal
@@ -29,8 +30,8 @@ except ImportError as _exc:  # pragma: no cover - exercised via subprocess eval
     sys.stderr.write(
         "coding-quality-loop: incomplete install — %s.\n"
         "The helper needs all sibling modules in the same directory: "
-        "quality_loop.py, quality_loop_core.py, quality_loop_memory.py, "
-        "quality_loop_reality.py, quality_loop_routing.py.\n"
+        "quality_loop.py, quality_loop_core.py, quality_loop_control.py, "
+        "quality_loop_memory.py, quality_loop_reality.py, quality_loop_routing.py.\n"
         "Copy the full scripts/ directory or re-run scripts/install.py. "
         "Do not hand-edit or stub the helper.\n" % _exc
     )
@@ -1067,7 +1068,7 @@ REQUIRED_STEPS = [
 # Single source of truth for the config schema/version. check_config rejects a
 # config that does not declare this version so the skill, config, CHANGELOG, and
 # npm package cannot silently drift apart.
-EXPECTED_CONFIG_VERSION = "4.2.0"
+EXPECTED_CONFIG_VERSION = "4.3.0"
 
 # Step model-class floor (P3.18): the planner (PLAN) and orchestrator
 # (ORCHESTRATE) steps must route to the strongest reasoning class so "the right
@@ -1303,6 +1304,10 @@ def check_config(args: argparse.Namespace) -> int:
     memory = config.get("memory")
     if memory is not None:
         errors.extend(qlmem.validate_memory_config(memory))
+
+    control = config.get("control_plane")
+    if control is not None:
+        errors.extend(qlctl.validate_control_plane(control))
 
     routing = config.get("model_routing")
     if routing is not None:
@@ -1865,6 +1870,32 @@ def main() -> int:
     p_setup.add_argument("--dry-run", action="store_true", help="Show what would change without writing files")
     p_setup.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_setup.set_defaults(func=qlroute.cmd_setup_models)
+
+    p_cindex = sub.add_parser("control-index", help="Build/update the local control-plane index (SQLite) from host transcripts + CQL artifacts")
+    p_cindex.add_argument("--cwd", default=".", help="Repo root (default .)")
+    p_cindex.add_argument("--all-projects", action="store_true", help="Index every project under ~/.claude/projects, not just this repo's")
+    p_cindex.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    p_cindex.set_defaults(func=qlctl.cmd_index)
+
+    p_cserve = sub.add_parser("control-serve", help="Serve the control-plane dashboard + read-only JSON API on 127.0.0.1")
+    p_cserve.add_argument("--cwd", default=".", help="Repo root (default .)")
+    p_cserve.add_argument("--port", type=int, help=f"Port (default: control_plane.port or {qlctl.DEFAULT_PORT})")
+    p_cserve.set_defaults(func=qlctl.cmd_serve)
+
+    p_cingest = sub.add_parser("control-ingest", help="Record one host hook event from stdin JSON (no-op unless control_plane.enabled; never fails)")
+    p_cingest.add_argument("--cwd", default=".", help="Repo root (default .)")
+    p_cingest.add_argument("--event", required=True, help="Event name (SessionStart, SessionEnd, ...)")
+    p_cingest.add_argument("--host", default="claude-code", help="Host emitting the event (default claude-code)")
+    p_cingest.set_defaults(func=qlctl.cmd_ingest)
+
+    p_cstatus = sub.add_parser("control-status", help="Show control-plane DB and server state")
+    p_cstatus.add_argument("--cwd", default=".", help="Repo root (default .)")
+    p_cstatus.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    p_cstatus.set_defaults(func=qlctl.cmd_status)
+
+    p_cstop = sub.add_parser("control-stop", help="Stop the running control-plane server")
+    p_cstop.add_argument("--cwd", default=".", help="Repo root (default .)")
+    p_cstop.set_defaults(func=qlctl.cmd_stop)
 
     args = parser.parse_args()
     return args.func(args)
