@@ -1,5 +1,5 @@
 {
-  "description": "Routing variant: max-intelligence (as_of 2026-07-11). Frontier models on every leg; routing exists to keep review in a different family, not to save cost. Paste this object over the model_routing section of your quality-loop.config.json, then run setup-models and check-config. See assets/routing/README.md for the dated model menu.",
+  "description": "Routing variant: max-intelligence (as_of 2026-07-12). Frontier models on every leg; routing exists to keep review in a different family, not to save cost. Anthropic + OpenAI only, two hosts. Paste over the model_routing section of quality-loop.config.json, then run setup-models and check-config.",
   "host": "claude-code",
   "host_models": {
     "claude-code": {
@@ -24,7 +24,7 @@
         "model": "gpt-5.6-sol",
         "family": "gpt",
         "thinking": "high",
-        "note": "Reviewer leg. Reviews stay advisory beneath deterministic gates; verify findings locally (see README)."
+        "note": "Reviewer leg. Reviews stay advisory beneath deterministic gates; verify findings locally."
       }
     }
   },
@@ -43,7 +43,7 @@
   "main_session": {
     "host": "claude-code",
     "class": "code_specialized",
-    "note": "Implementer runs in the Claude Code main session."
+    "note": "Implementer runs in the Claude Code main session on Fable 5."
   },
   "allow_same_family": false
 }

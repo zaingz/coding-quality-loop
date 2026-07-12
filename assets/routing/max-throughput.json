@@ -1,5 +1,5 @@
 {
-  "description": "Routing variant: max-throughput (as_of 2026-07-11). Cheapest legs that hold the floors the dial can never lower: strong_reasoning stays on a strong-tier model for plan/minimality/review classes, the reviewer stays in a different family than the implementer, and effort stays at high. Paste this object over the model_routing section of your quality-loop.config.json, then run setup-models and check-config. See assets/routing/README.md for the dated model menu.",
+  "description": "Routing variant: max-throughput (as_of 2026-07-12). Cheapest legs that hold the floors: strong_reasoning stays strong-tier (Sonnet 5), the reviewer stays in a different family (GPT-5.6 Terra), effort stays high. Anthropic + OpenAI only, two hosts. Paste over the model_routing section of quality-loop.config.json, then run setup-models and check-config.",
   "host": "claude-code",
   "host_models": {
     "claude-code": {
@@ -17,16 +17,7 @@
       "code_specialized": {
         "model": "claude-sonnet-5",
         "family": "claude",
-        "thinking": "high",
-        "note": "Fallback implementer when the droid leg is unavailable."
-      }
-    },
-    "droid": {
-      "code_specialized": {
-        "model": "glm-5.2-fast",
-        "family": "glm",
-        "thinking": "high",
-        "note": "Bulk executor. Open-weight GLM via Factory; see README for supply-risk note and non-Chinese fallbacks."
+        "thinking": "high"
       }
     },
     "codex": {
@@ -51,10 +42,9 @@
     }
   },
   "main_session": {
-    "host": "droid",
+    "host": "claude-code",
     "class": "code_specialized",
-    "model": "glm-5.2-fast",
-    "note": "Implementer runs on the droid leg; declared here for the cross-host heterogeneity check."
+    "note": "Implementer runs in the Claude Code main session on Sonnet 5."
   },
   "allow_same_family": false
 }

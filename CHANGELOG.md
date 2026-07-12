@@ -1,5 +1,40 @@
 # Changelog
 
+## 5.0.0
+
+The token-diet release: the always-loaded agent surface is cut roughly in
+half, decision-making is centralized in an explicit orchestrator layer, and
+delegation is pinned to frontier Anthropic + OpenAI models on two hosts
+(Claude Code + Codex).
+
+**Orchestrator layer (new contract):**
+- The main session owns every decision: task class, context map, contract,
+  right-size rung, plan, routing, verdicts, stop-if-unsafe. Workers
+  (implementer, reviewer) receive a one-screen brief — goal, contract slice,
+  files, commands, done-check — never the skill text, references, or a
+  repository tour.
+
+**Token diet (caveman-terse, ladder-first):**
+- `SKILL.md` rewritten ~56% smaller; calibration narrative folded into the
+  right-size gate and REVIEW sections; roles/advisor detail moved to
+  `references/agentic-orchestration.md` (on-demand only).
+- `.claude/agents/*` subagents, `examples/claude-code/CLAUDE.md`,
+  `examples/codex/AGENTS.md`, `assets/AGENTS.template.md`,
+  `assets/prompts/reviewer.md`, and `assets/prompts/drop-in-prompt.md`
+  compressed 40-65% with identical JSON output contracts and machine names.
+
+**Routing simplified to two hosts, two vendors:**
+- All three shipped routing variants now route exclusively to the latest
+  Anthropic (Fable 5, Opus 4.8, Sonnet 5, Haiku 4.5) and OpenAI (GPT-5.6
+  Sol/Terra) models. The droid/GLM executor leg is removed from the shipped
+  variants; Claude Code implements, Codex reviews cross-family. All floors
+  unchanged: reviewer family heterogeneity, strong_reasoning on
+  plan/orchestrate, effort ceiling at high. The example config keeps its
+  placeholder shape (eval fixture).
+
+No changes to scripts, hooks, gates, schemas, or eval logic; all record
+shapes and machine names are unchanged.
+
 ## 4.3.0
 
 The control-plane release: one local dashboard to monitor, observe, and learn

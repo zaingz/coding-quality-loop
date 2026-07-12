@@ -1,53 +1,19 @@
 # Coding Quality Loop (Claude Code)
 
-This project follows the Coding Quality Loop. Produce the smallest correct change with
-enough evidence that a human can trust, review, revert, or merge it.
+This repo runs the Coding Quality Loop: smallest correct change, with evidence a human can trust, review, revert, or merge.
 
-Lifecycle: three phases, **PLAN → EXECUTE → REVIEW**, each closed by its own verification
-gate. Sub-steps under each phase (unchanged machine names): PLAN groups `INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN`
-EXECUTE groups `IMPLEMENT_SLICE`, `VERIFY`; REVIEW groups `REVIEW`, `PACKAGE`, `RETROSPECT`.
+**You (main session) are the orchestrator.** Think and decide here: task class (tiny/small/medium/mission), context map, contract, right-size rung, plan, routing, verdicts. Subagents get a one-screen brief — goal, contract slice, files, commands, done-check — never full context.
 
-- **PLAN** — `INTAKE`: turn the goal into acceptance criteria, constraints, assumptions, a
-  risk tier (`low|medium|high`), and a verification plan. Ask only if a missing answer
-  changes architecture, data safety, security, cost, side effects, or user-visible behavior.
-  `EXPLORE / PLAN`: map only the relevant files, callers, tests, and config. Name the files
-  you expect to change and the checks you will run. `MINIMALITY_GATE`: pick the highest
-  valid rung — no change, delete, reuse, stdlib, native, existing dependency, one-liner,
-  minimal new code. Never drop security, validation, authorization, accessibility, or
-  data-loss protection for the sake of minimality.
-- **EXECUTE** — `IMPLEMENT_SLICE`: one small, reviewable slice using existing conventions.
-  `VERIFY`: run the smallest sufficient checks, then broader checks if risk warrants.
-  Record exact commands and results. Green tests are necessary, not sufficient.
-- **REVIEW** — `REVIEW`: for non-trivial work, review the diff in a **fresh context /
-  subagent** against the original contract. `PACKAGE`: hand off goal, files changed,
-  minimality decision, verification evidence, risks, rollback, and follow-ups.
+Lifecycle: `PLAN -> EXECUTE -> REVIEW`, each closed by its gate. Sub-steps: `INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN` | `IMPLEMENT_SLICE`, `VERIFY` | `REVIEW`, `PACKAGE`, `RETROSPECT`.
 
-Escalate before destructive migrations, secret/credential exposure, payments/billing,
-production infra, ambiguous user-facing behavior, or after two failed repair loops.
+- **PLAN** — contract (acceptance criteria, constraints, risk tier `low|medium|high`, verification plan). Map only relevant files, callers, tests. Right-size rung: no change > delete > reuse > stdlib > native > installed dependency > one-liner > minimal new code. Never drop security, validation, authorization, accessibility, or data-loss protection for minimality.
+- **EXECUTE** — one small slice in existing conventions. Smallest sufficient checks first; record exact commands and results. Green tests are necessary, not sufficient. Bug fix = RED then GREEN; never weaken tests.
+- **REVIEW** — medium+: fresh-context subagent in a different model family reviews the diff against the contract. The implementer never self-approves. Security review at risk boundaries. Package: files, right-size decision, evidence, risks, rollback, follow-ups.
 
-## Agentic routing
+Routing: plan on the strongest Anthropic reasoning model, implement on Sonnet 5, review via Codex (GPT-5.6). Apply with `python3 scripts/quality_loop.py setup-models`.
 
-Run REVIEW as a separate subagent so it does not inherit the implementer's confidence. Use a
-strong-reasoning model for PLAN/MINIMALITY_GATE and a code-specialized model for
-IMPLEMENT_SLICE. Enforce non-negotiable blocks (secrets, destructive migrations, auth/billing)
-with `.claude/settings.json` `PreToolUse` / `Stop` hooks — see
-https://docs.anthropic.com/en/docs/claude-code/hooks
+Escalate before: destructive migrations, secrets/credentials, payments/billing, production infra, ambiguous user-facing behavior, or after two failed repair loops.
 
-Install project hooks and read-only reviewer agents with:
+Hooks (advisory by default): `python3 scripts/install.py --host claude-code`. Set `.quality-loop/config.json` to `{"enforcement": "required"}` to block medium/high edits before PLAN + MINIMALITY_GATE.
 
-```bash
-python3 scripts/install.py --host claude-code
-```
-
-Hooks are advisory by default. Set `.quality-loop/config.json` to
-`{"enforcement": "required"}` to block medium/high edits before PLAN +
-MINIMALITY_GATE.
-
-Keep this file concise; prefer path-scoped `.claude/rules/` as instructions grow
-(https://docs.anthropic.com/en/docs/claude-code/memory).
-
-## One-line usage
-
-```bash
-claude "Follow the Coding Quality Loop to fix the invoice rounding bug and open a PR."
-```
+Usage: `claude "Follow the Coding Quality Loop to fix the invoice rounding bug and open a PR."`

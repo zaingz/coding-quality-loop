@@ -1,67 +1,51 @@
 # AGENTS.md
 
-Baseline, command-first repo instructions for coding agents. Keep it short and accurate —
-short, accurate guidance beats long, vague guidance. Fill the placeholders, delete what does
-not apply. Read by Codex (`AGENTS.md`), and a good base for Claude Code (`CLAUDE.md`) and
-Cursor (`.cursor/rules`).
+Command-first repo instructions for coding agents. Short and accurate beats long and vague. Fill the placeholders, delete what does not apply. Read by Codex (`AGENTS.md`); a good base for Claude Code (`CLAUDE.md`) and Cursor (`.cursor/rules`).
 
 ## Commands
 
 ```bash
 # install
-<install command, e.g. npm ci | uv sync | go mod download>
+<install command, e.g. npm ci | uv sync>
 # test
-<test command, e.g. npm test | pytest | go test ./...>
+<test command, e.g. npm test | pytest>
 # typecheck
-<typecheck command, e.g. tsc --noEmit | mypy . >
+<typecheck command, e.g. tsc --noEmit | mypy .>
 # lint
-<lint command, e.g. eslint . | ruff check . >
+<lint command, e.g. eslint . | ruff check .>
 # build
 <build command, e.g. npm run build | make>
 ```
 
-Run the relevant checks before claiming a task is done. Green tests are necessary, not sufficient.
+Run the relevant checks before claiming done. Green tests are necessary, not sufficient.
 
 ## How To Work Here
 
-Follow the Coding Quality Loop: produce the smallest correct change with enough evidence to
-trust, review, revert, or merge it.
-
-Three phases, each closed by its own verification gate: `PLAN -> EXECUTE -> REVIEW`. Unchanged
-sub-steps under each phase (machine names): PLAN groups `INTAKE`, `EXPLORE`,
-`MINIMALITY_GATE`, `PLAN`; EXECUTE groups `IMPLEMENT_SLICE`, `VERIFY`; REVIEW groups `REVIEW`,
-`PACKAGE`, `RETROSPECT`.
+Follow the Coding Quality Loop: smallest correct change, with evidence to trust, review, revert, or merge. `PLAN -> EXECUTE -> REVIEW`, each closed by its gate. Sub-steps: `INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN` | `IMPLEMENT_SLICE`, `VERIFY` | `REVIEW`, `PACKAGE`, `RETROSPECT`.
 
 - Pick the smallest safe task class (tiny/small/medium/mission).
-- Prefer deletion, reuse, stdlib, and native features before new code or new dependencies.
-- Keep diffs small and in existing conventions; no speculative abstraction, no unrelated cleanup.
-- For non-trivial work: write a validation contract first, get an independent review, ship a completion record.
+- Deletion, reuse, stdlib, native before new code or new dependencies.
+- Small diffs in existing conventions; no speculative abstraction, no unrelated cleanup.
+- Non-trivial work: validation contract first, independent review, completion record.
 
 ## Stop Conditions (escalate, do not proceed)
 
 - Destructive migrations or data deletion.
 - Secrets, credentials, or auth-policy changes.
-- Payments, billing, production infrastructure, or irreversible external side effects.
+- Payments, billing, production infrastructure, irreversible external side effects.
 - New dependencies without justification.
 - Ambiguous user-facing behavior, or repeated verification failure after two repair attempts.
 
-## Project memory (optional, advisory)
+## Project Memory (optional, advisory)
 
-- Recall prior lessons before mapping a change:
-  `python3 scripts/quality_loop.py memory-recall --goal "<goal>" --files <changed,files> --risk <low|medium|high>`
-- Commit a durable lesson at retrospective:
-  `python3 scripts/quality_loop.py memory-commit agent-record.json`
-- Commit a cross-project convention to the global store:
-  `python3 scripts/quality_loop.py memory-commit --lesson "<lesson>" --kind convention --global`
-- Lessons live in `.quality-loop/memory/` (project) and `~/.quality-loop/global/` (cross-project).
-  Writes are advisory; never store secrets as lessons.
+- Recall before mapping: `python3 scripts/quality_loop.py memory-recall --goal "<goal>" --files <changed,files> --risk <low|medium|high>`
+- Commit a lesson at retrospective: `python3 scripts/quality_loop.py memory-commit agent-record.json`
+- Lessons live in `.quality-loop/memory/` (project) and `~/.quality-loop/global/` (cross-project). Never store secrets.
 
-## Session continuity
+## Session Continuity
 
-- At session start, run `python3 scripts/quality_loop.py brief` to get up to speed
-  (last run, open risks, top lessons, progress tail).
-- At PACKAGE / RETROSPECT, update `.quality-loop/progress.md`: current goal, recent sessions,
-  open risks, next step. Leave the repo in a clean, committable state.
+- Session start: `python3 scripts/quality_loop.py brief`.
+- At PACKAGE / RETROSPECT: update `.quality-loop/progress.md`; leave the repo clean and committable.
 
 ## Project-Specific Notes
 
