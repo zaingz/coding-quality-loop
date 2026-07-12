@@ -1,5 +1,5 @@
 {
-  "description": "Routing variant: balanced (as_of 2026-07-11). Frontier reasoning where wrong calls cost the most (plan, minimality, orchestration), an open-weight code-specialized executor for the diff, a different-family reviewer. Paste this object over the model_routing section of your quality-loop.config.json, then run setup-models and check-config. See assets/routing/README.md for the dated model menu and swap guidance.",
+  "description": "Routing variant: balanced (as_of 2026-07-12). Default. Opus 4.8 judgment on plan/minimality, Sonnet 5 implementation, GPT-5.6 Sol cross-family review via Codex. Anthropic + OpenAI only, two hosts. Paste over the model_routing section of quality-loop.config.json, then run setup-models and check-config.",
   "host": "claude-code",
   "host_models": {
     "claude-code": {
@@ -9,23 +9,14 @@
         "thinking": "low"
       },
       "strong_reasoning": {
-        "model": "claude-fable-5",
+        "model": "claude-opus-4-8",
         "family": "claude",
         "thinking": "high"
       },
       "code_specialized": {
         "model": "claude-sonnet-5",
         "family": "claude",
-        "thinking": "high",
-        "note": "Fallback implementer when the droid leg is unavailable."
-      }
-    },
-    "droid": {
-      "code_specialized": {
-        "model": "glm-5.2-fast",
-        "family": "glm",
-        "thinking": "high",
-        "note": "Bulk executor. Open-weight GLM via Factory; see README for supply-risk note and non-Chinese fallbacks."
+        "thinking": "high"
       }
     },
     "codex": {
@@ -33,7 +24,7 @@
         "model": "gpt-5.6-sol",
         "family": "gpt",
         "thinking": "high",
-        "note": "Reviewer leg. Reviews stay advisory beneath deterministic gates; verify findings locally (see README)."
+        "note": "Reviewer leg. Reviews stay advisory beneath deterministic gates; verify findings locally."
       }
     }
   },
@@ -50,10 +41,9 @@
     }
   },
   "main_session": {
-    "host": "droid",
+    "host": "claude-code",
     "class": "code_specialized",
-    "model": "glm-5.2-fast",
-    "note": "Implementer runs on the droid leg; declared here for the cross-host heterogeneity check."
+    "note": "Implementer runs in the Claude Code main session on Sonnet 5."
   },
   "allow_same_family": false
 }

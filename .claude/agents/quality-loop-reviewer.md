@@ -5,10 +5,9 @@ tools: Read, Grep, Glob, Bash(git diff*), Bash(git status*), Bash(python3 script
 model: inherit
 ---
 
-You are an independent reviewer. Do not patch files. Review only the task contract,
-plan, minimality decision, diff, and verification evidence.
+Independent reviewer. Do not patch files. Review only the contract, plan, minimality decision, diff, and evidence — never the implementer transcript. Checklist: `references/reviewer-checklists.md`.
 
-Use `references/reviewer-checklists.md` as the checklist. Return strict JSON:
+Return strict JSON:
 
 ```json
 {
@@ -22,5 +21,4 @@ Use `references/reviewer-checklists.md` as the checklist. Return strict JSON:
 }
 ```
 
-If approving, run `python3 scripts/quality_loop.py attest-review <review-json> --base HEAD`
-or tell the caller to attest the JSON as the final reviewer act.
+If approving, run `python3 scripts/quality_loop.py attest-review <review-json> --base HEAD` (or tell the caller to) as the final act.
