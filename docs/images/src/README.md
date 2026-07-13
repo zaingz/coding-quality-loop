@@ -23,7 +23,7 @@ Requires: Python 3.10+, `matplotlib`, `Pillow`. No other dependencies.
 
 ## Source-of-truth invariants
 
-- `evidence_dashboard.py` — 164 offline gate cases and the 7-suite breakdown are
+- `evidence_dashboard.py` — 171 offline gate cases and the 7-suite breakdown are
   the same numbers `README.md` publishes and `evals/` pins (the trigger smoke
   fixture is excluded). Per-agent lift values come from
   `examples/sudoku-agent-eval-2026-07-01/README.md` and
@@ -41,7 +41,7 @@ Requires: Python 3.10+, `matplotlib`, `Pillow`. No other dependencies.
 If you change a source-of-truth number in the repo, update the generator
 and re-run it — the media should stay in sync with the record.
 
-> Regenerated 2026-07-13 for v5.0.0 (164 gate cases / 7 suites / 5 published
+> Regenerated 2026-07-13 for v5.1.0 (171 gate cases / 7 suites / 5 published
 > eval runs; two routed hosts — Claude Code + Codex). If you change a count,
 > re-run `python3 docs/images/src/evidence_dashboard.py` so the PNG stays in
 > sync — the numbers-consistency lint now covers this file.

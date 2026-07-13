@@ -51,9 +51,9 @@ SCRIPT = ROOT / "scripts" / "quality_loop.py"
 #
 # BUMP THIS whenever a gate suite's case count changes. Current breakdown:
 #   11 static + 44 behavioral + 26 memory + 23 reality + 24 routing + 16 hook
-#   + 20 control = 164
+#   + 27 control = 171
 # (behavioral is this file: len(CASES); run it to confirm the number.)
-CANONICAL_GATE_CASES = 164
+CANONICAL_GATE_CASES = 171
 
 sys.path.insert(0, str(ROOT / "scripts"))
 import quality_loop  # noqa: E402  (SECRET_PATTERNS reused by the untracked-secret case)

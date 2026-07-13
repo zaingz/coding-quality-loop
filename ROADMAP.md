@@ -78,7 +78,7 @@ Last updated: 2026-07-13.
   artifact dimensions.
 - ✅ **40% surface reduction.** Archived legacy adapters, local orchestration,
   v2.4 ceremony surfaces, and stats reporting. Scripts 4,600 → 3,300 lines.
-  164 gate cases across 7 suites (plus a 10-case trigger smoke fixture).
+  171 gate cases across 7 suites (plus a 10-case trigger smoke fixture).
 
 ## Landed earlier — v2.4
 

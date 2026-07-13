@@ -13,7 +13,7 @@
 [![version](https://img.shields.io/badge/version-5.1.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-164%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-171%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-routed-111111?style=flat-square)](#install--use-matrix)
@@ -217,7 +217,7 @@ Every claim on this page is checkable on a clean checkout with no dependencies. 
 
 <div align="center">
 
-<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard — 164 offline gate cases across 7 suites (11 static, 44 behavioral, 26 memory, 23 reality, 24 routing, 16 hook, 20 control), plus a 10-case trigger smoke fixture; per-agent code-quality lift excluding process artifacts, negatives shown next to positives; zero runtime dependencies; two routed hosts (Claude Code + Codex); five published eval runs." width="900">
+<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard — 171 offline gate cases across 7 suites (11 static, 44 behavioral, 26 memory, 23 reality, 24 routing, 16 hook, 27 control), plus a 10-case trigger smoke fixture; per-agent code-quality lift excluding process artifacts, negatives shown next to positives; zero runtime dependencies; two routed hosts (Claude Code + Codex); five published eval runs." width="900">
 
 </div>
 
@@ -234,7 +234,7 @@ python3 evals/run_routing_evals.py                                              
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 10. bench fixture smoke
 ```
 
-Current result: **11/11 static** + **44/44 behavioral** + **26/26 memory** + **23/23 reality** + **24/24 routing** + **16/16 hook** + **20/20 control** = **164 gate cases** across 7 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). A separate **10-case trigger smoke** fixture runs locally (step 8 above): its default grader is keyword-overlap and structurally cannot fail, so it is excluded from the gate count — a real activation check needs `--judge-command` with an LLM judge.
+Current result: **11/11 static** + **44/44 behavioral** + **26/26 memory** + **23/23 reality** + **24/24 routing** + **16/16 hook** + **27/27 control** = **171 gate cases** across 7 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). A separate **10-case trigger smoke** fixture runs locally (step 8 above): its default grader is keyword-overlap and structurally cannot fail, so it is excluded from the gate count — a real activation check needs `--judge-command` with an LLM judge.
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -454,16 +454,20 @@ See [`references/memory.md`](references/memory.md) for the memory contract.
 
 ## Control plane
 
-One local dashboard to monitor, observe, and learn what the agents are doing — every session, every model call with **exact token counts**, tool calls, token spend, routing, and every loop artifact (records, reviews, minimality decisions, plans, escalations, memory). Shipped in v4.3.0.
+One local dashboard to monitor, observe, and learn what the agents are doing — every session, every model call with **exact token counts**, tool calls, token spend, routing, and every loop artifact (records, reviews, findings, minimality decisions, plans, escalations, delegations, memory). Shipped in v4.3.0; v5.1.0 ("Audit Trail") makes the *evidence* first-class.
 
 ```bash
 python3 scripts/quality_loop.py control-index   # SQLite index from transcripts + CQL artifacts
 python3 scripts/quality_loop.py control-serve   # dashboard at http://127.0.0.1:4477/
 ```
 
-<img src="docs/images/control-plane.png" alt="Control plane dashboard — overview with session totals, model calls, exact input/output/cache token tiles, an output-tokens-by-day bar chart, and a per-model breakdown table" width="900">
+<img src="docs/images/control-plane.png" alt="Control plane dashboard — Overview with session, model-call, and tool-call tiles, exact input/output/cache-read token tiles and an estimated-spend tile, a tokens-by-day input+output bar chart, and a per-model breakdown table (claude-opus-4-8, claude-sonnet-4-6) with calls, in/out tokens, cache read, and est. USD" width="900">
 
-It is an **index over evidence, never a gate**: a disposable SQLite cache under `.quality-loop/control/` (self-gitignored, excluded from attestation) rebuilt from sources of truth — host transcripts and loop artifacts. Local-only by construction: stdlib `http.server` hard-bound to `127.0.0.1`, GET-only API, zero dependencies, no conversation bodies stored beyond a 160-char title line and truncated tool targets. Spend is reported in tokens; USD appears only if you supply your own `control_plane.prices` — no vendor price data ships. Opt-in hooks (`control_plane.enabled`) record session start/end and autostart the server; the ingest path always exits 0, so a broken observability plane can never break a session. A 20-case eval suite pins the whole surface. See [`docs/control-plane.md`](docs/control-plane.md).
+**v5.1.0 audit trail.** Delegation lineage is reconstructed at query time: the orchestrator appends one line per hand-off to `.quality-loop/delegations.jsonl`, and the index joins each to the role→session→tokens it actually ran in — nothing is stored as a join. Review **findings are first-class**, each carrying its own severity + text + reviewer, so the loop's most valuable proof is queryable, not just counted. A **per-task audit timeline** (`/api/task`, or the `control-report --task-id` CLI that prints the same bundle as markdown or JSON) ties findings, delegations, verdicts, minimality rung, and linked-session spend to the sessions that produced them. `/api/metrics` aggregates loop KPIs (evidence rate, escalations, repair attempts, verdict/severity/rung shares) live from the index. Tool-call targets are run through the memory redactor before storage, so a secret typed at the prompt becomes `[REDACTED]` even when it straddles the 200-char truncation. The revamped dashboard adds Delegations / Tasks / Metrics views alongside the existing ones.
+
+<img src="docs/images/control-plane-task-timeline.png" alt="Control plane task-audit view for task v5-docs-overhaul — header tiles for model calls, input/output tokens, findings (6), and delegations (3) over a single chronological timeline that interleaves delegations (implementer, validator, simplicity_reviewer), the minimal_new_code minimality rung, review findings by severity, and tool events: the per-task audit trail tying findings, delegations, verdicts, and spend to the sessions that produced them" width="900">
+
+It is an **index over evidence, never a gate**: a disposable SQLite cache under `.quality-loop/control/` (self-gitignored, excluded from attestation) rebuilt from sources of truth — host transcripts and loop artifacts. Local-only by construction: stdlib `http.server` hard-bound to `127.0.0.1`, GET-only API, zero dependencies, no conversation bodies stored beyond a 160-char title line and truncated tool targets. Spend is reported in tokens; USD appears only if you supply your own `control_plane.prices` — no vendor price data ships. Opt-in hooks (`control_plane.enabled`) record session start/end and autostart the server; the ingest path always exits 0, so a broken observability plane can never break a session. A 27-case eval suite pins the whole surface. See [`docs/control-plane.md`](docs/control-plane.md).
 
 ---
 
@@ -543,7 +547,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all 7 gate suites green: 11 static + 44 behavioral + 26 memory + 23 reality + 24 routing + 16 hook + 20 control = 164 gate cases, plus the 10-case trigger smoke fixture).
+     and the full eval suite (all 7 gate suites green: 11 static + 44 behavioral + 26 memory + 23 reality + 24 routing + 16 hook + 27 control = 171 gate cases, plus the 10-case trigger smoke fixture).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules
