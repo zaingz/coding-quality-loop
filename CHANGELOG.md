@@ -1,5 +1,44 @@
 # Changelog
 
+## 5.1.0
+
+The audit-trail release for the local control plane: the observability index
+now carries the loop's *evidence*, not just its token accounting, and a new
+per-task report ties findings, delegations, verdicts, and spend to the sessions
+that produced them — all still local, read-only, and additive.
+
+**Audit trail (new, additive API):**
+- Review findings are first-class `finding` artifacts (severity + text +
+  reviewer), not just a count on the review row.
+- The orchestrator's `.quality-loop/delegations.jsonl` ledger ingests to
+  `delegation` artifacts; malformed lines are counted and skipped, never fatal.
+- Query-time join links each delegation to the session it ran in (agent-name
+  match within a time window) with exact token sums — no join is ever stored.
+- `GET /api/task?task_id=…` returns a full per-task timeline (record, plan,
+  minimality decision, delegations, escalations, reviews, findings) plus linked
+  sessions and spend; unknown ids return 404.
+- `GET /api/metrics` reports loop KPIs (verdict distribution, findings by
+  severity, escalations, repair attempts, minimality rungs, evidence rate,
+  spend by role, session durations); empty DB returns a zeroed 200.
+- New `control-report --task-id` CLI prints the same bundle as markdown or
+  `--json`; unknown task exits 2.
+- Tool-call targets are secret-redacted (reusing the memory redactor) before
+  they are stored, so a key typed at a prompt never lands in the index.
+
+**Dashboard revamp:**
+- New Delegations, Tasks, and Metrics views; task drill-down with the full
+  audit timeline. Sessions table no longer overflows (fixed layout + ellipsis
+  with full-text titles); labeled stacked in/out chart with hover; relative
+  timestamps (absolute on hover); duration column; empty states everywhere.
+  Still a single self-contained file with zero external requests.
+
+**Schema:**
+- `SCHEMA_VERSION` bumped to 7. As always, a schema bump means the SQLite index
+  is rebuilt from source on next index — the index is a disposable cache. The
+  one exception is hook-reported events (SessionStart/SessionEnd), which have no
+  source file to replay; on a schema bump those historical events are not
+  rebuildable and are lost with the old DB.
+
 ## 5.0.0
 
 The token-diet release: the always-loaded agent surface is cut roughly in
