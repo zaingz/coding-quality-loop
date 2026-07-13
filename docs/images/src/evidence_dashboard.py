@@ -185,8 +185,8 @@ def main():
                 fontsize=10, color=MUTED, family="DejaVu Sans")
 
     stat_card(5, 28, "RUNTIME DEPS", "0", "stdlib-only Python helper")
-    stat_card(36, 28, "HOSTS SUPPORTED", "5",
-              "Claude · Codex · Cursor · Pi · Droid")
+    stat_card(36, 28, "ROUTED HOSTS", "2",
+              "Claude Code (plan/build) + Codex (review)")
     stat_card(67, 28, "PUBLISHED EVAL RUNS", "5",
               "only webapp 07-07 is real-CLI")
 

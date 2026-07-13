@@ -39,12 +39,12 @@ FRAMES = [
     ],
     [
         (DIM, "$ npx coding-quality-loop init"),
-        (FG,  "coding-quality-loop v3.1.0"),
+        (FG,  "coding-quality-loop v5.0.0"),
         (FG,  "Detecting host … claude-code"),
     ],
     [
         (DIM, "$ npx coding-quality-loop init"),
-        (FG,  "coding-quality-loop v3.1.0"),
+        (FG,  "coding-quality-loop v5.0.0"),
         (FG,  "Detecting host … claude-code"),
         (GREEN, "[ok]  copied SKILL.md → .claude/skills/coding-quality-loop/"),
         (GREEN, "[ok]  wired hooks → .claude/settings.json"),

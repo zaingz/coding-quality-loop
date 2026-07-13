@@ -1,14 +1,18 @@
 # Image generators
 
-Every image in `docs/images/` that is not a photograph or a screenshot has
-a matching generator source in this folder. This keeps the media
-regenerable, reviewable in `git diff`, and grounded — no hidden Figma or
-external tool is required to re-render or tweak them.
+Every programmatic image in `docs/images/` (charts, diagrams, terminal
+captures) has a matching generator source in this folder. This keeps the
+media regenerable, reviewable in `git diff`, and grounded — no hidden Figma
+or external tool is required to re-render or tweak them.
+
+The dark-theme art assets in `docs/images/art/` (`hero-art.png`,
+`orchestrator-layer.png`, `loop-phases.png`, `gates.png`) are the v5.0.0
+visual identity and are **not** generated here — they are illustrated
+assets, checked in as-is.
 
 ## Regenerate all
 
 ```bash
-python3 docs/images/src/banner_v2.py           # banner-v2-dark.png, banner-v2-light.png
 python3 docs/images/src/evidence_dashboard.py  # evidence-dashboard.png
 python3 docs/images/src/terminal_demo.py       # terminal-demo.gif, terminal-demo-poster.png
 python3 docs/images/src/anatomy.py             # anatomy-of-a-change.png
@@ -19,8 +23,6 @@ Requires: Python 3.10+, `matplotlib`, `Pillow`. No other dependencies.
 
 ## Source-of-truth invariants
 
-- `banner_v2.py` — headline copy sourced from `README.md` value prop; the
-  three phases match `SKILL.md` §Lifecycle (PLAN → EXECUTE → REVIEW).
 - `evidence_dashboard.py` — 164 offline gate cases and the 7-suite breakdown are
   the same numbers `README.md` publishes and `evals/` pins (the trigger smoke
   fixture is excluded). Per-agent lift values come from
@@ -39,7 +41,7 @@ Requires: Python 3.10+, `matplotlib`, `Pillow`. No other dependencies.
 If you change a source-of-truth number in the repo, update the generator
 and re-run it — the media should stay in sync with the record.
 
-> Regenerated 2026-07-12 for v4.3.0 (164 gate cases / 7 suites / 5 published
-> eval runs) via a scratch matplotlib venv. If you change a count, re-run
-> `python3 docs/images/src/evidence_dashboard.py` so the PNG stays in sync —
-> the numbers-consistency lint now covers this file.
+> Regenerated 2026-07-13 for v5.0.0 (164 gate cases / 7 suites / 5 published
+> eval runs; two routed hosts — Claude Code + Codex). If you change a count,
+> re-run `python3 docs/images/src/evidence_dashboard.py` so the PNG stays in
+> sync — the numbers-consistency lint now covers this file.
