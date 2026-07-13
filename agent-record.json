@@ -32,7 +32,33 @@
     "internal markdown link + image-src resolution check across all *.md"
   ],
   "validation_contract": "assets/validation-contract.md",
-  "independent_review": null,
+  "independent_review": {
+    "reviewer": "openai/gpt-5.5 (independent validator, fresh context)",
+    "reviewer_family": "gpt",
+    "verdict": "approve",
+    "fresh_context": true,
+    "ran_checks": true,
+    "patched": false,
+    "branch_tip_reviewed": "dbcc78b",
+    "base": "main",
+    "summary": "All eight acceptance criteria pass; claims re-verified not trusted; every eval suite and check-config re-run on a clean checkout (164/164 across 7 suites, check-config ok). No gate logic weakened. The three flagged deviations are honest and reasonable. No blocking findings.",
+    "findings": [
+      {
+        "severity": "advisory",
+        "note": "A1 \u2014 Historical GLM-5.2 citation in the dated Sudoku 07-01 eval row is a factual record of what was tested; erasing it would violate candor. Keep as-is."
+      },
+      {
+        "severity": "advisory",
+        "note": "A2 \u2014 anatomy.py and gate_gaming.py were not regenerated; their sources encode no stale version/count data (the v3.1.0 strings are correct provenance). Not an AC violation."
+      },
+      {
+        "severity": "advisory",
+        "note": "A3 \u2014 Embed this independent-review verdict into agent-record.json before merge so verify-gates clears its two review-pending warnings (this commit)."
+      }
+    ],
+    "diff_sha256": "061b9540c4685f01ff37334b4f9c5626de8615a4467d1310aa7c09b6b4294634",
+    "attested_at": "2026-07-13T15:16:50"
+  },
   "security_review": null,
   "completion_record": null,
   "repair_attempts": 0,
@@ -154,7 +180,11 @@
   "open_risks": [
     "Independent review is pending: this record is single-agent dogfooding evidence, not a completed two-vendor review. The routed v5 loop would send this diff to a Codex reviewer before ship."
   ],
-  "review_findings": [],
-  "next_action": "Open PR to main for human + independent review; do not merge.",
+  "review_findings": [
+    "Independent cross-family review (openai/gpt-5.5, fresh context): APPROVE. All 8 ACs pass; 164/164 across 7 suites re-run; check-config ok; no gate logic weakened.",
+    "Advisory A1: historical GLM-5.2 eval citation kept (candor); A2: anatomy/gate_gaming images carry no stale data; A3: verdict now embedded in this record.",
+    "No blocking findings."
+  ],
+  "next_action": "Independent review embedded (APPROVE). Merge PR #7 to main with a merge commit; do not squash.",
   "status": "review"
 }
