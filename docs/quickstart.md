@@ -4,7 +4,7 @@ Two ways to try the Coding Quality Loop, ordered by commitment. Pick the lightes
 that fits your task.
 
 <div align="center">
-
+<img src="images/terminal-demo.gif" alt="Animated terminal capture — the quality loop detects the host, copies the skill, wires hooks, and runs verify to a green Overall: PASS." width="820">
 </div>
 
 ## A. No install — drop-in prompt (30 seconds)

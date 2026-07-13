@@ -4,11 +4,7 @@
 > Coding Quality Loop sits relative to the strongest alternatives, so you can pick the
 > right one for your team.
 
-<div align="center">
-
-</div>
-
-> **Read this before the table:** the summary graphic is our characterization. We linked
+> **Read this before the table:** the summary below is our characterization. We linked
 > each project below — read them yourself, run them, and disagree with us in an issue if
 > we got it wrong. This is not a benchmark.
 

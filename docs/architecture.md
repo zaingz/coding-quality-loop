@@ -3,10 +3,6 @@
 > How the pieces fit together. If the [README](../README.md) is the "what and why", this is
 > the "how it is put together on disk".
 
-<div align="center">
-
-</div>
-
 The Coding Quality Loop is deliberately boring under the hood: three layers, no runtime
 dependencies, and every non-negotiable enforceable by a single Python script you can read
 in one sitting.
@@ -43,12 +39,12 @@ Advisory text drifts across sessions; a gate either fires or it does not.
 |---|---|
 | `verify-gates` | Reads the state record. Confirms every recorded field is present, well-formed, and non-empty. Rejects bare booleans, empty strings, and nonexistent paths. |
 | `verify-gates --against-diff` | Adds diff-grounded checks against the real `git diff`: phantom completion, scope integrity, diff-derived risk floor, bugfix-test co-presence, and stale review hashes. |
-| `verify` | *(v3)* Umbrella command: runs `verify-gates --against-diff`, `diff-audit`, `run-evidence`, and AC-to-command coverage in one pass. Fails if any constituent section fails; emits a single unified report. Survives a non-git repo (records the diff-dependent sections as failed instead of exiting with no report). |
+| `verify` | Umbrella command: runs `verify-gates --against-diff`, `diff-audit`, `run-evidence`, and AC-to-command coverage in one pass. Fails if any constituent section fails; emits a single unified report. Survives a non-git repo (records the diff-dependent sections as failed instead of exiting with no report). |
 | `diff-audit` | Scans the diff (or `--staged` for pre-commit) for possible secrets, dependency edits, migrations, oversized changes, and test weakening. Flags untracked files too. |
 | `run-evidence` | Re-executes recorded pass commands from the record's allowlist. `--red-green` replays a red_green command in a worktree at base and HEAD. |
 | `attest-review` | Embeds a recomputed diff hash so a review verdict cannot silently outlast the diff it approved. |
 | `scan-text --stdin` | Secret-scan-as-a-service, for hook shims and paste boxes. |
-| `check-record` | Structural lint of a state record against `assets/agent-record.schema.json`. The record's state machine is the `status` field; a legacy `phase` field is tolerated and ignored (removed in v3.2). |
+| `check-record` | Structural lint of a state record against `assets/agent-record.schema.json`. The record's state machine is the `status` field; a legacy `phase` field is tolerated and ignored. |
 | `check-config` | Structural lint of `quality-loop.config.json` against `assets/quality-loop.config.schema.json`. |
 | `eval-cases` | Runs offline eval cases that pin task-class, risk-tier, gate, security-reviewer, completion-record, and right-size-gate logic. |
 | `init-record` / `brief` / `setup-models` | Housekeeping and reporting. `init-record` scaffolds the record and the run-evidence allowlist. |
@@ -61,15 +57,15 @@ human review; they do not replace them. The runtime dependency count is zero.
 The loop narrative groups work into three phases — **PLAN → EXECUTE → REVIEW** — each closed by its own verification gate before the next may start. The phases are presentation; the enforced state machine is the record's `status` field walking the nine sub-steps (`INTAKE`, `EXPLORE`, `MINIMALITY_GATE`, `PLAN`, `IMPLEMENT_SLICE`, `VERIFY`, `REVIEW`, `PACKAGE`, `RETROSPECT`), which stay valid as machine names in every record and config. Each step can run as a different agent, model, or tool profile, mapped by **role** rather than vendor:
 
 <div align="center">
-
+<img src="images/art/loop-phases.png" alt="The loop — a circular flow through PLAN, EXECUTE, and REVIEW, each closed by a check-mark gate." width="420">
 </div>
 
 | Role | Owns | Default profile |
 |---|---|---|
-| `orchestrator` | State machine, journal, review isolation | The host CLI (Claude Code, Codex, Droid) |
-| `context_mapper` | Task-scoped repo map, entry points, callers | Cheap/fast model (e.g. haiku, GLM cheap) |
-| `implementer` | Diff, tests, execution log | Strong code model (sonnet, gpt-5-codex, glm-5.2) |
-| `validator` | Independent review against contract + diff + evidence | Strong reasoning model, **different session and identity** |
+| `orchestrator` | State machine, journal, review isolation, every routing decision | The main session (Claude Code) |
+| `context_mapper` | Task-scoped repo map, entry points, callers | Cheap/fast model (e.g. Claude Haiku) |
+| `implementer` | Diff, tests, execution log | Strong code model (Claude Sonnet on Claude Code) |
+| `validator` | Independent review against contract + diff + evidence | Strong reasoning model on a **different vendor** (Codex), separate session |
 | `security_reviewer` | Escalated review for auth, payments, migrations, secrets | Strong reasoning model, security-focused prompt |
 | `policy_guard` | Deterministic hooks (secrets, protected paths, dependency approval) | Host hooks + git hooks + CI |
 | `package` | Completion record, PR handoff, retro | Cheap model — this step is largely mechanical |
@@ -165,10 +161,6 @@ If enabled, a tiny per-project ledger of distilled lessons is recalled at `INTAK
 committed at `RETROSPECT`. See [`references/memory.md`](../references/memory.md) for the
 contract; [`docs/memory.md`](memory.md) for a quick visual overview.
 
-<div align="center">
-
-</div>
-
 ## What is portable, what is host-specific
 
 | Portable | Host-specific |
@@ -176,7 +168,7 @@ contract; [`docs/memory.md`](memory.md) for a quick visual overview.
 | `SKILL.md`, `references/`, `assets/`, `examples/` | `.claude/settings.json`, `hosts/codex/hooks.json`, `.factory/droids/*.md` |
 | `scripts/quality_loop.py` (stdlib only, no host imports) | `scripts/install.py --host <name>` per-host wiring |
 | The state-record schema and gate CLI | Native subagent invocations, host-specific model IDs |
-| Git hooks (`hosts/git/`) and CI (`action.yml`, via the v3 `verify` umbrella) | Host session lifecycle hooks |
+| Git hooks (`hosts/git/`) and CI (`action.yml`, via the `verify` umbrella) | Host session lifecycle hooks |
 
 The design goal is that the same skill works everywhere; the gates work the same way
 everywhere; and if a host disappears tomorrow, the loop still ships changes.
