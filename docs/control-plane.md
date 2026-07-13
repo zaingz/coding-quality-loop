@@ -3,8 +3,10 @@
 One place to monitor, observe, and learn what your agents are doing: every
 session, every model call with exact token counts, tool calls, token spend,
 routing, hook events, and every Quality Loop artifact (completion records,
-independent reviews, minimality decisions, plans, escalations, memory
-lessons, progress). Local files in, local dashboard out.
+independent reviews, individual findings, minimality decisions, plans,
+escalations, delegations, memory lessons, progress). Local files in, local
+dashboard out — plus a per-task audit report that ties findings, delegations,
+verdicts, and spend to the sessions that produced them.
 
 ```bash
 python3 scripts/quality_loop.py control-index    # build/update the index
@@ -48,8 +50,30 @@ python3 scripts/quality_loop.py control-serve    # open http://127.0.0.1:4477/
 | Source | Becomes | Host coverage |
 |---|---|---|
 | `~/.claude/projects/<repo-slug>*/*.jsonl` (subdirectory slugs included after a per-file cwd check — sessions started from `repo/sub` land under a longer slug) | sessions, model calls (exact `usage` tokens, deduped per API response), tool calls with ok/error status, subagent attribution | Claude Code (transcript adapter) |
-| `.quality-loop/agent-record.json` + `docs/records/*.json` | record / review / decision / plan / escalation / models_used artifacts | any host running the loop |
+| `.quality-loop/agent-record.json` + `docs/records/*.json` | record / review / **finding** / decision / plan / escalation / models_used artifacts | any host running the loop |
+| `.quality-loop/delegations.jsonl` | `delegation` artifacts (one per orchestrator hand-off), joined to their session at query time | any host; written by the orchestrator |
 | `.quality-loop/memory/lessons.jsonl`, `.quality-loop/progress.md` | memory + progress artifacts | any host |
+
+Each review finding (from `review_findings[]` or a review's own `findings[]`)
+becomes its own `finding` artifact carrying severity + text + reviewer, so the
+finding — the loop's most valuable proof — is queryable, not just counted.
+
+### Delegation ledger
+
+The orchestrator records each worker hand-off by appending one JSON object per
+line to `.quality-loop/delegations.jsonl` (an append-only ledger, mirroring the
+lessons file). Recognized fields:
+
+```json
+{"ts": "2026-07-13T10:00:00Z", "task_id": "T-42", "role": "reviewer",
+ "host": "codex", "model": "gpt-5", "brief_summary": "review the slice diff",
+ "expected_agent_name": "reviewer"}
+```
+
+At query time each line is matched to the session it ran in — `sessions.agent_name`
+equal to `expected_agent_name`, started within `[ts-5m, ts+60m]`, nearest wins —
+so token totals per delegation are computed live, never stored as a join. A
+malformed line is counted (surfaced as `skipped_lines`) and skipped, never fatal.
 | Hook events via `control-ingest` | session start/end rows, live event feed | claude-code + codex wiring shipped; any host that can pipe JSON |
 
 Honest labeling: only Claude Code gets deep transcript indexing today. Codex
@@ -73,14 +97,26 @@ transcript format change degrades to "fewer rows", not a crash.
 | `control-status [--json]` | DB path, row counts, server state, enabled flag. |
 | `control-stop` | SIGTERM the running server. |
 | `control-ingest --event NAME` | Hook entry point: records one event from stdin JSON. No-op unless enabled; **always exits 0**. |
+| `control-report --task-id ID [--json]` | Print a per-task audit bundle — goal, status, minimality rung, plan, delegations (with matched sessions), verdicts, findings, escalations, and linked-session spend — as markdown (default) or `--json`. Exits 2 on an unknown task id. |
 
 ### JSON API (all GET, all local)
 
 `/healthz`, `/api/overview`, `/api/sessions?limit=`, `/api/session?id=`,
 `/api/spend?by=model|day|session|agent`, `/api/records`, `/api/memory`,
-`/api/events?limit=`, `/api/routing`. The dashboard at `/` is a single
-self-contained HTML file (no external requests, light/dark, keyboard
-navigable) — an eval case pins the self-containment.
+`/api/events?limit=`, `/api/routing`, and (v5.1.0, additive)
+`/api/delegations`, `/api/task?task_id=` (404 on unknown, 400 without an id),
+and `/api/metrics` (loop KPIs; a zeroed 200 on an empty DB). The dashboard at
+`/` is a single self-contained HTML file (no external requests, light/dark,
+keyboard navigable, with Overview / Sessions / Delegations / Tasks / Metrics /
+Spend / Records / Routing / Memory / Events views) — an eval case pins the
+self-containment.
+
+**Tool-target redaction.** Tool-call targets (command lines, paths, URLs, and
+sub-agent prompt excerpts) can contain a secret you typed at the prompt, so
+each is run through the project's memory redactor before it is stored in the
+index. A recognized key shape (or a long high-entropy token) becomes
+`[REDACTED]`; the redaction happens before truncation so a key straddling the
+200-char cutoff is still caught.
 
 ## Hooks: opt-in autostart
 
@@ -134,9 +170,13 @@ e.g. `{"fable": {"input_per_mtok": 20, "output_per_mtok": 100,
 
 ## Eval coverage
 
-The 20-case `evals/run_control_evals.py` suite pins: exact token math,
+The 27-case `evals/run_control_evals.py` suite pins: exact token math,
 incremental/rescan dedupe, malformed-line resilience, subagent attribution,
 artifact ingestion, price arithmetic, every API endpoint, the 127.0.0.1
 bind, GET-only enforcement, dashboard self-containment, ingest no-op when
 disabled, exit-0 on garbage, the pidfile double-start guard, real autostart,
-config validation, and installer wiring.
+config validation, and installer wiring — plus the v5.1.0 audit trail:
+first-class findings, delegation ingest (with idempotent re-index and skipped
+counting), the delegation→session join, the per-task timeline, loop metrics
+(including the empty-DB zero case), the `control-report` CLI, and tool-target
+secret redaction.

@@ -10,7 +10,7 @@
 :root {
   --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef1f4; --border: #dfe4ea;
   --text: #1a2230; --muted: #5e6b7c; --accent: #2f7e97; --accent-soft: #e3eff3;
-  --ok: #2e8f54; --warn: #b07f24; --err: #c14848;
+  --accent-2: #8a5cb0; --ok: #2e8f54; --warn: #b07f24; --err: #c14848;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -18,18 +18,18 @@
   :root {
     --bg: #0e1116; --surface: #161b22; --surface-2: #1d242e; --border: #232b36;
     --text: #e8edf2; --muted: #8b98a8; --accent: #5aa8c2; --accent-soft: #16303a;
-    --ok: #46b070; --warn: #d0a04a; --err: #d96a6a;
+    --accent-2: #ab86cf; --ok: #46b070; --warn: #d0a04a; --err: #d96a6a;
   }
 }
 :root[data-theme="light"] {
   --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef1f4; --border: #dfe4ea;
   --text: #1a2230; --muted: #5e6b7c; --accent: #2f7e97; --accent-soft: #e3eff3;
-  --ok: #2e8f54; --warn: #b07f24; --err: #c14848;
+  --accent-2: #8a5cb0; --ok: #2e8f54; --warn: #b07f24; --err: #c14848;
 }
 :root[data-theme="dark"] {
   --bg: #0e1116; --surface: #161b22; --surface-2: #1d242e; --border: #232b36;
   --text: #e8edf2; --muted: #8b98a8; --accent: #5aa8c2; --accent-soft: #16303a;
-  --ok: #46b070; --warn: #d0a04a; --err: #d96a6a;
+  --accent-2: #ab86cf; --ok: #46b070; --warn: #d0a04a; --err: #d96a6a;
 }
 * { box-sizing: border-box; margin: 0; }
 html, body { height: 100%; }
@@ -51,7 +51,7 @@ nav button {
 }
 nav button:hover { background: var(--surface-2); color: var(--text); }
 nav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-nav button:focus-visible, .themebtn:focus-visible, a:focus-visible, td button:focus-visible {
+nav button:focus-visible, .themebtn:focus-visible, a:focus-visible, td button:focus-visible, .back:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 1px;
 }
 nav .spacer { flex: 1; }
@@ -71,11 +71,15 @@ h2 { font-size: 13px; font-weight: 650; text-transform: uppercase; letter-spacin
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
 .tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
+/* Fixed layout keeps wide free-text columns (title/target/brief) from blowing
+   the table past the viewport; long values ellipsize with a full-text title. */
+table.fixed { table-layout: fixed; }
 th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 tr:last-child td { border-bottom: 0; }
-th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; position: sticky; top: 0; background: var(--surface); }
+th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; position: sticky; top: 0; background: var(--surface); z-index: 1; }
 td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 td .mono, .mono { font-family: var(--mono); font-size: 12.5px; }
+.ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; }
 tbody tr.rowlink { cursor: pointer; }
 tbody tr.rowlink:hover { background: var(--surface-2); }
 .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; border: 1px solid transparent; }
@@ -94,16 +98,30 @@ tbody tr.rowlink:hover { background: var(--surface-2); }
 .empty { color: var(--muted); padding: 26px; text-align: center; }
 .empty code { font-family: var(--mono); background: var(--surface-2); padding: 2px 6px; border-radius: 4px; }
 a { color: var(--accent); }
-canvas { width: 100%; height: 130px; display: block; }
+.chartwrap { position: relative; }
+canvas { width: 100%; height: 150px; display: block; }
+.legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+.tip {
+  position: absolute; pointer-events: none; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; font-size: 12px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.18); white-space: nowrap; opacity: 0; transition: opacity .08s;
+  z-index: 5; font-family: var(--mono);
+}
 pre { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; overflow-x: auto; }
 .back { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; margin-bottom: 12px; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13px; }
 .kv dt { color: var(--muted); } .kv dd { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; white-space: normal; }
 .wrap td { white-space: normal; overflow-wrap: anywhere; }
+.tl { list-style: none; padding: 0; margin: 0; }
+.tl li { display: grid; grid-template-columns: 150px 110px 1fr; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); align-items: baseline; }
+.tl li:last-child { border-bottom: 0; }
+.tl .t { color: var(--muted); font-size: 12px; }
 @media (max-width: 720px) {
   body { grid-template-columns: 1fr; }
   nav { position: static; height: auto; flex-direction: row; flex-wrap: wrap; }
   .brand { width: 100%; }
+  .tl li { grid-template-columns: 1fr; gap: 2px; }
 }
 @media (prefers-reduced-motion: no-preference) {
   nav button, .seg button { transition: background .12s ease; }
@@ -115,6 +133,9 @@ pre { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; overfl
   <div class="brand">CQL Control Plane<small>coding-quality-loop</small></div>
   <button data-view="overview">Overview</button>
   <button data-view="sessions">Sessions</button>
+  <button data-view="delegations">Delegations</button>
+  <button data-view="tasks">Tasks</button>
+  <button data-view="metrics">Metrics</button>
   <button data-view="spend">Spend</button>
   <button data-view="records">Records</button>
   <button data-view="routing">Routing</button>
@@ -140,6 +161,7 @@ const modelPills = models => {
     .filter(m => m && m !== "<synthetic>" && m !== "unknown");
   return [...new Set(list)].map(m => `<span class="pill mut mono" title="${esc(m)}">${esc(shortModel(m))}</span>`).join(" ");
 };
+// The one compact number formatter: 1.2k / 3.4M / 5.6B, exact below 10k.
 const compact = n => {
   if (n == null) return "–";
   n = Number(n);
@@ -149,14 +171,53 @@ const compact = n => {
   return String(n);
 };
 const usd = n => n == null ? "" : "$" + Number(n).toFixed(n < 10 ? 4 : 2);
-const when = ts => {
-  if (!ts) return "–";
-  const d = new Date(ts);
-  return isNaN(d) ? esc(ts) : d.toLocaleString(undefined, {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
+// Human duration from seconds: "1h 2m" / "3m 5s" / "45s".
+const dur = secs => {
+  if (secs == null) return "–";
+  secs = Math.round(Number(secs));
+  if (secs < 60) return secs + "s";
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+  if (h) return h + "h " + m + "m";
+  return m + "m " + s + "s";
 };
+// Human duration between two ISO timestamps; "–" when either is missing/unparseable.
+const durSpan = (start, end) => {
+  if (!start || !end) return "–";
+  const a = new Date(start), b = new Date(end);
+  if (isNaN(a) || isNaN(b) || b < a) return "–";
+  return dur((b - a) / 1000);
+};
+const absTime = ts => {
+  const d = new Date(ts);
+  return isNaN(d) ? String(ts) : d.toLocaleString(undefined,
+    {year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit", second:"2-digit"});
+};
+// Relative time ("3m ago", "in 2h"), collapsing to a short absolute date past a week.
+const relTime = ts => {
+  const d = new Date(ts);
+  if (isNaN(d)) return String(ts);
+  const diff = (d.getTime() - Date.now()) / 1000, a = Math.abs(diff);
+  const pick = () => {
+    if (a < 45) return "just now";
+    if (a < 5400) { const m = Math.round(a / 60); return m + (m === 1 ? " min" : " mins"); }
+    if (a < 86400) { const h = Math.round(a / 3600); return h + (h === 1 ? " hr" : " hrs"); }
+    if (a < 6.5 * 86400) { const dd = Math.round(a / 86400); return dd + (dd === 1 ? " day" : " days"); }
+    return null;
+  };
+  const p = pick();
+  if (p === null) return d.toLocaleDateString(undefined, {month:"short", day:"numeric"});
+  if (p === "just now") return p;
+  return diff < 0 ? p + " ago" : "in " + p;
+};
+// Timestamps show relative text with the absolute time on hover.
+const when = ts => ts ? `<span title="${esc(absTime(ts))}">${esc(relTime(ts))}</span>` : "–";
 async function api(path) {
   const res = await fetch(path);
-  if (!res.ok) throw new Error(path + " -> " + res.status);
+  if (!res.ok) {
+    let msg = path + " -> " + res.status;
+    try { const b = await res.json(); if (b && b.error) msg = b.error; } catch (e) { /* ignore */ }
+    const err = new Error(msg); err.status = res.status; throw err;
+  }
   return res.json();
 }
 /* ---------- theme ---------- */
@@ -208,19 +269,27 @@ document.querySelectorAll("nav [data-view]").forEach(b =>
   b.addEventListener("click", () => navigate(b.dataset.view)));
 window.addEventListener("hashchange", () => route(false));
 /* ---------- views ---------- */
-const VIEWS = {overview, sessions, spend: spendView, records, routing, memory, events};
+const VIEWS = {overview, sessions, delegations, tasks, metrics, spend: spendView, records, routing, memory, events};
 async function render(view, arg) {
   // Monotonic token: a stale async completion (slow fetch overtaken by a
   // newer navigation or poll tick) must not overwrite the newer view.
   const seq = ++renderSeq;
   const stale = () => seq !== renderSeq;
   if (view === "sessions" && arg) return sessionView(arg, stale);
+  if (view === "tasks" && arg) return taskView(arg, stale);
   const fn = Object.prototype.hasOwnProperty.call(VIEWS, view) ? VIEWS[view] : overview;
   return fn(stale);
 }
 function tokensCell(row) {
   return `<td class="num" title="${fmt(row.input_tokens)} in">${compact(row.input_tokens)}</td>
           <td class="num" title="${fmt(row.output_tokens)} out">${compact(row.output_tokens)}</td>`;
+}
+function wireRowlinks(prefix) {
+  main.querySelectorAll("tr.rowlink").forEach(tr => {
+    const go = () => navigate(prefix + encodeURIComponent(tr.dataset.id));
+    tr.addEventListener("click", go);
+    tr.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  });
 }
 async function overview(stale) {
   const o = await api("/api/overview");
@@ -239,33 +308,71 @@ async function overview(stale) {
       <div class="tile"><div class="v" title="${fmt(t.cache_read_tokens)}">${compact(t.cache_read_tokens)}</div><div class="k">cache read</div></div>
       ${t.cost_usd != null ? `<div class="tile"><div class="v">${usd(t.cost_usd)}</div><div class="k">est. spend (your prices)</div></div>` : ""}
     </div>
-    <h2>Output tokens by day</h2>
-    <div class="card">${days.length ? '<canvas id="chart" height="130"></canvas>' : '<div class="empty">no indexed activity yet — run <code>control-index</code></div>'}</div>
+    <h2>Tokens by day</h2>
+    <div class="card">${days.length
+      ? `<div class="chartwrap"><canvas id="chart" height="150"></canvas><div class="tip" id="tip"></div></div>
+         <div class="legend"><span><span class="swatch" style="background:var(--accent)"></span>input</span><span><span class="swatch" style="background:var(--accent-2)"></span>output</span></div>`
+      : '<div class="empty">no indexed activity yet — run <code>control-index</code></div>'}</div>
     <h2>By model</h2>
     ${spendTable(o.by_model, "model")}`;
-  if (days.length) drawBars($("#chart"), days.map(d => d.output_tokens), days.map(d => d.key.slice(5)));
+  if (days.length) drawStacked($("#chart"), $("#tip"), days);
 }
-function drawBars(canvas, values, labels) {
+// Labeled stacked bars: input (bottom) + output (top) per day. A left gutter
+// carries y-axis ticks (0 + max via the shared formatter); bars are capped and
+// centered in their slot so a single day reads as one tidy bar, not a full-plot
+// block, and 30 days still fill the width. Hover names the day and both series.
+const BAR_MAX = 64;
+function drawStacked(canvas, tip, days) {
   const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth, h = 130;
+  const w = canvas.clientWidth, h = 150, padB = 16, padT = 6, padL = 44;
   canvas.width = w * dpr; canvas.height = h * dpr;
   const ctx = canvas.getContext("2d");
   ctx.scale(dpr, dpr);
   const css = getComputedStyle(document.documentElement);
-  const accent = css.getPropertyValue("--accent").trim();
+  const cIn = css.getPropertyValue("--accent").trim();
+  const cOut = css.getPropertyValue("--accent-2").trim();
   const muted = css.getPropertyValue("--muted").trim();
-  const max = Math.max(...values, 1);
-  const n = values.length, gap = 6, bw = Math.max((w - gap * (n - 1)) / n, 4);
+  const border = css.getPropertyValue("--border").trim();
+  const totals = days.map(d => (d.input_tokens || 0) + (d.output_tokens || 0));
+  const max = Math.max(...totals, 1);
+  const usable = h - padB - padT;
+  const plotW = w - padL;
+  const n = days.length, slot = plotW / n;
+  const bw = Math.min(slot * 0.7, BAR_MAX);
   ctx.font = "10px " + css.getPropertyValue("--mono");
-  values.forEach((v, i) => {
-    const bh = Math.max((v / max) * (h - 26), 2);
-    const x = i * (bw + gap);
-    ctx.fillStyle = accent;
-    ctx.globalAlpha = .85;
-    ctx.fillRect(x, h - 14 - bh, bw, bh);
-    ctx.globalAlpha = 1;
-    if (n <= 24) { ctx.fillStyle = muted; ctx.fillText(labels[i], x, h - 3); }
+  // y-axis: baseline + max gridline, labeled with the compact formatter.
+  ctx.strokeStyle = border; ctx.lineWidth = 1; ctx.globalAlpha = 1;
+  [0, max].forEach(val => {
+    const y = h - padB - (val / max) * usable;
+    ctx.beginPath(); ctx.moveTo(padL, y + 0.5); ctx.lineTo(w, y + 0.5); ctx.stroke();
+    ctx.fillStyle = muted; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    ctx.fillText(compact(val), padL - 6, y);
   });
+  ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  const geo = [];
+  days.forEach((d, i) => {
+    const x = padL + i * slot + (slot - bw) / 2;
+    const ih = Math.max((d.input_tokens || 0) / max * usable, 0);
+    const oh = Math.max((d.output_tokens || 0) / max * usable, 0);
+    ctx.globalAlpha = .9;
+    ctx.fillStyle = cIn; ctx.fillRect(x, h - padB - ih, bw, ih);
+    ctx.fillStyle = cOut; ctx.fillRect(x, h - padB - ih - oh, bw, oh);
+    ctx.globalAlpha = 1;
+    if (n <= 24) { ctx.fillStyle = muted; ctx.fillText(String(d.key).slice(5), x, h - 3); }
+    geo.push({x, bw, d});
+  });
+  canvas.onmousemove = ev => {
+    const r = canvas.getBoundingClientRect();
+    const mx = ev.clientX - r.left;
+    const hit = geo.find(g => mx >= g.x && mx <= g.x + g.bw);
+    if (!hit) { tip.style.opacity = 0; return; }
+    tip.innerHTML = `${esc(hit.d.key)}<br>in ${fmt(hit.d.input_tokens)} · out ${fmt(hit.d.output_tokens)} · total ${fmt((hit.d.input_tokens || 0) + (hit.d.output_tokens || 0))}`;
+    tip.style.opacity = 1;
+    const tw = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(hit.x + hit.bw / 2 - tw / 2, w - tw)) + "px";
+    tip.style.top = "0px";
+  };
+  canvas.onmouseleave = () => { tip.style.opacity = 0; };
 }
 function spendTable(rows, by) {
   if (!rows || !rows.length) return '<div class="card"><div class="empty">nothing indexed yet</div></div>';
@@ -283,32 +390,37 @@ function spendTable(rows, by) {
     ${hasCost ? "" : '<p class="sub" style="margin-top:8px">Costs appear when you set <span class="mono">control_plane.prices</span> in quality-loop.config.json — this tool ships no vendor price data.</p>'}`;
 }
 function sessionLink(id) {
+  if (!id) return "";
   return `<a href="#/sessions/${esc(encodeURIComponent(id))}">${esc(String(id).slice(0, 8))}</a>`;
+}
+function taskLink(id) {
+  if (!id) return "";
+  return `<a href="#/tasks/${esc(encodeURIComponent(id))}">${esc(id)}</a>`;
 }
 async function sessions(stale) {
   const data = await api("/api/sessions?limit=300");
   if (stale && stale()) return;
   const rows = data.sessions;
+  const hasCost = rows.some(s => s.cost_usd != null);
   main.innerHTML = `
     <h1>Sessions</h1>
     <div class="sub">${rows.length} indexed session(s) — transcripts for this repo plus hook-reported sessions</div>
-    ${rows.length ? `<div class="tablewrap"><table>
-      <thead><tr><th>session</th><th>title</th><th>agent</th><th>host</th><th>models</th><th>started</th><th>last active</th><th class="num">model calls</th><th class="num">tools</th><th class="num">in</th><th class="num">out</th></tr></thead>
+    ${rows.length ? `<div class="tablewrap"><table class="fixed">
+      <colgroup><col style="width:90px"><col style="width:22%"><col style="width:110px"><col style="width:90px"><col style="width:14%"><col style="width:96px"><col style="width:96px"><col style="width:80px"><col style="width:60px"><col style="width:56px"><col style="width:64px"><col style="width:64px">${hasCost ? '<col style="width:70px">' : ""}</colgroup>
+      <thead><tr><th>session</th><th>title</th><th>agent</th><th>host</th><th>models</th><th>started</th><th>last active</th><th class="num">duration</th><th class="num">calls</th><th class="num">tools</th><th class="num">in</th><th class="num">out</th>${hasCost ? '<th class="num">est. usd</th>' : ""}</tr></thead>
       <tbody>${rows.map(s => `<tr class="rowlink" tabindex="0" data-id="${esc(s.id)}">
         <td class="mono">${esc(s.id.slice(0, 8))}</td>
-        <td style="max-width:340px;overflow:hidden;text-overflow:ellipsis">${esc(s.title || "")}</td>
-        <td>${s.agent_name ? `<span class="pill mut">${esc(s.agent_name)}</span>` : ""}</td>
-        <td class="mono">${esc(s.host)}</td>
-        <td>${modelPills(s.models)}</td>
+        <td class="ell" title="${esc(s.title || "")}">${esc(s.title || "")}</td>
+        <td class="ell">${s.agent_name ? `<span class="pill mut" title="${esc(s.agent_name)}">${esc(s.agent_name)}</span>` : ""}</td>
+        <td class="mono ell" title="${esc(s.host)}">${esc(s.host)}</td>
+        <td class="ell">${modelPills(s.models)}</td>
         <td>${when(s.started_at)}</td><td>${when(s.last_activity_at)}</td>
+        <td class="num" title="${esc(s.ended_at ? "ended " + absTime(s.ended_at) : "still active — measured to last activity")}">${durSpan(s.started_at, s.ended_at || s.last_activity_at)}</td>
         <td class="num">${fmt(s.model_calls)}</td><td class="num">${fmt(s.tool_calls)}</td>${tokensCell(s)}
+        ${hasCost ? `<td class="num">${usd(s.cost_usd)}</td>` : ""}
       </tr>`).join("")}</tbody></table></div>`
     : '<div class="card"><div class="empty">no sessions yet — run <code>python3 scripts/quality_loop.py control-index</code></div></div>'}`;
-  main.querySelectorAll("tr.rowlink").forEach(tr => {
-    const go = () => navigate("sessions/" + encodeURIComponent(tr.dataset.id));
-    tr.addEventListener("click", go);
-    tr.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
-  });
+  wireRowlinks("sessions/");
 }
 async function sessionView(id, stale) {
   const d = await api("/api/session?id=" + encodeURIComponent(id));
@@ -348,24 +460,231 @@ async function sessionView(id, stale) {
         <td class="num" title="${fmt(m.cache_read_tokens)}">${compact(m.cache_read_tokens)}</td>
         <td class="num">${usd(m.cost_usd)}</td></tr>`).join("")}</tbody></table></div>
     <h2>Recent tool calls</h2>
-    ${d.tools.length ? `<div class="tablewrap"><table>
+    ${d.tools.length ? `<div class="tablewrap"><table class="fixed">
+      <colgroup><col style="width:130px"><col style="width:180px"><col><col style="width:90px"></colgroup>
       <thead><tr><th>when</th><th>tool</th><th>target</th><th>status</th></tr></thead>
-      <tbody>${d.tools.map(t => `<tr class="wrap">
-        <td>${when(t.ts)}</td><td class="mono">${esc(t.tool)}${t.agent ? ` <span class="pill mut">${esc(t.agent)}</span>` : ""}</td>
-        <td class="mono" style="max-width:480px">${esc(t.target || "")}</td>
+      <tbody>${d.tools.map(t => `<tr>
+        <td>${when(t.ts)}</td><td class="mono ell" title="${esc(t.tool)}">${esc(t.tool)}${t.agent ? ` <span class="pill mut">${esc(t.agent)}</span>` : ""}</td>
+        <td class="mono ell" title="${esc(t.target || "")}">${esc(t.target || "")}</td>
         <td><span class="dot ${t.status === "ok" ? "ok" : t.status === "error" ? "err" : "sent"}"></span>${esc(t.status)}</td>
       </tr>`).join("")}</tbody></table></div>` : '<div class="card"><div class="empty">no tool calls recorded</div></div>'}
     ${d.events.length ? `<h2>Hook events</h2><div class="tablewrap"><table>
       <thead><tr><th>when</th><th>event</th><th>detail</th></tr></thead>
       <tbody>${d.events.map(e => `<tr><td>${when(e.ts)}</td><td class="mono">${esc(e.name)}</td><td class="mono">${esc(e.detail || "")}</td></tr>`).join("")}</tbody></table></div>` : ""}`;
-  main.querySelectorAll("tr.rowlink").forEach(tr => {
-    const go = () => navigate("sessions/" + encodeURIComponent(tr.dataset.id));
-    tr.addEventListener("click", go);
-    tr.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
-  });
+  wireRowlinks("sessions/");
   main.querySelectorAll("[data-goto]").forEach(el => el.addEventListener("click", e => {
     e.preventDefault(); navigate("sessions/" + encodeURIComponent(el.dataset.goto));
   }));
+}
+/* ---------- delegations ---------- */
+async function delegations(stale) {
+  const d = await api("/api/delegations");
+  if (stale && stale()) return;
+  const rows = d.delegations || [];
+  const matched = rows.filter(r => !r.unmatched).length;
+  main.innerHTML = `
+    <h1>Delegations</h1>
+    <div class="sub">orchestrator hand-offs from <span class="mono">.quality-loop/delegations.jsonl</span>, joined to the session each ran in — ${rows.length} total, ${matched} linked</div>
+    ${rows.length ? `<div class="tablewrap"><table class="fixed">
+      <colgroup><col style="width:120px"><col style="width:16%"><col style="width:130px"><col style="width:13%"><col style="width:110px"><col><col style="width:150px"></colgroup>
+      <thead><tr><th>when</th><th>task</th><th>role</th><th>model</th><th>host</th><th>brief</th><th>session</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td>${when(r.ts)}</td>
+        <td class="ell" title="${esc(r.task_id || "")}">${r.task_id ? taskLink(r.task_id) : "<span class='mut'>–</span>"}</td>
+        <td>${r.role ? `<span class="pill mut" title="${esc(r.expected_agent_name || "")}">${esc(r.role)}</span>` : ""}</td>
+        <td class="mono ell" title="${esc(r.model || "")}">${r.model ? esc(shortModel(r.model)) : ""}</td>
+        <td class="mono ell" title="${esc(r.host || "")}">${esc(r.host || "")}</td>
+        <td class="ell" title="${esc(r.brief_summary || "")}">${esc(r.brief_summary || "")}</td>
+        <td>${r.session ? `${sessionLink(r.session.id)} <span class="pill ok">linked</span>`
+              : '<span class="pill warn">unmatched</span>'}</td>
+      </tr>`).join("")}</tbody></table></div>`
+    : `<div class="card"><div class="empty">no delegations recorded — the orchestrator appends one line per hand-off to
+        <code>.quality-loop/delegations.jsonl</code>, then <code>control-index</code> ingests them</div></div>`}`;
+}
+/* ---------- tasks ---------- */
+async function tasks(stale) {
+  const [rec, del] = await Promise.all([api("/api/records"), api("/api/delegations")]);
+  if (stale && stale()) return;
+  // A task is any record artifact (title == task_id); fold in the per-task
+  // review/decision/escalation artifacts sharing its source file, plus any
+  // delegation task_ids that have no record yet.
+  const bySource = {};
+  rec.artifacts.forEach(a => (bySource[a.source_path] = bySource[a.source_path] || []).push(a));
+  const tasksMap = {};
+  Object.values(bySource).forEach(arts => {
+    const record = arts.find(a => a.kind === "record");
+    if (!record) return;
+    const id = record.title;
+    const review = arts.find(a => a.kind === "review");
+    tasksMap[id] = {
+      task_id: id, ts: record.ts, live: !!record.detail.live,
+      status: record.detail.status, goal: record.detail.goal,
+      verdict: review ? review.detail.verdict : null,
+      findings: arts.filter(a => a.kind === "finding").length,
+      escalations: arts.filter(a => a.kind === "escalation").length,
+      delegations: 0,
+    };
+  });
+  (del.delegations || []).forEach(r => {
+    if (!r.task_id) return;
+    if (!tasksMap[r.task_id]) tasksMap[r.task_id] = {task_id: r.task_id, ts: r.ts, findings: 0, escalations: 0, delegations: 0};
+    tasksMap[r.task_id].delegations++;
+  });
+  const rows = Object.values(tasksMap).sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
+  main.innerHTML = `
+    <h1>Tasks</h1>
+    <div class="sub">one row per task (completion record or delegated task_id); open a task for its full audit timeline</div>
+    ${rows.length ? `<div class="tablewrap"><table class="fixed">
+      <colgroup><col style="width:22%"><col><col style="width:90px"><col style="width:90px"><col style="width:80px"><col style="width:90px"><col style="width:120px"></colgroup>
+      <thead><tr><th>task</th><th>goal</th><th>status</th><th>review</th><th class="num">findings</th><th class="num">deleg.</th><th>when</th></tr></thead>
+      <tbody>${rows.map(t => `<tr class="rowlink" tabindex="0" data-id="${esc(t.task_id)}">
+        <td class="mono ell" title="${esc(t.task_id)}">${esc(t.task_id)}${t.live ? ' <span class="pill warn">live</span>' : ""}</td>
+        <td class="ell" title="${esc(t.goal || "")}">${esc(t.goal || "")}</td>
+        <td>${t.status ? `<span class="pill ${pillFor(t.status)}">${esc(t.status)}</span>` : ""}</td>
+        <td>${t.verdict ? `<span class="pill ${pillFor(t.verdict)}">${esc(t.verdict)}</span>` : ""}</td>
+        <td class="num">${fmt(t.findings)}</td>
+        <td class="num">${fmt(t.delegations)}</td>
+        <td>${when(t.ts)}</td>
+      </tr>`).join("")}</tbody></table></div>`
+    : '<div class="card"><div class="empty">no tasks yet — a task appears once a completion record or a delegation exists</div></div>'}`;
+  wireRowlinks("tasks/");
+}
+const KIND_PILL = {record:"mut", plan:"mut", decision:"mut", delegation:"mut", escalation:"err", review:"warn", finding:"warn"};
+async function taskView(id, stale) {
+  let d;
+  try {
+    d = await api("/api/task?task_id=" + encodeURIComponent(id));
+  } catch (err) {
+    if (stale && stale()) return;
+    if (err.status === 404) {
+      main.innerHTML = `<button class="back" onclick="navigate('tasks')">&larr; all tasks</button>
+        <div class="card"><div class="empty">unknown task <code>${esc(id)}</code> — it has no indexed record or delegation</div></div>`;
+      return;
+    }
+    throw err;
+  }
+  if (stale && stale()) return;
+  const sp = d.spend || {};
+  const rec = (d.records || [])[0];
+  const det = rec ? rec.detail : {};
+  main.innerHTML = `
+    <button class="back" onclick="navigate('tasks')">&larr; all tasks</button>
+    <h1 class="mono">${esc(d.task_id)}</h1>
+    <div class="sub">
+      ${det.status ? `<span class="pill ${pillFor(det.status)}">${esc(det.status)}</span> ` : ""}
+      ${det.live ? '<span class="pill warn">live</span> ' : ""}
+      ${(d.records || []).length} record(s) · ${(d.delegations || []).length} delegation(s) · ${d.evidence_count || 0} command(s) recorded
+    </div>
+    ${det.goal ? `<div class="card">${esc(det.goal)}${det.goal.length >= 300 ? "…" : ""}</div>` : ""}
+    <div class="tiles">
+      <div class="tile"><div class="v">${compact(sp.calls || 0)}</div><div class="k">model calls</div></div>
+      <div class="tile"><div class="v" title="${fmt(sp.input_tokens)}">${compact(sp.input_tokens || 0)}</div><div class="k">input tokens</div></div>
+      <div class="tile"><div class="v" title="${fmt(sp.output_tokens)}">${compact(sp.output_tokens || 0)}</div><div class="k">output tokens</div></div>
+      <div class="tile"><div class="v">${(d.findings || []).length}</div><div class="k">findings</div></div>
+      <div class="tile"><div class="v">${(d.sessions || []).length}</div><div class="k">linked sessions</div></div>
+    </div>
+    <h2>Timeline</h2>
+    <div class="card">${(d.timeline || []).length ? `<ul class="tl">${d.timeline.map(e => `<li>
+      <span class="t">${when(e.ts)}</span>
+      <span><span class="pill ${KIND_PILL[e.kind] || "mut"}">${esc(e.kind)}</span></span>
+      <span>${esc(timelineText(e))}</span>
+    </li>`).join("")}</ul>` : '<div class="empty">no timeline entries</div>'}</div>
+    ${(d.findings || []).length ? `<h2>Findings</h2><div class="tablewrap"><table class="fixed">
+      <colgroup><col style="width:90px"><col style="width:130px"><col></colgroup>
+      <thead><tr><th>severity</th><th>reviewer</th><th>finding</th></tr></thead>
+      <tbody>${d.findings.map(f => `<tr class="wrap">
+        <td><span class="pill ${pillFor(f.detail.severity)}">${esc(f.detail.severity || "info")}</span></td>
+        <td>${esc(f.detail.reviewer || "?")}</td>
+        <td>${esc(f.detail.text || f.title || "")}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${(d.reviews || []).length ? `<h2>Reviews</h2><div class="card"><dl class="kv">
+      ${d.reviews.map(r => `<dt>${esc(r.detail.source || r.detail.reviewer || "review")}</dt>
+        <dd><span class="pill ${pillFor(r.detail.verdict)}">${esc(r.detail.verdict || "?")}</span>
+        by ${esc(r.detail.reviewer || "?")} · ${r.detail.attested ? "attested" : "not attested"} · ${fmt(r.detail.findings)} finding(s)</dd>`).join("")}
+    </dl></div>` : ""}
+    ${d.delegations && d.delegations.length ? `<h2>Delegations</h2><div class="tablewrap"><table class="fixed">
+      <colgroup><col style="width:120px"><col style="width:120px"><col style="width:130px"><col><col style="width:150px"></colgroup>
+      <thead><tr><th>when</th><th>role</th><th>model</th><th>brief</th><th>session</th></tr></thead>
+      <tbody>${d.delegations.map(r => `<tr>
+        <td>${when(r.ts)}</td>
+        <td>${r.role ? `<span class="pill mut">${esc(r.role)}</span>` : ""}</td>
+        <td class="mono ell" title="${esc(r.model || "")}">${r.model ? esc(shortModel(r.model)) : ""}</td>
+        <td class="ell" title="${esc(r.brief_summary || "")}">${esc(r.brief_summary || "")}</td>
+        <td>${r.session ? sessionLink(r.session.id) : '<span class="pill warn">unmatched</span>'}</td>
+      </tr>`).join("")}</tbody></table></div>` : ""}
+    ${d.sessions && d.sessions.length ? `<h2>Linked sessions</h2><div class="tablewrap"><table class="fixed">
+      <colgroup><col style="width:100px"><col style="width:130px"><col><col style="width:80px"><col style="width:80px"></colgroup>
+      <thead><tr><th>session</th><th>agent</th><th>title</th><th class="num">in</th><th class="num">out</th></tr></thead>
+      <tbody>${d.sessions.map(s => `<tr class="rowlink" tabindex="0" data-id="${esc(s.id)}">
+        <td class="mono">${esc(String(s.id).slice(0, 8))}</td>
+        <td>${s.agent_name ? `<span class="pill mut">${esc(s.agent_name)}</span>` : ""}</td>
+        <td class="ell" title="${esc(s.title || "")}">${esc(s.title || "")}</td>
+        <td class="num" title="${fmt((s.tokens || {}).input_tokens)}">${compact((s.tokens || {}).input_tokens || 0)}</td>
+        <td class="num" title="${fmt((s.tokens || {}).output_tokens)}">${compact((s.tokens || {}).output_tokens || 0)}</td>
+      </tr>`).join("")}</tbody></table></div>` : ""}`;
+  wireRowlinks("sessions/");
+}
+function timelineText(e) {
+  const det = e.detail || {};
+  if (e.kind === "delegation") return `${det.role || "?"} → ${det.expected_agent_name || "?"}: ${det.brief_summary || ""}`;
+  if (e.kind === "finding") return `[${det.severity || "info"}] ${det.text || e.title || ""}`;
+  if (e.kind === "review") return `${det.verdict || "?"} by ${det.reviewer || "?"}`;
+  if (e.kind === "decision") return `${det.rung || "?"} — ${det.reason || ""}`;
+  if (e.kind === "escalation") return `${e.title || ""} (${det.trigger || "?"})`;
+  if (e.kind === "plan") return (det.steps || []).join(" · ");
+  return e.title || "";
+}
+/* ---------- metrics ---------- */
+function distTable(obj, keyLabel) {
+  const entries = Object.entries(obj || {});
+  if (!entries.length) return '<div class="card"><div class="empty">none recorded</div></div>';
+  const max = Math.max(...entries.map(([, v]) => v), 1);
+  entries.sort((a, b) => b[1] - a[1]);
+  return `<div class="tablewrap"><table>
+    <thead><tr><th>${esc(keyLabel)}</th><th>share</th><th class="num">count</th></tr></thead>
+    <tbody>${entries.map(([k, v]) => `<tr>
+      <td>${["verdict", "severity", "rung"].includes(keyLabel) ? `<span class="pill ${pillFor(k)}">${esc(k)}</span>` : esc(k)}</td>
+      <td style="min-width:140px"><div class="barwrap"><div class="bar" style="width:${Math.round(v / max * 100)}%"></div></div></td>
+      <td class="num">${fmt(v)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+async function metrics(stale) {
+  const m = await api("/api/metrics");
+  if (stale && stale()) return;
+  const ev = m.evidence_rate || {records: 0, with_evidence: 0, rate_pct: 0};
+  const byRole = m.spend_by_role || [];
+  const durs = (m.session_durations || []).filter(d => d.duration_sec != null)
+    .sort((a, b) => (b.duration_sec || 0) - (a.duration_sec || 0));
+  const hasCost = byRole.some(r => r.cost_usd != null);
+  main.innerHTML = `
+    <h1>Loop metrics</h1>
+    <div class="sub">KPIs aggregated at query time from indexed artifacts — the DB is an index, never a gate</div>
+    <div class="tiles">
+      <div class="tile"><div class="v">${fmt(ev.rate_pct)}%</div><div class="k">evidence rate (${fmt(ev.with_evidence)}/${fmt(ev.records)})</div></div>
+      <div class="tile"><div class="v">${fmt(m.escalations)}</div><div class="k">escalations</div></div>
+      <div class="tile"><div class="v">${fmt(m.repair_attempts)}</div><div class="k">repair attempts</div></div>
+    </div>
+    <h2>Review verdicts</h2>${distTable(m.verdict_distribution, "verdict")}
+    <h2>Findings by severity</h2>${distTable(m.findings_by_severity, "severity")}
+    <h2>Minimality rungs</h2>${distTable(m.rung_distribution, "rung")}
+    <h2>Spend by role</h2>
+    ${byRole.length ? `<div class="tablewrap"><table>
+      <thead><tr><th>role</th><th class="num">calls</th><th class="num">in</th><th class="num">out</th><th class="num">cache read</th>${hasCost ? '<th class="num">est. usd</th>' : ""}</tr></thead>
+      <tbody>${byRole.map(r => `<tr>
+        <td><span class="pill mut">${esc(r.role)}</span></td>
+        <td class="num">${fmt(r.calls)}</td>${tokensCell(r)}
+        <td class="num" title="${fmt(r.cache_read_tokens)}">${compact(r.cache_read_tokens)}</td>
+        ${hasCost ? `<td class="num">${usd(r.cost_usd)}</td>` : ""}</tr>`).join("")}</tbody></table></div>`
+      : '<div class="card"><div class="empty">no model calls indexed yet</div></div>'}
+    <h2>Session durations</h2>
+    ${durs.length ? `<div class="tablewrap"><table class="fixed">
+      <colgroup><col style="width:100px"><col style="width:130px"><col><col style="width:100px"></colgroup>
+      <thead><tr><th>session</th><th>agent</th><th>title</th><th class="num">duration</th></tr></thead>
+      <tbody>${durs.map(s => `<tr class="rowlink" tabindex="0" data-id="${esc(s.id)}">
+        <td class="mono">${esc(String(s.id).slice(0, 8))}</td>
+        <td>${s.agent_name ? `<span class="pill mut">${esc(s.agent_name)}</span>` : ""}</td>
+        <td class="ell" title="${esc(s.title || "")}">${esc(s.title || "")}</td>
+        <td class="num">${dur(s.duration_sec)}</td></tr>`).join("")}</tbody></table></div>`
+      : '<div class="card"><div class="empty">no completed sessions with a measurable duration yet</div></div>'}`;
+  wireRowlinks("sessions/");
 }
 async function spendView(stale) {
   const d = await api("/api/spend?by=" + spendBy);
@@ -381,8 +700,8 @@ async function spendView(stale) {
 }
 function pillFor(v) {
   const s = String(v || "").toLowerCase();
-  if (["done", "approve", "approved", "pass"].some(x => s.includes(x))) return "ok";
-  if (["fail", "reject", "block", "high"].some(x => s.includes(x))) return "err";
+  if (["done", "approve", "approved", "pass", "info", "low"].some(x => s.includes(x))) return "ok";
+  if (["fail", "reject", "block", "high", "critical", "error"].some(x => s.includes(x))) return "err";
   return "warn";
 }
 async function records(stale) {
@@ -401,11 +720,12 @@ async function records(stale) {
       const decision = arts.find(a => a.kind === "decision");
       const plan = arts.find(a => a.kind === "plan");
       const escalations = arts.filter(a => a.kind === "escalation");
+      const findings = arts.filter(a => a.kind === "finding");
       const used = arts.filter(a => a.kind === "models_used");
       const det = rec ? rec.detail : {};
       return `<div class="card">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <strong>${esc(rec ? rec.title : src)}</strong>
+          <strong>${rec ? taskLink(rec.title) : esc(src)}</strong>
           ${det.live ? '<span class="pill warn">live</span>' : ""}
           ${det.status ? `<span class="pill ${pillFor(det.status)}">${esc(det.status)}</span>` : ""}
           ${det.risk_tier ? `<span class="pill mut">risk: ${esc(det.risk_tier)}</span>` : ""}
@@ -417,6 +737,7 @@ async function records(stale) {
           ${decision ? `<dt>minimality</dt><dd>${esc(decision.detail.rung)} — ${esc(decision.detail.reason || "")}</dd>` : ""}
           ${review ? `<dt>review</dt><dd><span class="pill ${pillFor(review.detail.verdict)}">${esc(review.detail.verdict)}</span>
             by ${esc(review.detail.reviewer || "?")} · ${review.detail.attested ? "attested" : "not attested"} · ${fmt(review.detail.findings)} finding(s)</dd>` : ""}
+          ${findings.length ? `<dt>findings</dt><dd>${findings.map(f => `<span class="pill ${pillFor(f.detail.severity)}">${esc(f.detail.severity || "info")}</span> ${esc(f.detail.text || f.title || "")}`).join("<br>")}</dd>` : ""}
           ${plan ? `<dt>plan</dt><dd>${(plan.detail.steps || []).map(esc).join("<br>")}</dd>` : ""}
           ${escalations.map(e => `<dt>escalation</dt><dd>${esc(e.title)} (${esc(e.detail.trigger || "?")}: ${(e.detail.failing_commands || []).map(esc).join(", ")})</dd>`).join("")}
           ${used.length ? `<dt>models used</dt><dd>${used.map(u => esc(`${u.detail.role || "?"} = ${u.detail.model || "?"}${u.detail.host ? " @ " + u.detail.host : ""}`)).join("<br>")}</dd>` : ""}
@@ -424,6 +745,9 @@ async function records(stale) {
         </dl>
       </div>`;
     }).join("") : '<div class="card"><div class="empty">no records indexed — records appear once .quality-loop/agent-record.json or docs/records/*.json exist</div></div>'}`;
+  main.querySelectorAll("[data-goto]").forEach(el => el.addEventListener("click", e => {
+    e.preventDefault(); navigate(el.dataset.goto);
+  }));
 }
 async function routing(stale) {
   const d = await api("/api/routing");

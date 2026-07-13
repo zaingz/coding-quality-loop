@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import quality_loop_core as qlcore
 import quality_loop_routing as qlroute
 
 DEFAULT_PORT = 4477
@@ -219,7 +220,9 @@ def validate_control_plane(block: Any) -> list[str]:
 # v4: added the droid/GLM wrapper adapter (host='droid').
 # v5: capture teamName -> sessions.team so a session can list its sub-agents.
 # v6: also link codex sub-agents (parent_thread_id) into sessions.team.
-SCHEMA_VERSION = 6
+# v7: finding/delegation artifact kinds + tool_calls.target passes secret
+#     redaction before storage (rebuild re-redacts any old raw targets).
+SCHEMA_VERSION = 7
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -362,13 +365,20 @@ def _file_in_root(path: Path, root: Path) -> bool:
     return False
 
 
+def _redact_target(value: str) -> str:
+    """A tool target (command line, path, url) may contain a secret typed at the
+    prompt. Reuse the project's memory redaction before storage, then truncate —
+    redact first so a key that straddles the truncation point is still caught."""
+    return qlcore.redact(value)[:TARGET_MAX]
+
+
 def _summarize_tool_input(tool: str, tool_input: Any) -> str:
     if not isinstance(tool_input, dict):
         return ""
     for key in ("file_path", "command", "path", "url", "pattern", "query", "skill", "description", "prompt", "subject"):
         val = tool_input.get(key)
         if isinstance(val, str) and val.strip():
-            return val.strip()[:TARGET_MAX]
+            return _redact_target(val.strip())
     return ""
 
 
@@ -698,7 +708,7 @@ def _index_codex_line(
                 cur = conn.execute(
                     "INSERT OR IGNORE INTO tool_calls(id, session_id, ts, tool, target, agent, sidechain) "
                     "VALUES(?,?,?,?,?,?,?)",
-                    (f"cx:{call_id}", session_id, ts, name, target.strip()[:TARGET_MAX], None, 0),
+                    (f"cx:{call_id}", session_id, ts, name, _redact_target(target.strip()), None, 0),
                 )
                 stats["tool_calls"] += cur.rowcount if cur.rowcount > 0 else 0
     return model
@@ -889,7 +899,7 @@ def _index_droid_wrapper(conn: sqlite3.Connection, root: Path, all_projects: boo
             "INSERT OR IGNORE INTO tool_calls(id, session_id, ts, tool, target, agent, sidechain, status) "
             "VALUES(?,?,?,?,?,?,0,?)",
             (key, session_id, ts, f"droid:{mode}" if mode else "droid",
-             Path(prompt).name if isinstance(prompt, str) and prompt else "", mode, status),
+             _redact_target(Path(prompt).name) if isinstance(prompt, str) and prompt else "", mode, status),
         )
         stats["tool_calls"] += cur.rowcount if cur.rowcount > 0 else 0
     return stats
@@ -910,10 +920,26 @@ def _artifact_sources(root: Path) -> list[Path]:
     lessons = root / ".quality-loop" / "memory" / "lessons.jsonl"
     if lessons.is_file():
         sources.append(lessons)
+    delegations = root / ".quality-loop" / "delegations.jsonl"
+    if delegations.is_file():
+        sources.append(delegations)
     progress = root / ".quality-loop" / "progress.md"
     if progress.is_file():
         sources.append(progress)
     return sources
+
+
+def _finding_parts(entry: Any) -> tuple[str, str]:
+    """Normalize one finding (dict or string) into (severity, text). Findings
+    come in as free-form strings or {severity/level, text/finding/message}."""
+    if isinstance(entry, dict):
+        text = (entry.get("text") or entry.get("finding") or entry.get("message")
+                or entry.get("detail") or entry.get("title") or "")
+        sev = entry.get("severity") or entry.get("level") or "unspecified"
+        return str(sev), str(text)
+    # A bare-string finding carries no severity: label it "unspecified" rather
+    # than "info" so metrics/UI never imply a triage decision that never happened.
+    return "unspecified", str(entry)
 
 
 def _ingest_record(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: str) -> None:
@@ -938,6 +964,32 @@ def _ingest_record(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: st
         "commands_run": len(record.get("commands_run") or []),
         "live": rel.startswith(".quality-loop"),
     })
+    # Findings are first-class: the finding TEXT + severity + which gate fired
+    # is the loop's most valuable proof, so project each into its own artifact
+    # (not just the count kept on the review row). Sources: the top-level
+    # review_findings[] and either review dict's own findings[] (array form).
+    #
+    # Count caveat: the `findings` integer stored on each review row (below) is a
+    # per-channel count (independent_review row counts review_findings[]; the
+    # security row counts its own findings[]). The SUMMED finding artifacts can
+    # therefore exceed any single review row's count when a record populates BOTH
+    # review_findings[] and a review's own findings[]. That is intentional — the
+    # artifacts are the authoritative per-finding ledger; the row integer is only
+    # a cheap at-a-glance badge, not a total to reconcile against.
+    finding_idx = 0
+
+    def put_findings(source: str, reviewer: Any, entries: Any) -> None:
+        nonlocal finding_idx
+        if not isinstance(entries, list):
+            return
+        for entry in entries:
+            severity, text = _finding_parts(entry)
+            put("finding", finding_idx,
+                f"{task}: [{severity}] {text[:80]}",
+                {"severity": severity, "text": text[:300], "reviewer": reviewer,
+                 "task_id": task, "source": source})
+            finding_idx += 1
+
     review = record.get("independent_review")
     if isinstance(review, dict):
         put("review", 0, f"{task}: {review.get('verdict', '?')} by {review.get('reviewer', '?')}", {
@@ -945,7 +997,22 @@ def _ingest_record(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: st
             "fresh_context": review.get("fresh_context"), "ran_checks": review.get("ran_checks"),
             "attested": bool(review.get("diff_sha256")),
             "findings": len(record.get("review_findings") or []),
+            "kind": "independent",
         })
+        put_findings("independent_review", review.get("reviewer"), review.get("findings"))
+    security = record.get("security_review")
+    if isinstance(security, dict):
+        put("review", 1, f"{task}: security {security.get('verdict', '?')} by {security.get('reviewer', '?')}", {
+            "verdict": security.get("verdict"), "reviewer": security.get("reviewer"),
+            "fresh_context": security.get("fresh_context"), "ran_checks": security.get("ran_checks"),
+            "attested": bool(security.get("diff_sha256")),
+            "findings": len(security.get("findings") or []),
+            "kind": "security",
+        })
+        put_findings("security_review", security.get("reviewer"), security.get("findings"))
+    # Top-level review_findings[]: reviewer defaults to the independent reviewer.
+    ind_reviewer = review.get("reviewer") if isinstance(review, dict) else None
+    put_findings("review_findings", ind_reviewer, record.get("review_findings"))
     decision = record.get("minimality_decision")
     if isinstance(decision, dict) and decision.get("rung"):
         put("decision", 0, f"{task}: rung={decision.get('rung')}", {
@@ -988,7 +1055,50 @@ def _ingest_lessons(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: s
         )
 
 
-def index_artifacts(conn: sqlite3.Connection, root: Path) -> int:
+_DELEGATION_FIELDS = ("ts", "task_id", "role", "host", "model", "brief_summary", "expected_agent_name")
+
+
+def _ingest_delegations(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: str) -> int:
+    """Ingest the orchestrator's append-only ``.quality-loop/delegations.jsonl``.
+
+    One JSON object per line: ts, task_id, role, host, model, brief_summary,
+    expected_agent_name. Mirrors the lessons/JSONL pattern. Malformed lines are
+    skipped and counted (returned), never crash the pass — the ledger is written
+    by hand/agent and a half-flushed line must not break indexing.
+    """
+    skipped = 0
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return skipped
+    for i, raw in enumerate(lines):
+        if not raw.strip():
+            continue
+        try:
+            entry = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            skipped += 1
+            continue
+        if not isinstance(entry, dict):
+            skipped += 1
+            continue
+        task = str(entry.get("task_id") or "?")
+        role = str(entry.get("role") or "?")
+        expected = entry.get("expected_agent_name")
+        detail = {k: entry.get(k) for k in _DELEGATION_FIELDS if k in entry}
+        if isinstance(detail.get("brief_summary"), str):
+            detail["brief_summary"] = detail["brief_summary"][:300]
+        conn.execute(
+            "INSERT INTO artifacts(key, source_path, kind, ts, title, detail) VALUES(?,?,?,?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET ts=excluded.ts, title=excluded.title, detail=excluded.detail",
+            (f"{rel}#delegation#{i}", rel, "delegation",
+             entry.get("ts") or mtime_iso,
+             f"{task}: {role} -> {expected or '?'}"[:TITLE_MAX], json.dumps(detail)[:4000]),
+        )
+    return skipped
+
+
+def index_artifacts(conn: sqlite3.Connection, root: Path, totals: dict[str, int] | None = None) -> int:
     changed = 0
     # Deleted artifact sources must not haunt the index.
     for row in conn.execute(
@@ -1013,6 +1123,10 @@ def index_artifacts(conn: sqlite3.Connection, root: Path) -> int:
         mtime_iso = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
         if path.name == "lessons.jsonl":
             _ingest_lessons(conn, path, rel, mtime_iso)
+        elif path.name == "delegations.jsonl":
+            skipped = _ingest_delegations(conn, path, rel, mtime_iso)
+            if totals is not None:
+                totals["skipped"] += skipped
         elif path.suffix == ".json":
             _ingest_record(conn, path, rel, mtime_iso)
         elif path.name == "progress.md":
@@ -1069,7 +1183,7 @@ def index_all(root: Path, all_projects: bool = False) -> dict[str, Any]:
             if not Path(row["path"]).exists():
                 _purge_transcript_rows(conn, Path(row["path"]))
                 conn.execute("DELETE FROM file_state WHERE path=?", (row["path"],))
-        totals["artifact_sources_changed"] = index_artifacts(conn, root)
+        totals["artifact_sources_changed"] = index_artifacts(conn, root, totals)
         block = load_control_config(root)
         days = block.get("retention_days")
         days = days if isinstance(days, int) and not isinstance(days, bool) and days >= 1 else DEFAULT_RETENTION_DAYS
@@ -1142,6 +1256,13 @@ def _cost(row: dict[str, Any], rates: dict[str, float] | None) -> float | None:
     return round(sum(row.get(col, 0) * rate / 1_000_000 for col, rate in per.items()), 6)
 
 
+# Claude Code writes a "<synthetic>" model on placeholder assistant turns that
+# carry zero tokens (transcript noise, not real spend). Exclude it from every
+# spend/overview grouping so it never shows up as a phantom model row; the raw
+# model_calls table keeps every row for honest ingest counts and dedupe.
+_REAL_MODEL_SQL = "(model IS NULL OR model != '<synthetic>')"
+
+
 def spend(conn: sqlite3.Connection, by: str = "model", prices: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     group = {
         "model": "COALESCE(model, 'unknown')",
@@ -1155,7 +1276,7 @@ def spend(conn: sqlite3.Connection, by: str = "model", prices: dict[str, Any] | 
         f"SELECT {group} AS key, COALESCE(model, 'unknown') AS model, COUNT(*) AS calls, "  # noqa: S608 - group is whitelisted above
         "SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, "
         "SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_creation_tokens) AS cache_creation_tokens "
-        f"FROM model_calls GROUP BY {group}, model"  # noqa: S608
+        f"FROM model_calls WHERE {_REAL_MODEL_SQL} GROUP BY {group}, model"  # noqa: S608
     ).fetchall()
     merged: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -1178,7 +1299,7 @@ def overview(conn: sqlite3.Connection, prices: dict[str, Any] | None = None) -> 
         "SELECT COUNT(DISTINCT session_id) AS active_sessions, COUNT(*) AS model_calls, "
         "COALESCE(SUM(input_tokens),0) AS input_tokens, COALESCE(SUM(output_tokens),0) AS output_tokens, "
         "COALESCE(SUM(cache_read_tokens),0) AS cache_read_tokens, "
-        "COALESCE(SUM(cache_creation_tokens),0) AS cache_creation_tokens FROM model_calls"
+        f"COALESCE(SUM(cache_creation_tokens),0) AS cache_creation_tokens FROM model_calls WHERE {_REAL_MODEL_SQL}"  # noqa: S608
     ).fetchone())
     totals["sessions"] = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
     totals["tool_calls"] = conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0]
@@ -1197,7 +1318,8 @@ def overview(conn: sqlite3.Connection, prices: dict[str, Any] | None = None) -> 
     }
 
 
-def list_sessions(conn: sqlite3.Connection, limit: int = 200) -> list[dict[str, Any]]:
+def list_sessions(conn: sqlite3.Connection, limit: int = 200,
+                  prices: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT s.*, "
         "(SELECT COUNT(*) FROM model_calls m WHERE m.session_id = s.id) AS model_calls, "
@@ -1208,7 +1330,26 @@ def list_sessions(conn: sqlite3.Connection, limit: int = 200) -> list[dict[str, 
         "FROM sessions s ORDER BY COALESCE(s.last_activity_at, s.started_at) DESC LIMIT ?",
         (limit,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    # Per-session USD, priced per model (prices are per-model substrings), only
+    # when the user configured prices; otherwise cost_usd stays None and the UI
+    # hides the column. Real models only, matching every other spend grouping.
+    cost_by_session: dict[str, float] = {}
+    if prices:
+        for row in conn.execute(
+            f"SELECT session_id, COALESCE(model,'unknown') AS model, "  # noqa: S608
+            "SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, "
+            "SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_creation_tokens) AS cache_creation_tokens "
+            f"FROM model_calls WHERE {_REAL_MODEL_SQL} GROUP BY session_id, model"  # noqa: S608
+        ).fetchall():
+            sub = {k: row[k] or 0 for k in
+                   ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens")}
+            c = _cost(sub, _price_for(row["model"], prices))
+            if c is not None:
+                cost_by_session[row["session_id"]] = round(cost_by_session.get(row["session_id"], 0.0) + c, 6)
+    for s in out:
+        s["cost_usd"] = cost_by_session.get(s["id"])
+    return out
 
 
 def session_detail(conn: sqlite3.Connection, session_id: str, prices: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -1303,6 +1444,253 @@ def list_events(conn: sqlite3.Connection, limit: int = 200) -> list[dict[str, An
         (limit,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Query-time joins + aggregations (delegations, task timeline, loop metrics)
+# ---------------------------------------------------------------------------
+# Everything below is computed at request time from existing rows; nothing is
+# stored. Keeping the joins out of the DB keeps the cache disposable and the
+# joins honest (a stored join would silently rot when a source is reindexed).
+
+# A delegation is matched to a session that started in this window around the
+# delegation timestamp: the orchestrator records the delegation just before the
+# worker's session begins, and a worker session rarely runs longer than an hour.
+_DELEG_MATCH_BEFORE = timedelta(minutes=5)
+_DELEG_MATCH_AFTER = timedelta(minutes=60)
+
+
+def _parse_ts(value: Any) -> datetime | None:
+    """Parse an ISO-8601 timestamp to an aware UTC datetime, or None."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _session_tokens(conn: sqlite3.Connection, session_id: str) -> dict[str, int]:
+    row = conn.execute(
+        "SELECT COUNT(*) AS calls, COALESCE(SUM(input_tokens),0) AS input_tokens, "
+        "COALESCE(SUM(output_tokens),0) AS output_tokens, "
+        "COALESCE(SUM(cache_read_tokens),0) AS cache_read_tokens, "
+        "COALESCE(SUM(cache_creation_tokens),0) AS cache_creation_tokens "
+        "FROM model_calls WHERE session_id=?",
+        (session_id,),
+    ).fetchone()
+    return {k: row[k] for k in ("calls", "input_tokens", "output_tokens",
+                                "cache_read_tokens", "cache_creation_tokens")}
+
+
+def _match_delegation(conn: sqlite3.Connection, expected: Any, ts: Any) -> dict[str, Any] | None:
+    """Find the session a delegation ran in: agent_name == expected_agent_name
+    AND started within [ts-5m, ts+60m]. Returns the session (+token totals) or
+    None. When several match, the one nearest the delegation ts wins."""
+    if not isinstance(expected, str) or not expected:
+        return None
+    when = _parse_ts(ts)
+    rows = conn.execute(
+        "SELECT id, host, agent_name, title, started_at, last_activity_at, ended_at "
+        "FROM sessions WHERE agent_name=?",
+        (expected,),
+    ).fetchall()
+    best: tuple[float, sqlite3.Row] | None = None
+    for row in rows:
+        started = _parse_ts(row["started_at"])
+        if when is not None and started is not None:
+            # Window is [ts-5m, ts+60m]: the session may start slightly before
+            # the ledger line is flushed, but mostly after it.
+            if not (when - _DELEG_MATCH_BEFORE <= started <= when + _DELEG_MATCH_AFTER):
+                continue
+            dist = abs((started - when).total_seconds())
+        else:
+            dist = 0.0
+        if best is None or dist < best[0]:
+            best = (dist, row)
+    if best is None:
+        return None
+    row = best[1]
+    out = dict(row)
+    out["tokens"] = _session_tokens(conn, row["id"])
+    return out
+
+
+def delegations_with_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Every delegation artifact joined to its matched session at query time."""
+    out = []
+    for art in list_artifacts(conn, ("delegation",)):
+        detail = art["detail"] if isinstance(art["detail"], dict) else {}
+        matched = _match_delegation(conn, detail.get("expected_agent_name"),
+                                    detail.get("ts") or art["ts"])
+        item = {
+            "task_id": detail.get("task_id"), "role": detail.get("role"),
+            "host": detail.get("host"), "model": detail.get("model"),
+            "brief_summary": detail.get("brief_summary"),
+            "expected_agent_name": detail.get("expected_agent_name"),
+            "ts": detail.get("ts") or art["ts"], "title": art["title"],
+        }
+        if matched:
+            item["session"] = matched
+            item["unmatched"] = False
+        else:
+            item["session"] = None
+            item["unmatched"] = True
+        out.append(item)
+    return out
+
+
+_TIMELINE_KINDS = ("record", "decision", "plan", "delegation", "escalation", "review", "finding")
+
+
+def task_timeline(conn: sqlite3.Connection, task_id: str, prices: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """Assemble a full audit timeline for one task_id from indexed artifacts
+    (live record + docs/records history) + delegations + linked sessions/spend.
+    Returns None when the task_id is unknown."""
+    if not task_id:
+        return None
+    # The `record` artifact's title IS the task_id; find every source file that
+    # carries a record for this task (live + any historical copies).
+    record_arts = [a for a in list_artifacts(conn, ("record",)) if a["title"] == task_id]
+    source_paths = {a["source_path"] for a in record_arts}
+    # Delegations are matched by their own task_id field, not source file.
+    delegations = [d for d in delegations_with_sessions(conn) if d.get("task_id") == task_id]
+    if not source_paths and not delegations:
+        return None
+    events: list[dict[str, Any]] = []
+    reviews: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    escalations: list[dict[str, Any]] = []
+    decision: dict[str, Any] | None = None
+    plan: dict[str, Any] | None = None
+    for art in list_artifacts(conn, _TIMELINE_KINDS):
+        if art["kind"] == "delegation":
+            continue  # handled via delegations (adds the session join)
+        if art["source_path"] not in source_paths:
+            continue
+        events.append({"ts": art["ts"], "kind": art["kind"], "title": art["title"],
+                       "detail": art["detail"], "source_path": art["source_path"]})
+        if art["kind"] == "review":
+            reviews.append(art)
+        elif art["kind"] == "finding":
+            findings.append(art)
+        elif art["kind"] == "escalation":
+            escalations.append(art)
+        elif art["kind"] == "decision":
+            decision = art
+        elif art["kind"] == "plan":
+            plan = art
+    for d in delegations:
+        events.append({"ts": d["ts"], "kind": "delegation",
+                       "title": d["title"], "detail": d})
+    events.sort(key=lambda e: (str(e["ts"] or ""), e["kind"]))
+    # Linked sessions: the matched sessions behind this task's delegations.
+    sessions = [d["session"] for d in delegations if d.get("session")]
+    spend_totals = {"calls": 0, "input_tokens": 0, "output_tokens": 0,
+                    "cache_read_tokens": 0, "cache_creation_tokens": 0}
+    for sess in sessions:
+        for k in spend_totals:
+            spend_totals[k] += sess.get("tokens", {}).get(k, 0)
+    evidence_count = max((a["detail"].get("commands_run", 0) or 0 for a in record_arts), default=0)
+    return {
+        "task_id": task_id,
+        "records": record_arts,
+        "timeline": events,
+        "reviews": reviews,
+        "findings": findings,
+        "escalations": escalations,
+        "decision": decision,
+        "plan": plan,
+        "delegations": delegations,
+        "evidence_count": evidence_count,
+        "sessions": sessions,
+        "spend": spend_totals,
+    }
+
+
+def _role_for_agent(agent: str | None, topo_agents: dict[str, Any]) -> str:
+    """Map a transcript agent name to a CQL role via the routing topology.
+    The topology's agent keys ARE the role names; 'main' is the orchestrator;
+    anything else is 'other'."""
+    if not agent or agent == "main":
+        return "main"
+    if agent in topo_agents:
+        return agent
+    return "other"
+
+
+def loop_metrics(conn: sqlite3.Connection, root: Path, prices: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Compute the loop KPIs the CQL skill defines. All query-time aggregation
+    over existing rows; every ratio is division-by-zero safe (empty DB -> zeros)."""
+    reviews = list_artifacts(conn, ("review",))
+    verdicts: dict[str, int] = {}
+    for r in reviews:
+        v = str(r["detail"].get("verdict") or "unknown")
+        verdicts[v] = verdicts.get(v, 0) + 1
+
+    findings = list_artifacts(conn, ("finding",))
+    by_severity: dict[str, int] = {}
+    for f in findings:
+        sev = str(f["detail"].get("severity") or "unspecified")
+        by_severity[sev] = by_severity.get(sev, 0) + 1
+
+    escalation_arts = list_artifacts(conn, ("escalation",))
+    repair_attempts = sum(int(e["detail"].get("attempts") or 0) for e in escalation_arts
+                          if isinstance(e["detail"].get("attempts"), int))
+
+    decisions = list_artifacts(conn, ("decision",))
+    rungs: dict[str, int] = {}
+    for d in decisions:
+        rung = str(d["detail"].get("rung") or "unknown")
+        rungs[rung] = rungs.get(rung, 0) + 1
+
+    records = list_artifacts(conn, ("record",))
+    with_evidence = sum(1 for r in records if (r["detail"].get("commands_run") or 0) > 0)
+    evidence_rate = round(100.0 * with_evidence / len(records), 1) if records else 0.0
+
+    # spend by role: agent_name -> role via routing topology.
+    topo_agents: dict[str, Any] = {}
+    cfg_path = root / "quality-loop.config.json"
+    if cfg_path.is_file():
+        try:
+            config = json.loads(cfg_path.read_text(encoding="utf-8"))
+            if isinstance(config, dict):
+                topo_agents = qlroute.resolve_routing(config, None).get("agents", {}) or {}
+        except (ValueError, OSError):
+            topo_agents = {}
+    by_role: dict[str, dict[str, Any]] = {}
+    for row in spend(conn, "agent", prices):
+        role = _role_for_agent(row["key"], topo_agents)
+        item = by_role.setdefault(role, {"role": role, "calls": 0, "input_tokens": 0,
+                                          "output_tokens": 0, "cache_read_tokens": 0,
+                                          "cache_creation_tokens": 0, "cost_usd": None})
+        for k in ("calls", "input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens"):
+            item[k] += row.get(k, 0)
+        if row.get("cost_usd") is not None:
+            item["cost_usd"] = round((item["cost_usd"] or 0.0) + row["cost_usd"], 6)
+
+    durations = []
+    for s in conn.execute(
+        "SELECT id, title, host, agent_name, started_at, last_activity_at, ended_at FROM sessions"
+    ).fetchall():
+        start = _parse_ts(s["started_at"])
+        end = _parse_ts(s["ended_at"]) or _parse_ts(s["last_activity_at"])
+        secs = round((end - start).total_seconds(), 1) if (start and end and end >= start) else None
+        durations.append({"id": s["id"], "title": s["title"], "host": s["host"],
+                          "agent_name": s["agent_name"], "duration_sec": secs})
+
+    return {
+        "verdict_distribution": verdicts,
+        "findings_by_severity": by_severity,
+        "escalations": len(escalation_arts),
+        "repair_attempts": repair_attempts,
+        "rung_distribution": rungs,
+        "evidence_rate": {"records": len(records), "with_evidence": with_evidence,
+                          "rate_pct": evidence_rate},
+        "spend_by_role": sorted(by_role.values(), key=lambda r: -r["output_tokens"]),
+        "session_durations": durations,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1448,7 +1836,7 @@ class _Handler(BaseHTTPRequestHandler):
                 if limit is None:
                     self._json(400, {"error": "limit must be an integer"})
                 else:
-                    self._json(200, {"sessions": list_sessions(conn, limit)})
+                    self._json(200, {"sessions": list_sessions(conn, limit, prices)})
             elif path == "/api/session":
                 detail = session_detail(conn, query.get("id", ""), prices)
                 self._json(200 if detail else 404, detail or {"error": "unknown session id"})
@@ -1460,7 +1848,19 @@ class _Handler(BaseHTTPRequestHandler):
                     self._json(200, {"by": by, "rows": spend(conn, by, prices)})
             elif path == "/api/records":
                 self._json(200, {"artifacts": list_artifacts(
-                    conn, ("record", "review", "decision", "plan", "escalation", "models_used"))})
+                    conn, ("record", "review", "decision", "plan", "escalation", "models_used", "finding"))})
+            elif path == "/api/delegations":
+                self._json(200, {"delegations": delegations_with_sessions(conn)})
+            elif path == "/api/task":
+                task_id = query.get("task_id", "")
+                if not task_id:
+                    self._json(400, {"error": "task_id is required"})
+                else:
+                    timeline = task_timeline(conn, task_id, prices)
+                    self._json(200 if timeline else 404,
+                               timeline or {"error": f"unknown task_id: {task_id}"})
+            elif path == "/api/metrics":
+                self._json(200, loop_metrics(conn, root, prices))
             elif path == "/api/memory":
                 lessons = list_artifacts(conn, ("memory",))
                 progress = list_artifacts(conn, ("progress",))
@@ -1709,6 +2109,122 @@ def cmd_stop(args: Any) -> int:
         return 0
     os.kill(int(state["pid"]), signal.SIGTERM)
     print(f"sent SIGTERM to control plane server pid={state['pid']}")
+    return 0
+
+
+def _pick_record(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """The live record if present, else the first (historical) one."""
+    for r in records:
+        if r["detail"].get("live"):
+            return r
+    return records[0] if records else {"detail": {}}
+
+
+def _fmt_tokens(spend_totals: dict[str, int]) -> str:
+    return (f"{spend_totals.get('calls', 0)} calls, "
+            f"{spend_totals.get('input_tokens', 0)} in / {spend_totals.get('output_tokens', 0)} out, "
+            f"{spend_totals.get('cache_read_tokens', 0)} cache-read")
+
+
+def render_report_md(bundle: dict[str, Any]) -> str:
+    rec = _pick_record(bundle.get("records") or [])["detail"]
+    lines = [f"# Audit report: {bundle['task_id']}", ""]
+    lines.append(f"- Goal: {rec.get('goal') or '(unknown)'}")
+    lines.append(f"- Status: {rec.get('status') or '(unknown)'}")
+    lines.append(f"- Class / risk: {rec.get('task_class') or '?'} / {rec.get('risk_tier') or '?'}")
+    decision = bundle.get("decision")
+    if decision:
+        d = decision["detail"]
+        lines += ["", "## Minimality decision",
+                  f"- Rung: {d.get('rung')}", f"- Reason: {d.get('reason')}"]
+    plan = bundle.get("plan")
+    if plan:
+        lines += ["", "## Plan"]
+        for i, step in enumerate(plan["detail"].get("steps") or [], 1):
+            lines.append(f"{i}. {step}")
+    delegations = bundle.get("delegations") or []
+    if delegations:
+        lines += ["", "## Delegations"]
+        for d in delegations:
+            head = f"- {d.get('role')} -> {d.get('expected_agent_name')} [{d.get('host')}/{d.get('model')}]"
+            if d.get("brief_summary"):
+                head += f": {d['brief_summary']}"
+            lines.append(head)
+            sess = d.get("session")
+            if sess:
+                t = sess.get("tokens", {})
+                lines.append(f"    matched session {sess['id']} "
+                             f"({t.get('input_tokens', 0)} in / {t.get('output_tokens', 0)} out)")
+            else:
+                lines.append("    unmatched (no session found in the delegation window)")
+    lines += ["", "## Evidence", f"- Commands run: {bundle.get('evidence_count', 0)}"]
+    reviews = bundle.get("reviews") or []
+    lines += ["", "## Verdicts"]
+    if reviews:
+        for r in reviews:
+            rd = r["detail"]
+            lines.append(f"- {rd.get('kind', 'review')}: {rd.get('verdict')} by "
+                         f"{rd.get('reviewer')} (findings: {rd.get('findings', 0)}, "
+                         f"attested: {bool(rd.get('attested'))})")
+    else:
+        lines.append("- (none recorded)")
+    findings = bundle.get("findings") or []
+    lines += ["", "## Findings"]
+    if findings:
+        for f in findings:
+            fd = f["detail"]
+            lines.append(f"- [{fd.get('severity')}] {fd.get('text')} "
+                         f"({fd.get('source')}, {fd.get('reviewer')})")
+    else:
+        lines.append("- (none recorded)")
+    escalations = bundle.get("escalations") or []
+    if escalations:
+        lines += ["", "## Escalations"]
+        for e in escalations:
+            ed = e["detail"]
+            lines.append(f"- {e['title']} (trigger: {ed.get('trigger')}, attempts: {ed.get('attempts')})")
+    lines += ["", "## Spend (linked sessions)", f"- {_fmt_tokens(bundle.get('spend') or {})}"]
+    sessions = bundle.get("sessions") or []
+    lines += ["", "## Sessions"]
+    if sessions:
+        for s in sessions:
+            t = s.get("tokens", {})
+            lines.append(f"- {s['id']} [{s.get('host')}] {s.get('agent_name') or ''} "
+                         f"({t.get('input_tokens', 0)} in / {t.get('output_tokens', 0)} out)")
+    else:
+        lines.append("- (no linked sessions)")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_report(args: Any) -> int:
+    """Emit a per-task audit bundle (markdown default, --json optional).
+
+    Exit 0 on success; exit 2 with a helpful message when the task is unknown.
+    """
+    root = _root_from(args)
+    task_id = str(getattr(args, "task_id", "") or "")
+    if not task_id:
+        print("control-report: --task-id is required", file=sys.stderr)
+        return 2
+    conn = open_db(root)
+    try:
+        prices = load_control_config(root).get("prices")
+        prices = prices if isinstance(prices, dict) else {}
+        bundle = task_timeline(conn, task_id, prices)
+    finally:
+        conn.close()
+    if bundle is None:
+        print(
+            f"control-report: no task found with task_id={task_id!r}. "
+            "Run 'control-index' first, or check the id against '/api/records' "
+            "(the record artifact title is the task_id).",
+            file=sys.stderr,
+        )
+        return 2
+    if getattr(args, "json", False):
+        print(json.dumps(bundle, indent=2))
+    else:
+        print(render_report_md(bundle), end="")
     return 0
 
 

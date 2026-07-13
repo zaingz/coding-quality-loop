@@ -1068,7 +1068,7 @@ REQUIRED_STEPS = [
 # Single source of truth for the config schema/version. check_config rejects a
 # config that does not declare this version so the skill, config, CHANGELOG, and
 # npm package cannot silently drift apart.
-EXPECTED_CONFIG_VERSION = "5.0.0"
+EXPECTED_CONFIG_VERSION = "5.1.0"
 
 # Step model-class floor (P3.18): the planner (PLAN) and orchestrator
 # (ORCHESTRATE) steps must route to the strongest reasoning class so "the right
@@ -1896,6 +1896,12 @@ def main() -> int:
     p_cstop = sub.add_parser("control-stop", help="Stop the running control-plane server")
     p_cstop.add_argument("--cwd", default=".", help="Repo root (default .)")
     p_cstop.set_defaults(func=qlctl.cmd_stop)
+
+    p_creport = sub.add_parser("control-report", help="Print a per-task audit bundle (goal, rung, plan, delegations, verdicts+findings, spend, sessions) as markdown or JSON")
+    p_creport.add_argument("--cwd", default=".", help="Repo root (default .)")
+    p_creport.add_argument("--task-id", required=True, help="Task id to report on (matches the record artifact title)")
+    p_creport.add_argument("--json", action="store_true", help="Emit the bundle as JSON instead of markdown")
+    p_creport.set_defaults(func=qlctl.cmd_report)
 
     args = parser.parse_args()
     return args.func(args)

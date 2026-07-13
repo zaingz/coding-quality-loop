@@ -437,7 +437,8 @@ def case_api_endpoints(tmp: Path) -> tuple[bool, str]:
     try:
         results = {}
         for ep in ("healthz", "api/overview", "api/sessions?limit=5", "api/session?id=s1",
-                   "api/spend?by=day", "api/records", "api/memory", "api/events", "api/routing"):
+                   "api/spend?by=day", "api/records", "api/memory", "api/events", "api/routing",
+                   "api/delegations", "api/task?task_id=ctl-eval", "api/metrics"):
             code, body = get_json(f"http://127.0.0.1:{port}/{ep}")
             results[ep] = code
         detail_code, detail = get_json(f"http://127.0.0.1:{port}/api/session?id=s1")
@@ -445,13 +446,17 @@ def case_api_endpoints(tmp: Path) -> tuple[bool, str]:
         missing, _ = get_json(f"http://127.0.0.1:{port}/api/session?id=ghost")
         bad_limit, _ = get_json(f"http://127.0.0.1:{port}/api/sessions?limit=abc")
         neg_limit_code, neg = get_json(f"http://127.0.0.1:{port}/api/sessions?limit=-1")
+        task_no_id, _ = get_json(f"http://127.0.0.1:{port}/api/task")
+        task_ghost, _ = get_json(f"http://127.0.0.1:{port}/api/task?task_id=ghost")
     finally:
         httpd.shutdown()
         httpd.server_close()
     ok = (all(code == 200 for code in results.values()) and bad_by == 400 and missing == 404
           and detail["session"]["id"] == "s1" and detail["models"][0]["calls"] == 1
-          and bad_limit == 400 and neg_limit_code == 200 and len(neg["sessions"]) == 1)
-    return ok, f"codes={results}; bad_by={bad_by}; missing={missing}; bad_limit={bad_limit}; neg_limit_rows={len(neg['sessions'])}"
+          and bad_limit == 400 and neg_limit_code == 200 and len(neg["sessions"]) == 1
+          and task_no_id == 400 and task_ghost == 404)
+    return ok, (f"codes={results}; bad_by={bad_by}; missing={missing}; bad_limit={bad_limit}; "
+                f"neg_limit_rows={len(neg['sessions'])}; task_no_id={task_no_id}; task_ghost={task_ghost}")
 
 
 def case_server_read_only_and_local(tmp: Path) -> tuple[bool, str]:
@@ -511,6 +516,272 @@ def case_dashboard_self_contained(tmp: Path) -> tuple[bool, str]:
     ok = (not external and code == 200 and "<title>CQL Control Plane</title>" in served
           and "prefers-color-scheme" in body and 'data-theme="dark"' in body)
     return ok, f"external_refs={external[:3]}; served={code}; themed={'prefers-color-scheme' in body}"
+
+
+# ---------------------------------------------------------------------------
+# Audit-trail cases (v5.1.0: findings, delegations, task timeline, metrics,
+# report CLI, tool-target redaction)
+# ---------------------------------------------------------------------------
+
+def _deleg_line(task_id: str, role: str, expected: str, ts: str,
+                host: str = "droid", model: str = "cheap", brief: str = "do the thing") -> str:
+    return json.dumps({"ts": ts, "task_id": task_id, "role": role, "host": host,
+                       "model": model, "brief_summary": brief, "expected_agent_name": expected})
+
+
+def case_findings_first_class(tmp: Path) -> tuple[bool, str]:
+    """AC1: findings from ALL THREE channels become first-class `finding`
+    artifacts carrying severity + text + reviewer + source: the array form on
+    independent_review.findings[] and security_review.findings[], and the
+    top-level review_findings[]. A bare-string finding buckets as `unspecified`
+    (V4), and the summed artifacts intentionally exceed any single review row's
+    per-channel `findings` count (R2)."""
+    repo = make_repo(tmp)
+    claude_dir(tmp, repo)
+    rec = _fixture_record()
+    # array form on the independent review
+    rec["independent_review"] = {"reviewer": "other-model", "verdict": "approve",
+                                 "fresh_context": True, "diff_sha256": "0" * 64,
+                                 "findings": [{"severity": "high", "text": "unbounded recursion in parser"}]}
+    # array form on the security review (distinct reviewer)
+    rec["security_review"] = {"reviewer": "sec-model", "verdict": "approve",
+                              "fresh_context": True, "diff_sha256": "0" * 64,
+                              "findings": [{"severity": "critical", "text": "secret logged in cleartext"}]}
+    # top-level channel: one triaged + one bare string (no severity -> unspecified)
+    rec["review_findings"] = [
+        {"severity": "low", "text": "prefer f-string over concatenation"},
+        "reviewer left a note with no severity",
+    ]
+    (repo / ".quality-loop").mkdir()
+    (repo / ".quality-loop" / "agent-record.json").write_text(json.dumps(rec), encoding="utf-8")
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    findings = ctl.list_artifacts(conn, ("finding",))
+    reviews = {r["detail"].get("kind"): r for r in ctl.list_artifacts(conn, ("review",))}
+    conn.close()
+    by_text = {f["detail"]["text"]: f["detail"] for f in findings}
+    sources = {f["detail"]["source"] for f in findings}
+    sevs = {f["detail"]["severity"] for f in findings}
+    ind = by_text.get("unbounded recursion in parser", {})
+    sec = by_text.get("secret logged in cleartext", {})
+    bare = by_text.get("reviewer left a note with no severity", {})
+    ok = (len(findings) == 4
+          and sources == {"independent_review", "security_review", "review_findings"}
+          and sevs == {"high", "critical", "low", "unspecified"}
+          and ind.get("source") == "independent_review"
+          and sec.get("source") == "security_review" and sec.get("reviewer") == "sec-model"
+          and bare.get("severity") == "unspecified"
+          # per-channel row counts (R2): independent row counts review_findings[],
+          # security row counts its own findings[]; summed artifacts (4) exceed both.
+          and reviews["independent"]["detail"]["findings"] == 2
+          and reviews["security"]["detail"]["findings"] == 1)
+    return ok, (f"findings={len(findings)}; sources={sorted(sources)}; sevs={sorted(sevs)}; "
+                f"ind_src={ind.get('source')}; sec_reviewer={sec.get('reviewer')}; bare_sev={bare.get('severity')}; "
+                f"rows=ind:{reviews['independent']['detail']['findings']}/sec:{reviews['security']['detail']['findings']}")
+
+
+def case_delegations_ledger(tmp: Path) -> tuple[bool, str]:
+    """AC2: delegations.jsonl ingests to `delegation` artifacts; a garbage line
+    is counted in skipped_lines; re-indexing is idempotent."""
+    repo = make_repo(tmp)
+    claude_dir(tmp, repo)
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    ledger = qdir / "delegations.jsonl"
+    ledger.write_text(
+        _deleg_line("t-1", "implementer", "impl-agent", "2026-01-01T10:00:00Z") + "\n"
+        + "{ this is not json }\n"
+        + _deleg_line("t-1", "reviewer", "rev-agent", "2026-01-01T10:30:00Z") + "\n",
+        encoding="utf-8")
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    delegs = ctl.list_artifacts(conn, ("delegation",))
+    skipped = int(ctl._meta_get(conn, "skipped_lines") or 0)
+    conn.close()
+    # Re-index without touching the file: mtime-gated, so no new rows / no new skips.
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    delegs2 = ctl.list_artifacts(conn, ("delegation",))
+    skipped2 = int(ctl._meta_get(conn, "skipped_lines") or 0)
+    conn.close()
+    roles = {d["detail"]["role"] for d in delegs}
+    ok = (len(delegs) == 2 and roles == {"implementer", "reviewer"}
+          and skipped >= 1 and len(delegs2) == 2 and skipped2 == skipped)
+    return ok, f"delegs={len(delegs)}; roles={sorted(roles)}; skipped={skipped}; reindex_delegs={len(delegs2)}; skipped2={skipped2}"
+
+
+def case_delegation_session_join(tmp: Path) -> tuple[bool, str]:
+    """AC3: a delegation joins to the session it ran in (agent_name match inside
+    the time window) with exact token sums; a non-matching one is `unmatched`."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    # The reviewer sub-agent's session, started 5 min after the delegation line.
+    write_transcript(proj, "revsess", [
+        assistant_line("revsess", "r1", "2026-01-01T10:05:00Z", model="strong",
+                       inp=300, out=222, agent="rev-agent", sidechain=True),
+        assistant_line("revsess", "r2", "2026-01-01T10:06:00Z", model="strong",
+                       inp=100, out=28, agent="rev-agent", sidechain=True),
+    ])
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    (qdir / "delegations.jsonl").write_text(
+        _deleg_line("t-9", "reviewer", "rev-agent", "2026-01-01T10:00:00Z") + "\n"
+        + _deleg_line("t-9", "implementer", "nobody-agent", "2026-01-01T10:00:00Z") + "\n",
+        encoding="utf-8")
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    joined = ctl.delegations_with_sessions(conn)
+    conn.close()
+    matched = next((d for d in joined if d["expected_agent_name"] == "rev-agent"), None)
+    unmatched = next((d for d in joined if d["expected_agent_name"] == "nobody-agent"), None)
+    ok = (matched and not matched["unmatched"] and matched["session"]["id"] == "revsess"
+          and matched["session"]["tokens"]["input_tokens"] == 400
+          and matched["session"]["tokens"]["output_tokens"] == 250
+          and unmatched and unmatched["unmatched"] and unmatched["session"] is None)
+    return ok, (f"matched_sess={matched['session']['id'] if matched and matched['session'] else None}; "
+                f"in={matched['session']['tokens']['input_tokens'] if matched and matched['session'] else None}; "
+                f"out={matched['session']['tokens']['output_tokens'] if matched and matched['session'] else None}; "
+                f"unmatched={bool(unmatched and unmatched['unmatched'])}")
+
+
+def case_task_timeline(tmp: Path) -> tuple[bool, str]:
+    """AC4: task_timeline assembles every artifact kind for a task_id in ts
+    order and returns None for an unknown task."""
+    repo = make_repo(tmp)
+    claude_dir(tmp, repo)
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    rec = _fixture_record()
+    rec["review_findings"] = [{"severity": "high", "text": "leak"}]
+    (qdir / "agent-record.json").write_text(json.dumps(rec), encoding="utf-8")
+    (qdir / "delegations.jsonl").write_text(
+        _deleg_line("ctl-eval", "implementer", "impl-agent", "2026-01-01T09:00:00Z") + "\n",
+        encoding="utf-8")
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    bundle = ctl.task_timeline(conn, "ctl-eval")
+    unknown = ctl.task_timeline(conn, "does-not-exist")
+    conn.close()
+    kinds = {e["kind"] for e in (bundle["timeline"] if bundle else [])}
+    ts_list = [str(e["ts"] or "") for e in (bundle["timeline"] if bundle else [])]
+    want = {"record", "decision", "plan", "delegation", "escalation", "review", "finding"}
+    ok = (bundle is not None and unknown is None and want <= kinds
+          and ts_list == sorted(ts_list)
+          and len(bundle["findings"]) == 1 and len(bundle["delegations"]) == 1)
+    return ok, f"kinds={sorted(kinds)}; ordered={ts_list == sorted(ts_list)}; unknown_is_none={unknown is None}"
+
+
+def case_loop_metrics(tmp: Path) -> tuple[bool, str]:
+    """AC5: loop_metrics computes exact KPIs over indexed artifacts; the
+    endpoint returns 200 with all-zero shape on an empty DB."""
+    # Empty-DB path first: served 200, zeroed, division-by-zero safe.
+    empty = make_repo(tmp, "empty")
+    claude_dir(tmp, empty)
+    ctl.index_all(empty)
+    httpd, port = _start_server(empty)
+    try:
+        code, m0 = get_json(f"http://127.0.0.1:{port}/api/metrics")
+    finally:
+        httpd.shutdown(); httpd.server_close()
+    zero_ok = (code == 200 and m0["verdict_distribution"] == {}
+               and m0["evidence_rate"]["rate_pct"] == 0.0 and m0["escalations"] == 0)
+    # Populated path: two records with distinct verdicts + findings + escalations.
+    repo = make_repo(tmp, "full")
+    proj = claude_dir(tmp, repo)
+    write_transcript(proj, "s1", [assistant_line("s1", "u1", "2026-01-01T10:00:00Z", inp=10, out=5)])
+    docs = repo / "docs" / "records"
+    docs.mkdir(parents=True)
+    r1 = _fixture_record()
+    r1["task_id"] = "task-a"
+    r1["review_findings"] = [{"severity": "high", "text": "x"}, {"severity": "low", "text": "y"}]
+    r2 = _fixture_record()
+    r2["task_id"] = "task-b"
+    r2["independent_review"]["verdict"] = "reject"
+    r2["commands_run"] = []  # no evidence for this one
+    r2["escalations"] = []
+    (docs / "task-a.json").write_text(json.dumps(r1), encoding="utf-8")
+    (docs / "task-b.json").write_text(json.dumps(r2), encoding="utf-8")
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    m = ctl.loop_metrics(conn, repo)
+    conn.close()
+    ok = (zero_ok
+          and m["verdict_distribution"].get("approve") == 1
+          and m["verdict_distribution"].get("reject") == 1
+          and m["findings_by_severity"].get("high") == 1
+          and m["findings_by_severity"].get("low") == 1
+          and m["escalations"] == 1
+          and m["evidence_rate"] == {"records": 2, "with_evidence": 1, "rate_pct": 50.0})
+    return ok, f"zero_ok={zero_ok}; verdicts={m['verdict_distribution']}; sev={m['findings_by_severity']}; evidence={m['evidence_rate']}"
+
+
+def case_control_report_cli(tmp: Path) -> tuple[bool, str]:
+    """AC6: control-report emits markdown (goal/verdict/finding/token totals),
+    --json parses, and an unknown task exits 2."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    write_transcript(proj, "revsess", [
+        assistant_line("revsess", "r1", "2026-01-01T10:05:00Z", model="strong",
+                       inp=300, out=222, agent="rev-agent", sidechain=True),
+    ])
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    rec = _fixture_record()
+    rec["review_findings"] = [{"severity": "high", "text": "off-by-one in slice bound"}]
+    (qdir / "agent-record.json").write_text(json.dumps(rec), encoding="utf-8")
+    (qdir / "delegations.jsonl").write_text(
+        _deleg_line("ctl-eval", "reviewer", "rev-agent", "2026-01-01T10:00:00Z") + "\n",
+        encoding="utf-8")
+    ctl.index_all(repo)
+    md_code, md_out, _ = run_stdin([sys.executable, str(QL), "control-report",
+                                    "--cwd", str(repo), "--task-id", "ctl-eval"], "", repo)
+    js_code, js_out, _ = run_stdin([sys.executable, str(QL), "control-report", "--json",
+                                    "--cwd", str(repo), "--task-id", "ctl-eval"], "", repo)
+    miss_code, _, miss_err = run_stdin([sys.executable, str(QL), "control-report",
+                                        "--cwd", str(repo), "--task-id", "no-such"], "", repo)
+    parsed_ok = False
+    try:
+        parsed = json.loads(js_out)
+        parsed_ok = parsed["task_id"] == "ctl-eval"
+    except (ValueError, KeyError):
+        parsed = {}
+    ok = (md_code == 0 and js_code == 0 and miss_code == 2
+          and "control-plane eval fixture" in md_out
+          and "approve" in md_out
+          and "off-by-one in slice bound" in md_out
+          and "300 in / 222 out" in md_out
+          and parsed_ok)
+    return ok, (f"md_code={md_code}; js_code={js_code}; miss_code={miss_code}; "
+                f"goal={'control-plane eval fixture' in md_out}; finding={'off-by-one in slice bound' in md_out}; "
+                f"tokens={'300 in / 222 out' in md_out}; json_ok={parsed_ok}")
+
+
+def case_tool_target_redaction(tmp: Path) -> tuple[bool, str]:
+    """AC7: a secret typed into a tool command is redacted before it is stored
+    in tool_calls.target; a benign command is stored verbatim."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    # Assemble the fake key from fragments so this fixture line does not itself
+    # trip the repo's own added-diff secret scanner; the runtime value is a
+    # well-formed sk-live-* key that the redactor must catch.
+    prefix = "sk-" "live-"
+    fake_key = prefix + "a1B2c3D4e5F6g7H8i9J0"
+    write_transcript(proj, "s1", [
+        assistant_line("s1", "u1", "2026-01-01T10:00:00Z",
+                       tools=[("t1", "Bash", {"command": f"export OPENAI_KEY={fake_key}"})]),
+        assistant_line("s1", "u2", "2026-01-01T10:00:10Z",
+                       tools=[("t2", "Bash", {"command": "pytest -q tests/unit"})]),
+    ])
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    targets = [r["target"] for r in conn.execute(
+        "SELECT target FROM tool_calls ORDER BY ts")]
+    conn.close()
+    joined = "\n".join(targets)
+    ok = (fake_key not in joined and prefix not in joined
+          and "[REDACTED]" in joined
+          and "pytest -q tests/unit" in targets)
+    return ok, f"secret_leaked={fake_key in joined}; redacted={'[REDACTED]' in joined}; benign_intact={'pytest -q tests/unit' in targets}"
 
 
 # ---------------------------------------------------------------------------
@@ -709,6 +980,13 @@ CASES = [
     ("all API endpoints return valid JSON with correct codes", case_api_endpoints),
     ("server binds 127.0.0.1 only and rejects non-GET with 405", case_server_read_only_and_local),
     ("dashboard is self-contained (no external refs) and served themed", case_dashboard_self_contained),
+    ("review findings become first-class finding artifacts with severity", case_findings_first_class),
+    ("delegations.jsonl ingests as artifacts; garbage counted; idempotent", case_delegations_ledger),
+    ("delegation joins its session with exact tokens; non-match is unmatched", case_delegation_session_join),
+    ("task timeline assembles every artifact kind in order; unknown -> None", case_task_timeline),
+    ("loop metrics compute exact KPIs; empty DB serves 200 zeros", case_loop_metrics),
+    ("control-report emits markdown + json; unknown task exits 2", case_control_report_cli),
+    ("tool-call targets redact secrets before storage; benign intact", case_tool_target_redaction),
     ("control-ingest records events and SessionEnd closes the session", case_ingest_event_roundtrip),
     ("ingest is a no-op when control_plane is absent or disabled", case_ingest_disabled_noop),
     ("ingest exits 0 on garbage stdin (never breaks a session)", case_ingest_never_breaks),

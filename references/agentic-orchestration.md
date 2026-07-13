@@ -42,6 +42,26 @@ worker's token footprint tiny and its judgment uncontaminated by the orchestrato
 context — the reviewer in particular must arrive with **fresh context** so it does not inherit
 the implementer's confidence.
 
+### Record each hand-off in the delegation ledger
+
+When the [control plane](../docs/control-plane.md) is enabled, the orchestrator should append
+one line per worker hand-off to `.quality-loop/delegations.jsonl` — an append-only JSONL ledger,
+written at the moment of delegation (not reconstructed afterward). One object per line:
+
+```json
+{"ts": "2026-07-13T10:00:00Z", "task_id": "T-42", "role": "reviewer",
+ "host": "codex", "model": "gpt-5", "brief_summary": "review the slice diff",
+ "expected_agent_name": "reviewer"}
+```
+
+`expected_agent_name` is the name the worker's session will report (the profile/agent handle
+the host runs under); the control plane uses it to join the delegation to the session it ran
+in and attribute exact token spend. This is the only record of *who was asked to do what,
+when, and on which model* — the transcripts show what a session did, but only the orchestrator
+knows it was a deliberate hand-off. The ledger is metadata only (never the brief's full text),
+lives under `.quality-loop/` so it is excluded from the review attestation hash, and a
+half-flushed line is skipped by the indexer rather than being fatal.
+
 ## Step → profile → model class
 
 Route by *step*, not by vendor: each step has its own cost/capability profile. Deterministic
