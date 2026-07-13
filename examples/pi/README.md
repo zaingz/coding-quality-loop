@@ -1,5 +1,10 @@
 # Coding Quality Loop (Pi)
 
+> **Maintenance mode — outside the v5 routed loop.** The first-class v5 loop routes
+> **Claude Code (implementer) + Codex (independent reviewer)**. Pi remains a supported
+> install target: the skill, gates, and `setup-models --host pi` still work, and this
+> example is kept current, but Pi is not part of the two-vendor routed kernel.
+
 Pi loads skills as directories containing `SKILL.md` plus optional scripts/references/assets,
 with progressive disclosure (metadata first, full instructions when relevant). Pi discovers
 skills from `~/.pi/agent/skills/`, `~/.agents/skills/`, `.pi/skills/`, `.agents/skills/`, and
@@ -54,6 +59,6 @@ session so it does not inherit the implementer's confidence. This matches Cognit
 finding: multi-agent works when writes stay single-threaded and other agents contribute
 intelligence (https://cognition.com/blog/multi-agents-working).
 
-If the project needs a real orchestrator (mission-class multi-day work with parallel
-workers), Pi is the documented escalation harness — its provider routing and session
-management cover the coordination cost without building a custom runtime.
+For mission-class multi-day work with parallel workers, Pi's provider routing and session
+management can carry the coordination cost without a custom runtime — but the routed v5 kernel
+(Claude Code + Codex) is where enforced review independence lives.
