@@ -1897,6 +1897,12 @@ def main() -> int:
     p_cstop.add_argument("--cwd", default=".", help="Repo root (default .)")
     p_cstop.set_defaults(func=qlctl.cmd_stop)
 
+    p_creport = sub.add_parser("control-report", help="Print a per-task audit bundle (goal, rung, plan, delegations, verdicts+findings, spend, sessions) as markdown or JSON")
+    p_creport.add_argument("--cwd", default=".", help="Repo root (default .)")
+    p_creport.add_argument("--task-id", required=True, help="Task id to report on (matches the record artifact title)")
+    p_creport.add_argument("--json", action="store_true", help="Emit the bundle as JSON instead of markdown")
+    p_creport.set_defaults(func=qlctl.cmd_report)
+
     args = parser.parse_args()
     return args.func(args)
 

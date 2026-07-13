@@ -1812,6 +1812,18 @@ class _Handler(BaseHTTPRequestHandler):
             elif path == "/api/records":
                 self._json(200, {"artifacts": list_artifacts(
                     conn, ("record", "review", "decision", "plan", "escalation", "models_used", "finding"))})
+            elif path == "/api/delegations":
+                self._json(200, {"delegations": delegations_with_sessions(conn)})
+            elif path == "/api/task":
+                task_id = query.get("task_id", "")
+                if not task_id:
+                    self._json(400, {"error": "task_id is required"})
+                else:
+                    timeline = task_timeline(conn, task_id, prices)
+                    self._json(200 if timeline else 404,
+                               timeline or {"error": f"unknown task_id: {task_id}"})
+            elif path == "/api/metrics":
+                self._json(200, loop_metrics(conn, root, prices))
             elif path == "/api/memory":
                 lessons = list_artifacts(conn, ("memory",))
                 progress = list_artifacts(conn, ("progress",))
@@ -2060,6 +2072,122 @@ def cmd_stop(args: Any) -> int:
         return 0
     os.kill(int(state["pid"]), signal.SIGTERM)
     print(f"sent SIGTERM to control plane server pid={state['pid']}")
+    return 0
+
+
+def _pick_record(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """The live record if present, else the first (historical) one."""
+    for r in records:
+        if r["detail"].get("live"):
+            return r
+    return records[0] if records else {"detail": {}}
+
+
+def _fmt_tokens(spend_totals: dict[str, int]) -> str:
+    return (f"{spend_totals.get('calls', 0)} calls, "
+            f"{spend_totals.get('input_tokens', 0)} in / {spend_totals.get('output_tokens', 0)} out, "
+            f"{spend_totals.get('cache_read_tokens', 0)} cache-read")
+
+
+def render_report_md(bundle: dict[str, Any]) -> str:
+    rec = _pick_record(bundle.get("records") or [])["detail"]
+    lines = [f"# Audit report: {bundle['task_id']}", ""]
+    lines.append(f"- Goal: {rec.get('goal') or '(unknown)'}")
+    lines.append(f"- Status: {rec.get('status') or '(unknown)'}")
+    lines.append(f"- Class / risk: {rec.get('task_class') or '?'} / {rec.get('risk_tier') or '?'}")
+    decision = bundle.get("decision")
+    if decision:
+        d = decision["detail"]
+        lines += ["", "## Minimality decision",
+                  f"- Rung: {d.get('rung')}", f"- Reason: {d.get('reason')}"]
+    plan = bundle.get("plan")
+    if plan:
+        lines += ["", "## Plan"]
+        for i, step in enumerate(plan["detail"].get("steps") or [], 1):
+            lines.append(f"{i}. {step}")
+    delegations = bundle.get("delegations") or []
+    if delegations:
+        lines += ["", "## Delegations"]
+        for d in delegations:
+            head = f"- {d.get('role')} -> {d.get('expected_agent_name')} [{d.get('host')}/{d.get('model')}]"
+            if d.get("brief_summary"):
+                head += f": {d['brief_summary']}"
+            lines.append(head)
+            sess = d.get("session")
+            if sess:
+                t = sess.get("tokens", {})
+                lines.append(f"    matched session {sess['id']} "
+                             f"({t.get('input_tokens', 0)} in / {t.get('output_tokens', 0)} out)")
+            else:
+                lines.append("    unmatched (no session found in the delegation window)")
+    lines += ["", "## Evidence", f"- Commands run: {bundle.get('evidence_count', 0)}"]
+    reviews = bundle.get("reviews") or []
+    lines += ["", "## Verdicts"]
+    if reviews:
+        for r in reviews:
+            rd = r["detail"]
+            lines.append(f"- {rd.get('kind', 'review')}: {rd.get('verdict')} by "
+                         f"{rd.get('reviewer')} (findings: {rd.get('findings', 0)}, "
+                         f"attested: {bool(rd.get('attested'))})")
+    else:
+        lines.append("- (none recorded)")
+    findings = bundle.get("findings") or []
+    lines += ["", "## Findings"]
+    if findings:
+        for f in findings:
+            fd = f["detail"]
+            lines.append(f"- [{fd.get('severity')}] {fd.get('text')} "
+                         f"({fd.get('source')}, {fd.get('reviewer')})")
+    else:
+        lines.append("- (none recorded)")
+    escalations = bundle.get("escalations") or []
+    if escalations:
+        lines += ["", "## Escalations"]
+        for e in escalations:
+            ed = e["detail"]
+            lines.append(f"- {e['title']} (trigger: {ed.get('trigger')}, attempts: {ed.get('attempts')})")
+    lines += ["", "## Spend (linked sessions)", f"- {_fmt_tokens(bundle.get('spend') or {})}"]
+    sessions = bundle.get("sessions") or []
+    lines += ["", "## Sessions"]
+    if sessions:
+        for s in sessions:
+            t = s.get("tokens", {})
+            lines.append(f"- {s['id']} [{s.get('host')}] {s.get('agent_name') or ''} "
+                         f"({t.get('input_tokens', 0)} in / {t.get('output_tokens', 0)} out)")
+    else:
+        lines.append("- (no linked sessions)")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_report(args: Any) -> int:
+    """Emit a per-task audit bundle (markdown default, --json optional).
+
+    Exit 0 on success; exit 2 with a helpful message when the task is unknown.
+    """
+    root = _root_from(args)
+    task_id = str(getattr(args, "task_id", "") or "")
+    if not task_id:
+        print("control-report: --task-id is required", file=sys.stderr)
+        return 2
+    conn = open_db(root)
+    try:
+        prices = load_control_config(root).get("prices")
+        prices = prices if isinstance(prices, dict) else {}
+        bundle = task_timeline(conn, task_id, prices)
+    finally:
+        conn.close()
+    if bundle is None:
+        print(
+            f"control-report: no task found with task_id={task_id!r}. "
+            "Run 'control-index' first, or check the id against '/api/records' "
+            "(the record artifact title is the task_id).",
+            file=sys.stderr,
+        )
+        return 2
+    if getattr(args, "json", False):
+        print(json.dumps(bundle, indent=2))
+    else:
+        print(render_report_md(bundle), end="")
     return 0
 
 
