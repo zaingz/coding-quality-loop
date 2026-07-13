@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import quality_loop_core as qlcore
 import quality_loop_routing as qlroute
 
 DEFAULT_PORT = 4477
@@ -219,7 +220,9 @@ def validate_control_plane(block: Any) -> list[str]:
 # v4: added the droid/GLM wrapper adapter (host='droid').
 # v5: capture teamName -> sessions.team so a session can list its sub-agents.
 # v6: also link codex sub-agents (parent_thread_id) into sessions.team.
-SCHEMA_VERSION = 6
+# v7: finding/delegation artifact kinds + tool_calls.target passes secret
+#     redaction before storage (rebuild re-redacts any old raw targets).
+SCHEMA_VERSION = 7
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -362,13 +365,20 @@ def _file_in_root(path: Path, root: Path) -> bool:
     return False
 
 
+def _redact_target(value: str) -> str:
+    """A tool target (command line, path, url) may contain a secret typed at the
+    prompt. Reuse the project's memory redaction before storage, then truncate —
+    redact first so a key that straddles the truncation point is still caught."""
+    return qlcore.redact(value)[:TARGET_MAX]
+
+
 def _summarize_tool_input(tool: str, tool_input: Any) -> str:
     if not isinstance(tool_input, dict):
         return ""
     for key in ("file_path", "command", "path", "url", "pattern", "query", "skill", "description", "prompt", "subject"):
         val = tool_input.get(key)
         if isinstance(val, str) and val.strip():
-            return val.strip()[:TARGET_MAX]
+            return _redact_target(val.strip())
     return ""
 
 
@@ -698,7 +708,7 @@ def _index_codex_line(
                 cur = conn.execute(
                     "INSERT OR IGNORE INTO tool_calls(id, session_id, ts, tool, target, agent, sidechain) "
                     "VALUES(?,?,?,?,?,?,?)",
-                    (f"cx:{call_id}", session_id, ts, name, target.strip()[:TARGET_MAX], None, 0),
+                    (f"cx:{call_id}", session_id, ts, name, _redact_target(target.strip()), None, 0),
                 )
                 stats["tool_calls"] += cur.rowcount if cur.rowcount > 0 else 0
     return model
@@ -889,7 +899,7 @@ def _index_droid_wrapper(conn: sqlite3.Connection, root: Path, all_projects: boo
             "INSERT OR IGNORE INTO tool_calls(id, session_id, ts, tool, target, agent, sidechain, status) "
             "VALUES(?,?,?,?,?,?,0,?)",
             (key, session_id, ts, f"droid:{mode}" if mode else "droid",
-             Path(prompt).name if isinstance(prompt, str) and prompt else "", mode, status),
+             _redact_target(Path(prompt).name) if isinstance(prompt, str) and prompt else "", mode, status),
         )
         stats["tool_calls"] += cur.rowcount if cur.rowcount > 0 else 0
     return stats
@@ -910,10 +920,24 @@ def _artifact_sources(root: Path) -> list[Path]:
     lessons = root / ".quality-loop" / "memory" / "lessons.jsonl"
     if lessons.is_file():
         sources.append(lessons)
+    delegations = root / ".quality-loop" / "delegations.jsonl"
+    if delegations.is_file():
+        sources.append(delegations)
     progress = root / ".quality-loop" / "progress.md"
     if progress.is_file():
         sources.append(progress)
     return sources
+
+
+def _finding_parts(entry: Any) -> tuple[str, str]:
+    """Normalize one finding (dict or string) into (severity, text). Findings
+    come in as free-form strings or {severity/level, text/finding/message}."""
+    if isinstance(entry, dict):
+        text = (entry.get("text") or entry.get("finding") or entry.get("message")
+                or entry.get("detail") or entry.get("title") or "")
+        sev = entry.get("severity") or entry.get("level") or "info"
+        return str(sev), str(text)
+    return "info", str(entry)
 
 
 def _ingest_record(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: str) -> None:
@@ -938,6 +962,24 @@ def _ingest_record(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: st
         "commands_run": len(record.get("commands_run") or []),
         "live": rel.startswith(".quality-loop"),
     })
+    # Findings are first-class: the finding TEXT + severity + which gate fired
+    # is the loop's most valuable proof, so project each into its own artifact
+    # (not just the count kept on the review row). Sources: the top-level
+    # review_findings[] and either review dict's own findings[] (array form).
+    finding_idx = 0
+
+    def put_findings(source: str, reviewer: Any, entries: Any) -> None:
+        nonlocal finding_idx
+        if not isinstance(entries, list):
+            return
+        for entry in entries:
+            severity, text = _finding_parts(entry)
+            put("finding", finding_idx,
+                f"{task}: [{severity}] {text[:80]}",
+                {"severity": severity, "text": text[:300], "reviewer": reviewer,
+                 "task_id": task, "source": source})
+            finding_idx += 1
+
     review = record.get("independent_review")
     if isinstance(review, dict):
         put("review", 0, f"{task}: {review.get('verdict', '?')} by {review.get('reviewer', '?')}", {
@@ -945,7 +987,22 @@ def _ingest_record(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: st
             "fresh_context": review.get("fresh_context"), "ran_checks": review.get("ran_checks"),
             "attested": bool(review.get("diff_sha256")),
             "findings": len(record.get("review_findings") or []),
+            "kind": "independent",
         })
+        put_findings("independent_review", review.get("reviewer"), review.get("findings"))
+    security = record.get("security_review")
+    if isinstance(security, dict):
+        put("review", 1, f"{task}: security {security.get('verdict', '?')} by {security.get('reviewer', '?')}", {
+            "verdict": security.get("verdict"), "reviewer": security.get("reviewer"),
+            "fresh_context": security.get("fresh_context"), "ran_checks": security.get("ran_checks"),
+            "attested": bool(security.get("diff_sha256")),
+            "findings": len(security.get("findings") or []),
+            "kind": "security",
+        })
+        put_findings("security_review", security.get("reviewer"), security.get("findings"))
+    # Top-level review_findings[]: reviewer defaults to the independent reviewer.
+    ind_reviewer = review.get("reviewer") if isinstance(review, dict) else None
+    put_findings("review_findings", ind_reviewer, record.get("review_findings"))
     decision = record.get("minimality_decision")
     if isinstance(decision, dict) and decision.get("rung"):
         put("decision", 0, f"{task}: rung={decision.get('rung')}", {
@@ -988,7 +1045,50 @@ def _ingest_lessons(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: s
         )
 
 
-def index_artifacts(conn: sqlite3.Connection, root: Path) -> int:
+_DELEGATION_FIELDS = ("ts", "task_id", "role", "host", "model", "brief_summary", "expected_agent_name")
+
+
+def _ingest_delegations(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: str) -> int:
+    """Ingest the orchestrator's append-only ``.quality-loop/delegations.jsonl``.
+
+    One JSON object per line: ts, task_id, role, host, model, brief_summary,
+    expected_agent_name. Mirrors the lessons/JSONL pattern. Malformed lines are
+    skipped and counted (returned), never crash the pass — the ledger is written
+    by hand/agent and a half-flushed line must not break indexing.
+    """
+    skipped = 0
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return skipped
+    for i, raw in enumerate(lines):
+        if not raw.strip():
+            continue
+        try:
+            entry = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            skipped += 1
+            continue
+        if not isinstance(entry, dict):
+            skipped += 1
+            continue
+        task = str(entry.get("task_id") or "?")
+        role = str(entry.get("role") or "?")
+        expected = entry.get("expected_agent_name")
+        detail = {k: entry.get(k) for k in _DELEGATION_FIELDS if k in entry}
+        if isinstance(detail.get("brief_summary"), str):
+            detail["brief_summary"] = detail["brief_summary"][:300]
+        conn.execute(
+            "INSERT INTO artifacts(key, source_path, kind, ts, title, detail) VALUES(?,?,?,?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET ts=excluded.ts, title=excluded.title, detail=excluded.detail",
+            (f"{rel}#delegation#{i}", rel, "delegation",
+             entry.get("ts") or mtime_iso,
+             f"{task}: {role} -> {expected or '?'}"[:TITLE_MAX], json.dumps(detail)[:4000]),
+        )
+    return skipped
+
+
+def index_artifacts(conn: sqlite3.Connection, root: Path, totals: dict[str, int] | None = None) -> int:
     changed = 0
     # Deleted artifact sources must not haunt the index.
     for row in conn.execute(
@@ -1013,6 +1113,10 @@ def index_artifacts(conn: sqlite3.Connection, root: Path) -> int:
         mtime_iso = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
         if path.name == "lessons.jsonl":
             _ingest_lessons(conn, path, rel, mtime_iso)
+        elif path.name == "delegations.jsonl":
+            skipped = _ingest_delegations(conn, path, rel, mtime_iso)
+            if totals is not None:
+                totals["skipped"] += skipped
         elif path.suffix == ".json":
             _ingest_record(conn, path, rel, mtime_iso)
         elif path.name == "progress.md":
@@ -1069,7 +1173,7 @@ def index_all(root: Path, all_projects: bool = False) -> dict[str, Any]:
             if not Path(row["path"]).exists():
                 _purge_transcript_rows(conn, Path(row["path"]))
                 conn.execute("DELETE FROM file_state WHERE path=?", (row["path"],))
-        totals["artifact_sources_changed"] = index_artifacts(conn, root)
+        totals["artifact_sources_changed"] = index_artifacts(conn, root, totals)
         block = load_control_config(root)
         days = block.get("retention_days")
         days = days if isinstance(days, int) and not isinstance(days, bool) and days >= 1 else DEFAULT_RETENTION_DAYS
@@ -1460,7 +1564,7 @@ class _Handler(BaseHTTPRequestHandler):
                     self._json(200, {"by": by, "rows": spend(conn, by, prices)})
             elif path == "/api/records":
                 self._json(200, {"artifacts": list_artifacts(
-                    conn, ("record", "review", "decision", "plan", "escalation", "models_used"))})
+                    conn, ("record", "review", "decision", "plan", "escalation", "models_used", "finding"))})
             elif path == "/api/memory":
                 lessons = list_artifacts(conn, ("memory",))
                 progress = list_artifacts(conn, ("progress",))
