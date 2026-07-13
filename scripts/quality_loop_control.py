@@ -935,9 +935,11 @@ def _finding_parts(entry: Any) -> tuple[str, str]:
     if isinstance(entry, dict):
         text = (entry.get("text") or entry.get("finding") or entry.get("message")
                 or entry.get("detail") or entry.get("title") or "")
-        sev = entry.get("severity") or entry.get("level") or "info"
+        sev = entry.get("severity") or entry.get("level") or "unspecified"
         return str(sev), str(text)
-    return "info", str(entry)
+    # A bare-string finding carries no severity: label it "unspecified" rather
+    # than "info" so metrics/UI never imply a triage decision that never happened.
+    return "unspecified", str(entry)
 
 
 def _ingest_record(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: str) -> None:
@@ -966,6 +968,14 @@ def _ingest_record(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: st
     # is the loop's most valuable proof, so project each into its own artifact
     # (not just the count kept on the review row). Sources: the top-level
     # review_findings[] and either review dict's own findings[] (array form).
+    #
+    # Count caveat: the `findings` integer stored on each review row (below) is a
+    # per-channel count (independent_review row counts review_findings[]; the
+    # security row counts its own findings[]). The SUMMED finding artifacts can
+    # therefore exceed any single review row's count when a record populates BOTH
+    # review_findings[] and a review's own findings[]. That is intentional — the
+    # artifacts are the authoritative per-finding ledger; the row integer is only
+    # a cheap at-a-glance badge, not a total to reconcile against.
     finding_idx = 0
 
     def put_findings(source: str, reviewer: Any, entries: Any) -> None:
@@ -1246,6 +1256,13 @@ def _cost(row: dict[str, Any], rates: dict[str, float] | None) -> float | None:
     return round(sum(row.get(col, 0) * rate / 1_000_000 for col, rate in per.items()), 6)
 
 
+# Claude Code writes a "<synthetic>" model on placeholder assistant turns that
+# carry zero tokens (transcript noise, not real spend). Exclude it from every
+# spend/overview grouping so it never shows up as a phantom model row; the raw
+# model_calls table keeps every row for honest ingest counts and dedupe.
+_REAL_MODEL_SQL = "(model IS NULL OR model != '<synthetic>')"
+
+
 def spend(conn: sqlite3.Connection, by: str = "model", prices: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     group = {
         "model": "COALESCE(model, 'unknown')",
@@ -1259,7 +1276,7 @@ def spend(conn: sqlite3.Connection, by: str = "model", prices: dict[str, Any] | 
         f"SELECT {group} AS key, COALESCE(model, 'unknown') AS model, COUNT(*) AS calls, "  # noqa: S608 - group is whitelisted above
         "SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, "
         "SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_creation_tokens) AS cache_creation_tokens "
-        f"FROM model_calls GROUP BY {group}, model"  # noqa: S608
+        f"FROM model_calls WHERE {_REAL_MODEL_SQL} GROUP BY {group}, model"  # noqa: S608
     ).fetchall()
     merged: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -1282,7 +1299,7 @@ def overview(conn: sqlite3.Connection, prices: dict[str, Any] | None = None) -> 
         "SELECT COUNT(DISTINCT session_id) AS active_sessions, COUNT(*) AS model_calls, "
         "COALESCE(SUM(input_tokens),0) AS input_tokens, COALESCE(SUM(output_tokens),0) AS output_tokens, "
         "COALESCE(SUM(cache_read_tokens),0) AS cache_read_tokens, "
-        "COALESCE(SUM(cache_creation_tokens),0) AS cache_creation_tokens FROM model_calls"
+        f"COALESCE(SUM(cache_creation_tokens),0) AS cache_creation_tokens FROM model_calls WHERE {_REAL_MODEL_SQL}"  # noqa: S608
     ).fetchone())
     totals["sessions"] = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
     totals["tool_calls"] = conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0]
@@ -1301,7 +1318,8 @@ def overview(conn: sqlite3.Connection, prices: dict[str, Any] | None = None) -> 
     }
 
 
-def list_sessions(conn: sqlite3.Connection, limit: int = 200) -> list[dict[str, Any]]:
+def list_sessions(conn: sqlite3.Connection, limit: int = 200,
+                  prices: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT s.*, "
         "(SELECT COUNT(*) FROM model_calls m WHERE m.session_id = s.id) AS model_calls, "
@@ -1312,7 +1330,26 @@ def list_sessions(conn: sqlite3.Connection, limit: int = 200) -> list[dict[str, 
         "FROM sessions s ORDER BY COALESCE(s.last_activity_at, s.started_at) DESC LIMIT ?",
         (limit,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    # Per-session USD, priced per model (prices are per-model substrings), only
+    # when the user configured prices; otherwise cost_usd stays None and the UI
+    # hides the column. Real models only, matching every other spend grouping.
+    cost_by_session: dict[str, float] = {}
+    if prices:
+        for row in conn.execute(
+            f"SELECT session_id, COALESCE(model,'unknown') AS model, "  # noqa: S608
+            "SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, "
+            "SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_creation_tokens) AS cache_creation_tokens "
+            f"FROM model_calls WHERE {_REAL_MODEL_SQL} GROUP BY session_id, model"  # noqa: S608
+        ).fetchall():
+            sub = {k: row[k] or 0 for k in
+                   ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens")}
+            c = _cost(sub, _price_for(row["model"], prices))
+            if c is not None:
+                cost_by_session[row["session_id"]] = round(cost_by_session.get(row["session_id"], 0.0) + c, 6)
+    for s in out:
+        s["cost_usd"] = cost_by_session.get(s["id"])
+    return out
 
 
 def session_detail(conn: sqlite3.Connection, session_id: str, prices: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -1595,7 +1632,7 @@ def loop_metrics(conn: sqlite3.Connection, root: Path, prices: dict[str, Any] | 
     findings = list_artifacts(conn, ("finding",))
     by_severity: dict[str, int] = {}
     for f in findings:
-        sev = str(f["detail"].get("severity") or "info")
+        sev = str(f["detail"].get("severity") or "unspecified")
         by_severity[sev] = by_severity.get(sev, 0) + 1
 
     escalation_arts = list_artifacts(conn, ("escalation",))
@@ -1799,7 +1836,7 @@ class _Handler(BaseHTTPRequestHandler):
                 if limit is None:
                     self._json(400, {"error": "limit must be an integer"})
                 else:
-                    self._json(200, {"sessions": list_sessions(conn, limit)})
+                    self._json(200, {"sessions": list_sessions(conn, limit, prices)})
             elif path == "/api/session":
                 detail = session_detail(conn, query.get("id", ""), prices)
                 self._json(200 if detail else 404, detail or {"error": "unknown session id"})

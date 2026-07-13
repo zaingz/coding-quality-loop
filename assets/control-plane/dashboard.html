@@ -180,6 +180,13 @@ const dur = secs => {
   if (h) return h + "h " + m + "m";
   return m + "m " + s + "s";
 };
+// Human duration between two ISO timestamps; "–" when either is missing/unparseable.
+const durSpan = (start, end) => {
+  if (!start || !end) return "–";
+  const a = new Date(start), b = new Date(end);
+  if (isNaN(a) || isNaN(b) || b < a) return "–";
+  return dur((b - a) / 1000);
+};
 const absTime = ts => {
   const d = new Date(ts);
   return isNaN(d) ? String(ts) : d.toLocaleString(undefined,
@@ -310,11 +317,14 @@ async function overview(stale) {
     ${spendTable(o.by_model, "model")}`;
   if (days.length) drawStacked($("#chart"), $("#tip"), days);
 }
-// Labeled stacked bars: input (bottom) + output (top) per day, hover shows exact
-// values. Replaces the old single-series output-only chart.
+// Labeled stacked bars: input (bottom) + output (top) per day. A left gutter
+// carries y-axis ticks (0 + max via the shared formatter); bars are capped and
+// centered in their slot so a single day reads as one tidy bar, not a full-plot
+// block, and 30 days still fill the width. Hover names the day and both series.
+const BAR_MAX = 64;
 function drawStacked(canvas, tip, days) {
   const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth, h = 150, padB = 16;
+  const w = canvas.clientWidth, h = 150, padB = 16, padT = 6, padL = 44;
   canvas.width = w * dpr; canvas.height = h * dpr;
   const ctx = canvas.getContext("2d");
   ctx.scale(dpr, dpr);
@@ -322,14 +332,26 @@ function drawStacked(canvas, tip, days) {
   const cIn = css.getPropertyValue("--accent").trim();
   const cOut = css.getPropertyValue("--accent-2").trim();
   const muted = css.getPropertyValue("--muted").trim();
+  const border = css.getPropertyValue("--border").trim();
   const totals = days.map(d => (d.input_tokens || 0) + (d.output_tokens || 0));
   const max = Math.max(...totals, 1);
-  const n = days.length, gap = 6, bw = Math.max((w - gap * (n - 1)) / n, 4);
-  const usable = h - padB - 6;
+  const usable = h - padB - padT;
+  const plotW = w - padL;
+  const n = days.length, slot = plotW / n;
+  const bw = Math.min(slot * 0.7, BAR_MAX);
   ctx.font = "10px " + css.getPropertyValue("--mono");
+  // y-axis: baseline + max gridline, labeled with the compact formatter.
+  ctx.strokeStyle = border; ctx.lineWidth = 1; ctx.globalAlpha = 1;
+  [0, max].forEach(val => {
+    const y = h - padB - (val / max) * usable;
+    ctx.beginPath(); ctx.moveTo(padL, y + 0.5); ctx.lineTo(w, y + 0.5); ctx.stroke();
+    ctx.fillStyle = muted; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    ctx.fillText(compact(val), padL - 6, y);
+  });
+  ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
   const geo = [];
   days.forEach((d, i) => {
-    const x = i * (bw + gap);
+    const x = padL + i * slot + (slot - bw) / 2;
     const ih = Math.max((d.input_tokens || 0) / max * usable, 0);
     const oh = Math.max((d.output_tokens || 0) / max * usable, 0);
     ctx.globalAlpha = .9;
@@ -344,7 +366,7 @@ function drawStacked(canvas, tip, days) {
     const mx = ev.clientX - r.left;
     const hit = geo.find(g => mx >= g.x && mx <= g.x + g.bw);
     if (!hit) { tip.style.opacity = 0; return; }
-    tip.innerHTML = `${esc(hit.d.key)}<br>in ${fmt(hit.d.input_tokens)} · out ${fmt(hit.d.output_tokens)}`;
+    tip.innerHTML = `${esc(hit.d.key)}<br>in ${fmt(hit.d.input_tokens)} · out ${fmt(hit.d.output_tokens)} · total ${fmt((hit.d.input_tokens || 0) + (hit.d.output_tokens || 0))}`;
     tip.style.opacity = 1;
     const tw = tip.offsetWidth;
     tip.style.left = Math.max(0, Math.min(hit.x + hit.bw / 2 - tw / 2, w - tw)) + "px";
@@ -379,12 +401,13 @@ async function sessions(stale) {
   const data = await api("/api/sessions?limit=300");
   if (stale && stale()) return;
   const rows = data.sessions;
+  const hasCost = rows.some(s => s.cost_usd != null);
   main.innerHTML = `
     <h1>Sessions</h1>
     <div class="sub">${rows.length} indexed session(s) — transcripts for this repo plus hook-reported sessions</div>
     ${rows.length ? `<div class="tablewrap"><table class="fixed">
-      <colgroup><col style="width:90px"><col style="width:24%"><col style="width:120px"><col style="width:110px"><col style="width:15%"><col style="width:100px"><col style="width:100px"><col style="width:70px"><col style="width:60px"><col style="width:70px"><col style="width:70px"></colgroup>
-      <thead><tr><th>session</th><th>title</th><th>agent</th><th>host</th><th>models</th><th>started</th><th>last active</th><th class="num">calls</th><th class="num">tools</th><th class="num">in</th><th class="num">out</th></tr></thead>
+      <colgroup><col style="width:90px"><col style="width:22%"><col style="width:110px"><col style="width:90px"><col style="width:14%"><col style="width:96px"><col style="width:96px"><col style="width:80px"><col style="width:60px"><col style="width:56px"><col style="width:64px"><col style="width:64px">${hasCost ? '<col style="width:70px">' : ""}</colgroup>
+      <thead><tr><th>session</th><th>title</th><th>agent</th><th>host</th><th>models</th><th>started</th><th>last active</th><th class="num">duration</th><th class="num">calls</th><th class="num">tools</th><th class="num">in</th><th class="num">out</th>${hasCost ? '<th class="num">est. usd</th>' : ""}</tr></thead>
       <tbody>${rows.map(s => `<tr class="rowlink" tabindex="0" data-id="${esc(s.id)}">
         <td class="mono">${esc(s.id.slice(0, 8))}</td>
         <td class="ell" title="${esc(s.title || "")}">${esc(s.title || "")}</td>
@@ -392,7 +415,9 @@ async function sessions(stale) {
         <td class="mono ell" title="${esc(s.host)}">${esc(s.host)}</td>
         <td class="ell">${modelPills(s.models)}</td>
         <td>${when(s.started_at)}</td><td>${when(s.last_activity_at)}</td>
+        <td class="num" title="${esc(s.ended_at ? "ended " + absTime(s.ended_at) : "still active — measured to last activity")}">${durSpan(s.started_at, s.ended_at || s.last_activity_at)}</td>
         <td class="num">${fmt(s.model_calls)}</td><td class="num">${fmt(s.tool_calls)}</td>${tokensCell(s)}
+        ${hasCost ? `<td class="num">${usd(s.cost_usd)}</td>` : ""}
       </tr>`).join("")}</tbody></table></div>`
     : '<div class="card"><div class="empty">no sessions yet — run <code>python3 scripts/quality_loop.py control-index</code></div></div>'}`;
   wireRowlinks("sessions/");
@@ -550,7 +575,7 @@ async function taskView(id, stale) {
       ${det.live ? '<span class="pill warn">live</span> ' : ""}
       ${(d.records || []).length} record(s) · ${(d.delegations || []).length} delegation(s) · ${d.evidence_count || 0} command(s) recorded
     </div>
-    ${det.goal ? `<div class="card">${esc(det.goal)}</div>` : ""}
+    ${det.goal ? `<div class="card">${esc(det.goal)}${det.goal.length >= 300 ? "…" : ""}</div>` : ""}
     <div class="tiles">
       <div class="tile"><div class="v">${compact(sp.calls || 0)}</div><div class="k">model calls</div></div>
       <div class="tile"><div class="v" title="${fmt(sp.input_tokens)}">${compact(sp.input_tokens || 0)}</div><div class="k">input tokens</div></div>

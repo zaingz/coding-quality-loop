@@ -530,30 +530,54 @@ def _deleg_line(task_id: str, role: str, expected: str, ts: str,
 
 
 def case_findings_first_class(tmp: Path) -> tuple[bool, str]:
-    """AC1: review findings become first-class `finding` artifacts, carrying
-    severity + text; the count matches the review row's `findings` field."""
+    """AC1: findings from ALL THREE channels become first-class `finding`
+    artifacts carrying severity + text + reviewer + source: the array form on
+    independent_review.findings[] and security_review.findings[], and the
+    top-level review_findings[]. A bare-string finding buckets as `unspecified`
+    (V4), and the summed artifacts intentionally exceed any single review row's
+    per-channel `findings` count (R2)."""
     repo = make_repo(tmp)
     claude_dir(tmp, repo)
     rec = _fixture_record()
+    # array form on the independent review
+    rec["independent_review"] = {"reviewer": "other-model", "verdict": "approve",
+                                 "fresh_context": True, "diff_sha256": "0" * 64,
+                                 "findings": [{"severity": "high", "text": "unbounded recursion in parser"}]}
+    # array form on the security review (distinct reviewer)
+    rec["security_review"] = {"reviewer": "sec-model", "verdict": "approve",
+                              "fresh_context": True, "diff_sha256": "0" * 64,
+                              "findings": [{"severity": "critical", "text": "secret logged in cleartext"}]}
+    # top-level channel: one triaged + one bare string (no severity -> unspecified)
     rec["review_findings"] = [
-        {"severity": "high", "text": "unbounded recursion in parser"},
         {"severity": "low", "text": "prefer f-string over concatenation"},
+        "reviewer left a note with no severity",
     ]
     (repo / ".quality-loop").mkdir()
     (repo / ".quality-loop" / "agent-record.json").write_text(json.dumps(rec), encoding="utf-8")
     ctl.index_all(repo)
     conn = ctl.open_db(repo)
     findings = ctl.list_artifacts(conn, ("finding",))
-    review = ctl.list_artifacts(conn, ("review",))[0]
+    reviews = {r["detail"].get("kind"): r for r in ctl.list_artifacts(conn, ("review",))}
     conn.close()
-    texts = {f["detail"]["text"] for f in findings}
+    by_text = {f["detail"]["text"]: f["detail"] for f in findings}
+    sources = {f["detail"]["source"] for f in findings}
     sevs = {f["detail"]["severity"] for f in findings}
-    ok = (len(findings) == 2
-          and "unbounded recursion in parser" in texts
-          and "prefer f-string over concatenation" in texts
-          and sevs == {"high", "low"}
-          and review["detail"]["findings"] == 2)
-    return ok, f"findings={len(findings)}; sevs={sorted(sevs)}; review_count={review['detail']['findings']}"
+    ind = by_text.get("unbounded recursion in parser", {})
+    sec = by_text.get("secret logged in cleartext", {})
+    bare = by_text.get("reviewer left a note with no severity", {})
+    ok = (len(findings) == 4
+          and sources == {"independent_review", "security_review", "review_findings"}
+          and sevs == {"high", "critical", "low", "unspecified"}
+          and ind.get("source") == "independent_review"
+          and sec.get("source") == "security_review" and sec.get("reviewer") == "sec-model"
+          and bare.get("severity") == "unspecified"
+          # per-channel row counts (R2): independent row counts review_findings[],
+          # security row counts its own findings[]; summed artifacts (4) exceed both.
+          and reviews["independent"]["detail"]["findings"] == 2
+          and reviews["security"]["detail"]["findings"] == 1)
+    return ok, (f"findings={len(findings)}; sources={sorted(sources)}; sevs={sorted(sevs)}; "
+                f"ind_src={ind.get('source')}; sec_reviewer={sec.get('reviewer')}; bare_sev={bare.get('severity')}; "
+                f"rows=ind:{reviews['independent']['detail']['findings']}/sec:{reviews['security']['detail']['findings']}")
 
 
 def case_delegations_ledger(tmp: Path) -> tuple[bool, str]:
