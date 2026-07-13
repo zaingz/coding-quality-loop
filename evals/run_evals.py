@@ -384,7 +384,7 @@ def case_implementer_cannot_validate(tmp: Path) -> tuple[bool, str]:
 def case_repeated_mistake_retrospective(tmp: Path) -> tuple[bool, str]:
     docs = [
         ROOT / "SKILL.md",
-        ROOT / "references" / "engineering-operating-system.md",
+        ROOT / "references" / "philosophy.md",
         ROOT / "references" / "lifecycle.md",
         ROOT / "references" / "agentic-orchestration.md",
         ROOT / "assets" / "AGENTS.template.md",

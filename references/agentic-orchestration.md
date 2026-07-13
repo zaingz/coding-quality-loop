@@ -1,16 +1,48 @@
 # Agentic Orchestration
 
-The Coding Quality Loop is **agentic-first**: each lifecycle step is a node that can run on a
-different agent, model, or tool profile, so a team picks the best model for each step instead
-of forcing one model to do intake, architecture, implementation, and review. This file defines
-the routing model; its machine-readable form is `assets/quality-loop.config.example.json`.
+The Coding Quality Loop is **orchestrator-first**. The main session is the **orchestrator**:
+it reasons, holds the state machine, and makes *every* decision — task class, context map,
+validation contract, right-size rung, plan, model routing, the verdict on findings, and the
+stop-if-unsafe call. Everything else is a **worker**: a bounded, stateless task that receives a
+**brief, not context** — goal, contract slice, files, commands, done-check, one screen max. A
+worker never sees the skill, the references, or the repository tour; it does the one job in the
+brief and hands back a result the orchestrator judges.
 
-Phases and sub-steps are canonical in `references/lifecycle.md`; task classes and roles are
-canonical in **SKILL.md** (§Task Classes, §Roles). This file adds only the routing surface.
+This file defines the routing model; its machine-readable form is
+`assets/quality-loop.config.example.json`. Phases and sub-steps are canonical in
+`references/lifecycle.md`; task classes and roles are canonical in **SKILL.md** (§Task Classes,
+§Roles). This file adds only the routing surface.
 
-## The working surface (what the package actually runs)
+## The routed loop: two hosts, two vendors
 
-### Step → profile → model class
+The default topology is deliberately small: **one implementer on Claude Code and one independent
+reviewer on Codex**, plus deterministic policy hooks. The orchestrator runs the Claude Code
+main session; it dispatches the diff to the implementer and the review to a Codex worker on a
+**different vendor**, then decides on the findings. That two-vendor split is the load-bearing
+part — `check-config` hard-fails a medium+ config where the implementer and reviewer resolve to
+the same model family, so "one model grading its own work" cannot happen by accident.
+
+Other hosts (Cursor, Pi, Droid, standalone git/GitHub) are **install targets**: the skill and
+gates drop into them cleanly and `setup-models` can wire their model frontmatter, but they sit
+*outside* the v5 routed loop. Use them to run the loop under a single host; reach for the routed
+two-vendor split when you want enforced review independence.
+
+## Brief, not context
+
+The orchestrator's core discipline is what it withholds. A worker brief is one screen:
+
+- **Goal** — the single outcome this worker owns.
+- **Contract slice** — only the acceptance criteria and constraints this task touches.
+- **Files** — the paths in scope; nothing else.
+- **Commands** — how to build, test, and verify.
+- **Done-check** — the observable condition that ends the task.
+
+No skill text, no references, no repo tour, no prior worker's transcript. This keeps each
+worker's token footprint tiny and its judgment uncontaminated by the orchestrator's running
+context — the reviewer in particular must arrive with **fresh context** so it does not inherit
+the implementer's confidence.
+
+## Step → profile → model class
 
 Route by *step*, not by vendor: each step has its own cost/capability profile. Deterministic
 schema-following steps (intake, explore, verify orchestration, package) go to the cheap/fast
@@ -22,11 +54,11 @@ model — it is a hook or command guard.
   well and keep cost low.
 - Planning and risk assessment reward strong reasoning. Spend the capable model here.
 - Implementation rewards code-specialized models that follow conventions and keep diffs small.
-- Review must be independent. Use a separate model or at least a fresh session so the
+- Review must be independent. Use a separate vendor, or at least a fresh session, so the
   reviewer does not inherit the implementer's confidence.
 - Policy enforcement must be deterministic. Use hooks or command guards, not a model.
 
-## Agent Profiles
+## Agent profiles
 
 Profiles are defined by **role, not vendor**. Map each role to whatever model or tool your
 platform provides. The names below are stable handles used by the config and the lifecycle.
@@ -39,11 +71,11 @@ platform provides. The names below are stable handles used by the config and the
 | `minimality_reviewer` | MINIMALITY_GATE: pick the highest valid rung | strong reasoning |
 | `implementer` | IMPLEMENT_SLICE: write the diff | code-specialized |
 | `verification_runner` | VERIFY: run checks, capture evidence | cheap/fast + sandboxed exec |
-| `fresh_reviewer` | REVIEW: independent diff review vs contract | strong reasoning, separate session |
+| `fresh_reviewer` | REVIEW: independent diff review vs contract | strong reasoning, separate vendor |
 | `packager` | PACKAGE: assemble the PR handoff | cheap/fast, structured output |
 | `policy_guard` | Cross-cutting: block unsafe actions | deterministic hook/tool, no model |
 
-## Role Architecture
+## Role architecture
 
 Profiles map onto a small set of roles. The step-profiles above are the per-step handles; the
 roles below describe responsibilities and apply across the lifecycle. Add roles only as risk
@@ -51,21 +83,19 @@ and class grow (tiny/small need none of the specialist roles).
 
 | Role | Maps to profile(s) | Responsibilities | Independent? |
 |---|---|---|---|
-| `orchestrator` | (medium/mission only) | Set scope, classify the task, gather context, write the spec + validation contract, decompose into worker tasks, assign workers, collect validator findings, create fix tasks, and **stop if unsafe**. | n/a |
+| `orchestrator` | the main session (Claude Code) | Reason and decide everything: set scope, classify the task, gather context, write the spec + validation contract, decompose into worker briefs, route models, collect findings, create fix tasks, and **stop if unsafe**. Workers never see its context. | n/a |
 | `context_mapper` | `repo_mapper` | Repo layout, relevant modules, entry points, data flow, existing helpers/patterns, tests and commands. Outputs **findings, not raw dumps**. | no |
-| `implementer` | `implementer` | One bounded task: no speculative abstraction, no unrelated cleanup, smallest meaningful test, a coherent slice. | no |
-| `validator` | `fresh_reviewer` | Fresh context; does **not** implement. Checks acceptance criteria, behavior contract, regression risk, edge cases, and evidence against the validation contract. | **yes** |
+| `implementer` | `implementer` | One bounded task from a one-screen brief: no speculative abstraction, no unrelated cleanup, smallest meaningful test, a coherent slice. | no |
+| `validator` | `fresh_reviewer` | Fresh context, **different vendor**; does **not** implement. Checks acceptance criteria, behavior contract, regression risk, edge cases, and evidence against the validation contract. | **yes** |
 | `simplicity_reviewer` | `minimality_reviewer` | Deletion / reuse / stdlib / native / dependency / abstraction review — the right-size gate as a reviewer, run before plan and before review. | optional |
 | `security_reviewer` | (boundary only) | Reviews changes at risk boundaries: auth, permissions, secrets, payments, PII, migrations, upload/download, network, shell, dependency changes. | **yes** |
-| `advisor` | (on-demand, small/medium default) | Consulted by the executor at reasoning walls; returns guidance, **never code and never tool calls**; capped at `max_uses` ≈ 3. See the Advisor Pattern below. | consulted |
 | `policy_guard` | `policy_guard` | Deterministic safety blocks. Never a model. | enforced |
 
-The `orchestrator` and `security_reviewer` are not per-step profiles in the base config; they
-are mission/boundary roles. Wire them in for medium/mission work and at risk boundaries. The
-`advisor` is not a step either — it is an on-demand consult the executor invokes at reasoning
-walls, and it is the default topology below high-risk (see Advisor Pattern).
+The `orchestrator` is the main session itself. `security_reviewer` is a boundary role, not a
+per-step profile — wire it in at risk boundaries for medium/mission work (canonical role table:
+SKILL.md §Roles).
 
-## Default Step-to-Agent Matrix
+## Default step-to-agent matrix
 
 The `Phase` column shows which of the three canonical phases (PLAN / EXECUTE / REVIEW) each
 machine-name step belongs to; see `references/lifecycle.md` for the full mapping.
@@ -78,16 +108,15 @@ machine-name step belongs to; see `references/lifecycle.md` for the full mapping
 | PLAN | MINIMALITY_GATE | `minimality_reviewer` | strong reasoning | minimality decision | rung chosen + lower rungs rejected |
 | EXECUTE | IMPLEMENT_SLICE | `implementer` | code-specialized | diff | diff scoped to plan |
 | EXECUTE | VERIFY | `verification_runner` | cheap/fast + exec | command evidence | evidence matches risk tier |
-| REVIEW | REVIEW | `fresh_reviewer` | strong reasoning, **separate session** | review verdict | verdict + findings recorded |
+| REVIEW | REVIEW | `fresh_reviewer` | strong reasoning, **different vendor** | review verdict | verdict + findings recorded |
 | REVIEW | PACKAGE | `packager` | cheap/fast | PR handoff | handoff complete |
 | (all) | policy | `policy_guard` | deterministic hook, **never a model** | block/allow log | no unsafe action passed |
 
 Profiles are named by role, not vendor; map each to whatever your host provides. The
-`orchestrator` and `security_reviewer` are mission/boundary roles, not per-step profiles —
-wire them in for medium/mission work and at risk boundaries (canonical role table: SKILL.md
-§Roles).
+`security_reviewer` is a boundary role, not a per-step profile — wire it in at risk boundaries
+(canonical role table: SKILL.md §Roles).
 
-### Routing by model: intelligence, taste, cost
+### Model capability glossary
 
 The step heuristics route by task *shape*. To route by *model*, name what separates models:
 
@@ -103,11 +132,10 @@ Rule of thumb: the orchestrator and the independent reviewer want the highest in
 model that matches conventions; map/verify/package want the cheap/fast tier. Never route real
 reasoning or implementation to a minimal-capability tier.
 
-### Escalation and the reasoning-effort ceiling
-
-Model classes are defaults, not ceilings. Use the cheap/fast tier to explore, draft, and gather
-information; when its output does not clear the bar, escalate to a more capable model and redo
-the work — without asking. Judge the output, not the price tag.
+**Escalation and the reasoning-effort ceiling.** Model classes are defaults, not ceilings. Use
+the cheap/fast tier to explore, draft, and gather information; when its output does not clear
+the bar, escalate to a more capable model and redo the work — without asking. Judge the output,
+not the price tag.
 
 Route reasoning effort at **`high`**. Effort is *per step*, not per-task endurance: a higher
 setting does not buy more steps, it makes the model think harder on each one. Above `high`
@@ -122,66 +150,13 @@ never a default and never bulk work.
 `check-config` is the arbiter of independence: on medium+ work it verifies the implementer and
 the `fresh_reviewer` resolve to a different concrete model **and** a different model **family**,
 across hosts. Family is the explicit `family` field on a `host_models` block when set, else a
-well-known-prefix match (`claude`/`sonnet`/`opus`/`haiku`/`fable` → claude, `gpt`/`sol`/`terra`/
-`luna`/`codex` → gpt, `glm`, `gemini`, `grok`); unknown or BYOK ids are skipped, never failed.
-This closes the alias hole — `sonnet` vs `claude-sonnet-4-5` is not two reviewers — and the
-cross-host hole: harness diversity is not model heterogeneity. `"allow_same_family": true` is
-the explicit, greppable escape hatch for same-family (never same-model) setups. `verify-gates`
+well-known-prefix match — the checker recognizes the major vendor prefixes (claude/sonnet/opus/
+haiku, gpt/codex, and other vendors) so harness diversity is never mistaken for model
+heterogeneity; unknown or BYOK ids are skipped, never failed. This closes the alias hole —
+`sonnet` vs `claude-sonnet-4-5` is not two reviewers — and the cross-host hole: running review
+on a different CLI is not by itself model diversity. `"allow_same_family": true` is the
+explicit, greppable escape hatch for same-family (never same-model) setups. `verify-gates`
 additionally string-compares reviewer ≠ implementer on the record.
-
-## Advisor Pattern (default for small/medium)
-
-The `advisor` role is the **default topology below high-risk**: a cheap executor
-drives the entire loop and consults a stronger reasoning model *only at reasoning
-walls*. This is Anthropic's advisor-tool pattern
-([advisor tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool)),
-which converges with the "smart friend" finding from Cognition's multi-agent
-research (April 2026). The advisor gets a fork of the executor's context and returns
-**reasoning, never code and never tool calls** — the executor stays in control and
-acts on the advice. Prefer this to a full multi-agent split until the task is
-genuinely high-risk: it is cheaper than routing every step to a strong model and
-keeps one driver in control. The default assumes a **strong executor**
-(Sonnet-class or better); with a weaker primary (GLM-class) the advisor pattern
-underperforms, so keep orchestrator-delegates instead — see the
-[Topology decision note](#topology-decision-note-2026) below.
-
-**Triggers (reasoning walls):**
-- 2 failed repair attempts on the same issue.
-- Merge conflicts or ambiguous integration points.
-- Architecture uncertainty where the chosen approach may not hit the perf/correctness target.
-
-**Constraints:**
-- The advisor **never calls tools** — it reads the forked context and returns guidance.
-- Cap consultations at **`max_uses` ≈ 3**. Hitting the cap is a signal to escalate
-  (split roles, add a reviewer, or stop for human input), not to keep paying for
-  back-and-forth.
-
-**Config.** The optional `advisor` block in `quality-loop.config.example.json` carries
-`enabled_for` (task classes, default `["small","medium"]`), `executor_model_class`,
-`advisor_model_class`, `advisor_calls_tools: false`, and `max_uses`.
-
-**Per-host wiring:**
-- **Claude Code**: subagent with a stronger model (e.g., Opus) invoked via the Task tool.
-- **Droid (Factory)**: Task tool with a stronger model droid.
-- **Codex**: subagent with a higher thinking level.
-
-Cross-frontier delegation works as a **capability router** — consult whichever model
-is best at the specific sub-task, not merely a "smarter" one.
-
-## Risk-Scaled Routing
-
-| Risk tier | Suggested topology |
-|---|---|
-| `low` | One agent runs the whole loop; `policy_guard` hook stays on. |
-| `medium` | Implementer + independent `fresh_reviewer`; `verification_runner` runs real checks. |
-| `high` | Dedicated `planner`, `minimality_reviewer`, `implementer`, independent `fresh_reviewer`, plus `policy_guard` enforcing security/migration blocks and human approval. |
-
-Start with **one implementer + one independent reviewer** plus deterministic policy hooks —
-that single split captures most of the quality gain. Add a dedicated `planner`/
-`minimality_reviewer` for architecturally significant work, a `repo_mapper` for large/unfamiliar
-codebases; keep `contract_agent` and `packager` merged into the implementer for low-risk work.
-Over-parallelization is an anti-pattern: if coordination cost exceeds the quality gain, collapse
-roles back into fewer agents.
 
 ## Config-driven model setup
 
@@ -193,9 +168,12 @@ host's native mechanism:
 | Host | Mechanism | What `setup-models` does |
 |---|---|---|
 | Claude Code | `.claude/agents/*.md` `model:` + `effort:` frontmatter | rewrites agent files in place |
-| Droid | `.factory/droids/*.md` `model:` + `reasoningEffort:` frontmatter | rewrites droid files in place |
 | Codex | `config.toml` `model` / `model_reasoning_effort` + per-role `config_file` layers | prints the TOML to add |
+| Droid | `.factory/droids/*.md` `model:` + `reasoningEffort:` frontmatter | rewrites droid files in place |
 | Pi | `/model` commands + thinking levels | prints the commands to run per role |
+
+Claude Code and Codex are the routed loop; Droid and Pi are install targets `setup-models` can
+still wire.
 
 ```bash
 cp assets/quality-loop.config.example.json quality-loop.config.json   # fill model_routing
@@ -219,8 +197,8 @@ no `--host` then applies every host in the topology: file hosts get frontmatter 
 hosts (codex, pi) print behind an explicit `PRINT-ONLY — settings not applied or verified by
 CQL` banner, and there is no print-host drift detection because their config lives outside the
 repo — `brief` says "declared, not verified" instead of pretending. `--host` splits by config
-shape: on a v4.1 single-host config it keeps its historical meaning (retarget the default host);
-on a multi-host topology it is a pure filter — it applies only that host's slice and never drags
+shape: on a single-host config it keeps its historical meaning (retarget the default host); on a
+multi-host topology it is a pure filter — it applies only that host's slice and never drags
 default-host roles onto the selected host. Three pre-validated variants along the
 intelligence↔cost dial (`max-intelligence` / `balanced` / `max-throughput`) ship in
 `assets/routing/` with a dated model-menu README; each is pinned by an eval case that requires
@@ -233,69 +211,76 @@ Roles, prompts, and routing ship as files any host consumes without a custom run
 expresses the same config through its native mechanism. Per-role prompt cards live in
 `assets/prompts/` (`intake.md`, `context-map.md`, `minimality.md`, `planner.md`,
 `implementer.md`, `reviewer.md`, `security-reviewer.md`, `package.md`) — any harness or human
-can run any role by pasting one card.
+can run any role by pasting one card. Claude Code (implementer) and Codex (reviewer) are the
+routed loop; the remaining columns are install-target conveniences.
 
-| Role | Claude Code | Droid | Codex | Cursor | Pi |
+| Role | Claude Code | Codex | Droid | Cursor | Pi |
 |---|---|---|---|---|---|
-| context mapper | `.claude/agents/quality-loop-context-mapper.md` | `.factory/droids/quality-loop-context-mapper.md` | subagent / MCP | `.cursor/rules` chat | `/model <cheap-fast>` |
-| planner | `.claude/agents/quality-loop-planner.md` | `.factory/droids/quality-loop-planner.md` | subagent | `.cursor/rules` chat | `/model <strong-reasoning>` |
-| implementer | main thread | main session | main session | main session | main session |
-| fresh reviewer | `.claude/agents/quality-loop-reviewer.md` | `.factory/droids/quality-loop-reviewer.md` | subagent (fresh) | new chat (fresh) | new Pi session |
-| security reviewer | `.claude/agents/quality-loop-security-reviewer.md` | `.factory/droids/quality-loop-security-reviewer.md` | subagent (fresh) | new chat (fresh) | new Pi session |
-| policy guard | `.claude/settings.json` hooks | host hooks / CI | `.codex/hooks.json` | host hooks / CI | host hooks / CI |
+| context mapper | `.claude/agents/quality-loop-context-mapper.md` | subagent / MCP | `.factory/droids/quality-loop-context-mapper.md` | `.cursor/rules` chat | `/model <cheap-fast>` |
+| planner | `.claude/agents/quality-loop-planner.md` | subagent | `.factory/droids/quality-loop-planner.md` | `.cursor/rules` chat | `/model <strong-reasoning>` |
+| implementer | main session | main session | main session | main session | main session |
+| fresh reviewer | `.claude/agents/quality-loop-reviewer.md` | subagent (fresh) | `.factory/droids/quality-loop-reviewer.md` | new chat (fresh) | new Pi session |
+| security reviewer | `.claude/agents/quality-loop-security-reviewer.md` | subagent (fresh) | `.factory/droids/quality-loop-security-reviewer.md` | new chat (fresh) | new Pi session |
+| policy guard | `.claude/settings.json` hooks | `.codex/hooks.json` | host hooks / CI | host hooks / CI | host hooks / CI |
 
-## Topology decision note (2026)
+## Risk-scaled routing
 
-Two orchestration patterns are now viable, and the ground moved in 2026. Choose by executor
-strength:
+| Risk tier | Suggested topology |
+|---|---|
+| `low` | One agent runs the whole loop; `policy_guard` hook stays on. |
+| `medium` | Implementer (Claude Code) + independent `fresh_reviewer` (Codex); `verification_runner` runs real checks. |
+| `high` | Dedicated `planner`, `minimality_reviewer`, `implementer`, independent `fresh_reviewer`, plus `policy_guard` enforcing security/migration blocks and human approval. |
 
-- **Orchestrator-delegates.** A coordinator spawns worker/reviewer agents and holds shared
-  state. This is now **host-native**: Claude Code ships subagents, agent teams, and dynamic
-  workflows (2026-05-28) that do exactly this without a custom runtime. The package does not
-  execute delegation itself — it supplies the routing data and prompt cards the host wires up.
-- **Executor-consults-advisor.** A single strong executor calls a stronger model as an
-  in-request advisor (Anthropic's advisor strategy, blog 2026-04-09; `advisor_20260301`). This
-  is an **API-level primitive inside one `/v1/messages` request**, *not* something a CLI harness
-  can wire — present it as topology insight, not a shipped path.
+Start with **one implementer + one independent reviewer** plus deterministic policy hooks —
+that single split captures most of the quality gain. Add a dedicated `planner`/
+`minimality_reviewer` for architecturally significant work, a `repo_mapper` for large/unfamiliar
+codebases; keep `contract_agent` and `packager` merged into the implementer for low-risk work.
+Over-parallelization is an anti-pattern: if coordination cost exceeds the quality gain, collapse
+roles back into fewer agents.
 
-**Decision rule.** The advisor topology needs a strong executor (Sonnet-class or better);
-Cognition found it fails with a weak primary (it broke down with SWE-1.5-class implementers).
-So with a GLM-class implementer, **keep orchestrator-delegates**; reserve the advisor pattern
-for teams whose executor is already frontier-class and who are working at the API layer.
+## Mission topology (long-horizon work)
 
-**Heterogeneity caveat.** Running review on a *different CLI* usually — but not always —
-gives you model heterogeneity, because a harness can host another vendor's model (Droid can run
-Claude models). Harness difference is not a proxy for model difference: `check-config` remains
-the arbiter, comparing the resolved model families, not the CLIs.
+For multi-day/multi-module/multi-repo work, the orchestrator/worker split scales up: the
+orchestrator holds shared state (`context-map.md`, `validation-contract.md`), fresh worker
+agents each take one slice from a bounded brief, a fresh validator checks each slice against the
+contract, and the orchestrator turns findings into new fix tasks. **Writes stay
+single-threaded**: concurrent workers must run in isolated git worktrees with non-overlapping
+declared file scopes; if scopes can collide, run serially rather than race the working tree.
+Review at milestone boundaries with fresh context; keep the mission record compact. (Pattern:
+[Factory Missions](https://factory.ai/news/missions-architecture).) Claude Code ships subagents,
+agent teams, and dynamic workflows that wire this host-natively — the package supplies the
+routing data and prompt cards; the host runs the delegation.
 
-The one-page cross-CLI recipe (claude ⇄ codex ⇄ droid headless commands with verified flags)
-lives at `docs/cross-cli-recipe.md`; this note is the topology rationale behind it.
-
-## Appendix: host-provided patterns the package does not execute
-
-These are patterns hosts now provide natively. The package documents them and supplies routing
-data and prompt cards, but it does **not** run them — wiring them to real models and workers is
-the host platform's job (see `philosophy.md`, "What this deliberately is *not*").
-
-- **Mission topology (long-horizon work).** For multi-day/multi-module/multi-repo work, split
-  the mission: an orchestrator holds shared state (`context-map.md`, `validation-contract.md`),
-  fresh worker agents each take one slice, a fresh validator checks each slice against the
-  contract, and the orchestrator turns findings into new fix tasks. **Writes stay
-  single-threaded**: concurrent workers must run in isolated git worktrees with non-overlapping
-  declared file scopes; if scopes can collide, run serially rather than race the working tree.
-  Review at milestone boundaries with fresh context; keep the mission record compact.
-  (Pattern: [Factory Missions](https://factory.ai/news/missions-architecture).)
-- **Smart friend (optional consult).** The consult-a-stronger-model pattern — triggers,
-  constraints, and per-host wiring — is documented above under **Advisor Pattern**, and when it
-  works (strong executor only) is the **Topology decision note**. Like mission topology, the
-  package documents and routes it but does **not** execute the consult; wiring it to real models
-  is the host platform's job.
-
-**What the 2026 research confirms.** Cognition's April 2026 update ("Multi-Agents: What's
-Actually Working") validates the core bet: multi-agent systems work best when **writes stay
+**What the research confirms.** Cognition's April 2026 update ("Multi-Agents: What's Actually
+Working") validates the core bet: multi-agent systems work best when **writes stay
 single-threaded** and the extra agents **contribute intelligence rather than actions**; their
 clean-context reviewer catches ~2 bugs per PR, 58% severe — exactly the `fresh_reviewer`
 pattern. Anthropic's "Effective harnesses for long-running agents" (Nov 2025) shows
 longitudinal continuity is files and prompts — a progress file, a feature list, and git as
 memory — not machinery. See https://cognition.com/blog/multi-agents-working and
 https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents.
+
+## History: the advisor / Smart Friend topology (v3–v4)
+
+Before v5, the loop's default below high-risk was the **advisor pattern**: a cheap executor
+drove the entire loop and consulted a stronger reasoning model *only at reasoning walls*
+(Anthropic's advisor strategy; Cognition's "smart friend" finding). The advisor received a fork
+of the executor's context and returned reasoning, never code or tool calls, capped at
+`max_uses` ≈ 3. It assumed a strong executor and broke down with a weak primary.
+
+v5 inverts this: instead of a weak driver consulting upward at walls, the **strong model
+orchestrates from the top** and workers never consult upward — they receive a brief and return a
+result. The advisor was also only ever an **API-level primitive inside one `/v1/messages`
+request**, not something a CLI harness can wire, which limited it to teams working at the API
+layer. The orchestrator-first topology is host-native (subagents and agent teams), so it is the
+default in v5 and the advisor is retained only as this note. The optional `advisor` block in the
+config remains for teams that still want the consult, but it is no longer the recommended
+default.
+
+## Cross-CLI recipe
+
+The one-page cross-CLI recipe (claude ⇄ codex headless commands with verified flags) lives at
+`docs/cross-cli-recipe.md`; running review on a different CLI usually gives model heterogeneity
+because a harness can host another vendor's model, but harness difference is not a proxy for
+model difference — `check-config` remains the arbiter, comparing resolved model families, not
+the CLIs.
