@@ -1410,6 +1410,253 @@ def list_events(conn: sqlite3.Connection, limit: int = 200) -> list[dict[str, An
 
 
 # ---------------------------------------------------------------------------
+# Query-time joins + aggregations (delegations, task timeline, loop metrics)
+# ---------------------------------------------------------------------------
+# Everything below is computed at request time from existing rows; nothing is
+# stored. Keeping the joins out of the DB keeps the cache disposable and the
+# joins honest (a stored join would silently rot when a source is reindexed).
+
+# A delegation is matched to a session that started in this window around the
+# delegation timestamp: the orchestrator records the delegation just before the
+# worker's session begins, and a worker session rarely runs longer than an hour.
+_DELEG_MATCH_BEFORE = timedelta(minutes=5)
+_DELEG_MATCH_AFTER = timedelta(minutes=60)
+
+
+def _parse_ts(value: Any) -> datetime | None:
+    """Parse an ISO-8601 timestamp to an aware UTC datetime, or None."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _session_tokens(conn: sqlite3.Connection, session_id: str) -> dict[str, int]:
+    row = conn.execute(
+        "SELECT COUNT(*) AS calls, COALESCE(SUM(input_tokens),0) AS input_tokens, "
+        "COALESCE(SUM(output_tokens),0) AS output_tokens, "
+        "COALESCE(SUM(cache_read_tokens),0) AS cache_read_tokens, "
+        "COALESCE(SUM(cache_creation_tokens),0) AS cache_creation_tokens "
+        "FROM model_calls WHERE session_id=?",
+        (session_id,),
+    ).fetchone()
+    return {k: row[k] for k in ("calls", "input_tokens", "output_tokens",
+                                "cache_read_tokens", "cache_creation_tokens")}
+
+
+def _match_delegation(conn: sqlite3.Connection, expected: Any, ts: Any) -> dict[str, Any] | None:
+    """Find the session a delegation ran in: agent_name == expected_agent_name
+    AND started within [ts-5m, ts+60m]. Returns the session (+token totals) or
+    None. When several match, the one nearest the delegation ts wins."""
+    if not isinstance(expected, str) or not expected:
+        return None
+    when = _parse_ts(ts)
+    rows = conn.execute(
+        "SELECT id, host, agent_name, title, started_at, last_activity_at, ended_at "
+        "FROM sessions WHERE agent_name=?",
+        (expected,),
+    ).fetchall()
+    best: tuple[float, sqlite3.Row] | None = None
+    for row in rows:
+        started = _parse_ts(row["started_at"])
+        if when is not None and started is not None:
+            # Window is [ts-5m, ts+60m]: the session may start slightly before
+            # the ledger line is flushed, but mostly after it.
+            if not (when - _DELEG_MATCH_BEFORE <= started <= when + _DELEG_MATCH_AFTER):
+                continue
+            dist = abs((started - when).total_seconds())
+        else:
+            dist = 0.0
+        if best is None or dist < best[0]:
+            best = (dist, row)
+    if best is None:
+        return None
+    row = best[1]
+    out = dict(row)
+    out["tokens"] = _session_tokens(conn, row["id"])
+    return out
+
+
+def delegations_with_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Every delegation artifact joined to its matched session at query time."""
+    out = []
+    for art in list_artifacts(conn, ("delegation",)):
+        detail = art["detail"] if isinstance(art["detail"], dict) else {}
+        matched = _match_delegation(conn, detail.get("expected_agent_name"),
+                                    detail.get("ts") or art["ts"])
+        item = {
+            "task_id": detail.get("task_id"), "role": detail.get("role"),
+            "host": detail.get("host"), "model": detail.get("model"),
+            "brief_summary": detail.get("brief_summary"),
+            "expected_agent_name": detail.get("expected_agent_name"),
+            "ts": detail.get("ts") or art["ts"], "title": art["title"],
+        }
+        if matched:
+            item["session"] = matched
+            item["unmatched"] = False
+        else:
+            item["session"] = None
+            item["unmatched"] = True
+        out.append(item)
+    return out
+
+
+_TIMELINE_KINDS = ("record", "decision", "plan", "delegation", "escalation", "review", "finding")
+
+
+def task_timeline(conn: sqlite3.Connection, task_id: str, prices: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """Assemble a full audit timeline for one task_id from indexed artifacts
+    (live record + docs/records history) + delegations + linked sessions/spend.
+    Returns None when the task_id is unknown."""
+    if not task_id:
+        return None
+    # The `record` artifact's title IS the task_id; find every source file that
+    # carries a record for this task (live + any historical copies).
+    record_arts = [a for a in list_artifacts(conn, ("record",)) if a["title"] == task_id]
+    source_paths = {a["source_path"] for a in record_arts}
+    # Delegations are matched by their own task_id field, not source file.
+    delegations = [d for d in delegations_with_sessions(conn) if d.get("task_id") == task_id]
+    if not source_paths and not delegations:
+        return None
+    events: list[dict[str, Any]] = []
+    reviews: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    escalations: list[dict[str, Any]] = []
+    decision: dict[str, Any] | None = None
+    plan: dict[str, Any] | None = None
+    for art in list_artifacts(conn, _TIMELINE_KINDS):
+        if art["kind"] == "delegation":
+            continue  # handled via delegations (adds the session join)
+        if art["source_path"] not in source_paths:
+            continue
+        events.append({"ts": art["ts"], "kind": art["kind"], "title": art["title"],
+                       "detail": art["detail"], "source_path": art["source_path"]})
+        if art["kind"] == "review":
+            reviews.append(art)
+        elif art["kind"] == "finding":
+            findings.append(art)
+        elif art["kind"] == "escalation":
+            escalations.append(art)
+        elif art["kind"] == "decision":
+            decision = art
+        elif art["kind"] == "plan":
+            plan = art
+    for d in delegations:
+        events.append({"ts": d["ts"], "kind": "delegation",
+                       "title": d["title"], "detail": d})
+    events.sort(key=lambda e: (str(e["ts"] or ""), e["kind"]))
+    # Linked sessions: the matched sessions behind this task's delegations.
+    sessions = [d["session"] for d in delegations if d.get("session")]
+    spend_totals = {"calls": 0, "input_tokens": 0, "output_tokens": 0,
+                    "cache_read_tokens": 0, "cache_creation_tokens": 0}
+    for sess in sessions:
+        for k in spend_totals:
+            spend_totals[k] += sess.get("tokens", {}).get(k, 0)
+    evidence_count = max((a["detail"].get("commands_run", 0) or 0 for a in record_arts), default=0)
+    return {
+        "task_id": task_id,
+        "records": record_arts,
+        "timeline": events,
+        "reviews": reviews,
+        "findings": findings,
+        "escalations": escalations,
+        "decision": decision,
+        "plan": plan,
+        "delegations": delegations,
+        "evidence_count": evidence_count,
+        "sessions": sessions,
+        "spend": spend_totals,
+    }
+
+
+def _role_for_agent(agent: str | None, topo_agents: dict[str, Any]) -> str:
+    """Map a transcript agent name to a CQL role via the routing topology.
+    The topology's agent keys ARE the role names; 'main' is the orchestrator;
+    anything else is 'other'."""
+    if not agent or agent == "main":
+        return "main"
+    if agent in topo_agents:
+        return agent
+    return "other"
+
+
+def loop_metrics(conn: sqlite3.Connection, root: Path, prices: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Compute the loop KPIs the CQL skill defines. All query-time aggregation
+    over existing rows; every ratio is division-by-zero safe (empty DB -> zeros)."""
+    reviews = list_artifacts(conn, ("review",))
+    verdicts: dict[str, int] = {}
+    for r in reviews:
+        v = str(r["detail"].get("verdict") or "unknown")
+        verdicts[v] = verdicts.get(v, 0) + 1
+
+    findings = list_artifacts(conn, ("finding",))
+    by_severity: dict[str, int] = {}
+    for f in findings:
+        sev = str(f["detail"].get("severity") or "info")
+        by_severity[sev] = by_severity.get(sev, 0) + 1
+
+    escalation_arts = list_artifacts(conn, ("escalation",))
+    repair_attempts = sum(int(e["detail"].get("attempts") or 0) for e in escalation_arts
+                          if isinstance(e["detail"].get("attempts"), int))
+
+    decisions = list_artifacts(conn, ("decision",))
+    rungs: dict[str, int] = {}
+    for d in decisions:
+        rung = str(d["detail"].get("rung") or "unknown")
+        rungs[rung] = rungs.get(rung, 0) + 1
+
+    records = list_artifacts(conn, ("record",))
+    with_evidence = sum(1 for r in records if (r["detail"].get("commands_run") or 0) > 0)
+    evidence_rate = round(100.0 * with_evidence / len(records), 1) if records else 0.0
+
+    # spend by role: agent_name -> role via routing topology.
+    topo_agents: dict[str, Any] = {}
+    cfg_path = root / "quality-loop.config.json"
+    if cfg_path.is_file():
+        try:
+            config = json.loads(cfg_path.read_text(encoding="utf-8"))
+            if isinstance(config, dict):
+                topo_agents = qlroute.resolve_routing(config, None).get("agents", {}) or {}
+        except (ValueError, OSError):
+            topo_agents = {}
+    by_role: dict[str, dict[str, Any]] = {}
+    for row in spend(conn, "agent", prices):
+        role = _role_for_agent(row["key"], topo_agents)
+        item = by_role.setdefault(role, {"role": role, "calls": 0, "input_tokens": 0,
+                                          "output_tokens": 0, "cache_read_tokens": 0,
+                                          "cache_creation_tokens": 0, "cost_usd": None})
+        for k in ("calls", "input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens"):
+            item[k] += row.get(k, 0)
+        if row.get("cost_usd") is not None:
+            item["cost_usd"] = round((item["cost_usd"] or 0.0) + row["cost_usd"], 6)
+
+    durations = []
+    for s in conn.execute(
+        "SELECT id, title, host, agent_name, started_at, last_activity_at, ended_at FROM sessions"
+    ).fetchall():
+        start = _parse_ts(s["started_at"])
+        end = _parse_ts(s["ended_at"]) or _parse_ts(s["last_activity_at"])
+        secs = round((end - start).total_seconds(), 1) if (start and end and end >= start) else None
+        durations.append({"id": s["id"], "title": s["title"], "host": s["host"],
+                          "agent_name": s["agent_name"], "duration_sec": secs})
+
+    return {
+        "verdict_distribution": verdicts,
+        "findings_by_severity": by_severity,
+        "escalations": len(escalation_arts),
+        "repair_attempts": repair_attempts,
+        "rung_distribution": rungs,
+        "evidence_rate": {"records": len(records), "with_evidence": with_evidence,
+                          "rate_pct": evidence_rate},
+        "spend_by_role": sorted(by_role.values(), key=lambda r: -r["output_tokens"]),
+        "session_durations": durations,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Hook ingest (never breaks a session)
 # ---------------------------------------------------------------------------
 
