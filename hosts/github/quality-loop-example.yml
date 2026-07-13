@@ -16,7 +16,7 @@ jobs:
       # the scripts in the checkout under review — so a softened local
       # quality_loop.py cannot defeat CI. That pinned copy is the trust anchor;
       # an unpinned/floating ref would surrender it.
-      - uses: zaingz/coding-quality-loop@v4.1.0
+      - uses: zaingz/coding-quality-loop@v5.0.0
         with:
           record: agent-record.json
           base: origin/${{ github.base_ref || 'main' }}

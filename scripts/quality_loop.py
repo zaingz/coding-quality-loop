@@ -1068,7 +1068,7 @@ REQUIRED_STEPS = [
 # Single source of truth for the config schema/version. check_config rejects a
 # config that does not declare this version so the skill, config, CHANGELOG, and
 # npm package cannot silently drift apart.
-EXPECTED_CONFIG_VERSION = "4.3.0"
+EXPECTED_CONFIG_VERSION = "5.0.0"
 
 # Step model-class floor (P3.18): the planner (PLAN) and orchestrator
 # (ORCHESTRATE) steps must route to the strongest reasoning class so "the right
