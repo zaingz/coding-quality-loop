@@ -4,9 +4,24 @@
 > commitment; the loop's non-negotiable is that we ship the smallest correct change,
 > and that includes the roadmap itself.
 
-Last updated: 2026-07-12.
+Last updated: 2026-07-13.
 
-## Now — landed in v4.3.0
+## Now — landed in v5.0.0
+
+- ✅ **Orchestrator layer (the token-diet release).** The main session owns every
+  decision — task class, context map, contract, right-size rung, plan, routing,
+  verdicts, stop-if-unsafe — and workers receive a one-screen brief (goal, contract
+  slice, files, commands, done-check), never the skill text or a repository tour. The
+  always-loaded agent surface is cut roughly in half (`SKILL.md` ~56% smaller); role
+  and advisor detail moved to `references/agentic-orchestration.md` on demand.
+- ✅ **Two hosts, two vendors.** All shipped routing variants route exclusively to the
+  latest Anthropic (Fable 5, Opus 4.8, Sonnet 5, Haiku 4.5) and OpenAI (GPT-5.6
+  Sol/Terra) models: Claude Code implements, Codex reviews cross-family. All floors
+  unchanged (reviewer family heterogeneity, strong_reasoning on plan/orchestrate,
+  effort ceiling at high). Cursor, Droid, and Pi remain supported install targets
+  outside the routed kernel. No gate, schema, or runtime behavior changed.
+
+## Landed in v4.3.0
 
 - ✅ **Control plane (local observability).** One dashboard for sessions, model
   calls with exact token usage, tool calls, token spend, routing, hook events,
