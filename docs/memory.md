@@ -1,11 +1,7 @@
 # Project memory
 
 > Most coding agents relearn the same lesson every session. The loop can keep a tiny
-> per-project ledger of distilled lessons and recall them on the next task. New in v1.4.0.
-
-<div align="center">
-
-</div>
+> per-project ledger of distilled lessons and recall them on the next task.
 
 ## What it is
 
@@ -75,7 +71,7 @@ lessons age out; lessons that keep getting recalled stay.
 
 ## Backends
 
-### 1. Files (default, checked-in)
+### Files (default, checked-in)
 
 - **What**: stdlib-only. Lessons and index live under `.quality-loop/memory/`.
 - **Why**: no dependencies, git-diffable, team-shared, works offline.
@@ -83,7 +79,7 @@ lessons age out; lessons that keep getting recalled stay.
 
 ## What the eval suite proves
 
-The **memory** eval suite (`python3 evals/run_memory_evals.py`, 27/27 cases) pins:
+The **memory** eval suite (`python3 evals/run_memory_evals.py`, 26/26 cases) pins:
 
 - The index stays ≤ 40 lines even with multi-line lessons.
 - Recall respects the token budget and returns nothing over it.

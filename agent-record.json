@@ -1,0 +1,190 @@
+{
+  "task_id": "v5-docs-overhaul",
+  "goal": "Complete the v5.0.0 release: sync shared version across all sites and overhaul docs to the orchestrator-first, two-vendor (Claude Code + Codex) narrative with a new visual identity",
+  "acceptance_criteria": [
+    "Every version site reports 5.0.0 (package.json, EXPECTED_CONFIG_VERSION, example config, GitHub Action pin) and check-config passes",
+    "All seven gate suites pass (164 offline cases) plus the trigger smoke fixture",
+    "README is a v5 landing page: orchestrator layer + token diet headline, honest install matrix, no stale version markers",
+    "references/agentic-orchestration.md is re-centered on orchestrator/worker with the advisor demoted to a history note; no GLM/Gemini/Grok in the routing narrative",
+    "philosophy.md and engineering-operating-system.md are consolidated into one philosophy.md; no broken inbound links",
+    "All internal markdown links and image references resolve; the six empty center-div placeholders are filled or removed",
+    "Historical records (critical-review, spec, docs/records, examples/*-eval-*) are unmodified"
+  ],
+  "constraints": [
+    "Never weaken a gate; never lower a version to make a check pass",
+    "Do not modify SKILL.md body, CHANGELOG history, or historical records except one-line banners where specified",
+    "Verify every number and command against the actual code, not old docs"
+  ],
+  "non_goals": [
+    "Deleting Cursor/Droid/Pi/git/GitHub install support",
+    "Claiming 5-host routed parity"
+  ],
+  "assumptions": [
+    "v5.0.0 was authored in CHANGELOG but never shipped, so completing it (not a false 5.0.1 bump) is the honest path"
+  ],
+  "risk_tier": "medium",
+  "task_class": "medium",
+  "implementer": "claude-code (v5-docs-overhaul session)",
+  "security_sensitive": false,
+  "verification_plan": [
+    "python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json",
+    "run all seven eval suites + the trigger smoke",
+    "internal markdown link + image-src resolution check across all *.md"
+  ],
+  "validation_contract": "assets/validation-contract.md",
+  "independent_review": {
+    "reviewer": "openai/gpt-5.5 (independent validator, fresh context)",
+    "reviewer_family": "gpt",
+    "verdict": "approve",
+    "fresh_context": true,
+    "ran_checks": true,
+    "patched": false,
+    "branch_tip_reviewed": "dbcc78b",
+    "base": "main",
+    "summary": "All eight acceptance criteria pass; claims re-verified not trusted; every eval suite and check-config re-run on a clean checkout (164/164 across 7 suites, check-config ok). No gate logic weakened. The three flagged deviations are honest and reasonable. No blocking findings.",
+    "findings": [
+      {
+        "severity": "advisory",
+        "note": "A1 \u2014 Historical GLM-5.2 citation in the dated Sudoku 07-01 eval row is a factual record of what was tested; erasing it would violate candor. Keep as-is."
+      },
+      {
+        "severity": "advisory",
+        "note": "A2 \u2014 anatomy.py and gate_gaming.py were not regenerated; their sources encode no stale version/count data (the v3.1.0 strings are correct provenance). Not an AC violation."
+      },
+      {
+        "severity": "advisory",
+        "note": "A3 \u2014 Embed this independent-review verdict into agent-record.json before merge so verify-gates clears its two review-pending warnings (this commit)."
+      }
+    ],
+    "diff_sha256": "061b9540c4685f01ff37334b4f9c5626de8615a4467d1310aa7c09b6b4294634",
+    "attested_at": "2026-07-13T15:16:50"
+  },
+  "security_review": null,
+  "completion_record": null,
+  "repair_attempts": 0,
+  "repeated_failure": false,
+  "harness_update": null,
+  "repo_map": {
+    "entry_points": [
+      "README.md",
+      "references/agentic-orchestration.md",
+      "references/philosophy.md"
+    ],
+    "likely_files": [
+      "packages/npm/package.json",
+      "scripts/quality_loop.py",
+      "assets/quality-loop.config.example.json",
+      "hosts/github/quality-loop-example.yml",
+      "docs/images/src/evidence_dashboard.py",
+      "CHANGELOG.md",
+      "ROADMAP.md",
+      "CONTRIBUTING.md"
+    ],
+    "callers_checked": [
+      "evals/run_evals.py (repointed engineering-operating-system.md -> philosophy.md)",
+      "docs/README.md (deep-dive index)"
+    ],
+    "tests": [
+      "evals/run_evals.py",
+      "evals/run_memory_evals.py",
+      "evals/run_reality_evals.py",
+      "evals/run_routing_evals.py",
+      "evals/run_hook_evals.py",
+      "evals/run_control_evals.py",
+      "evals/run_trigger_evals.py"
+    ],
+    "patterns_to_follow": [
+      "shared-version invariant enforced by check-config",
+      "regenerable media discipline (generators in docs/images/src/)"
+    ]
+  },
+  "minimality_decision": {
+    "rung": "minimal_new_code",
+    "reason": "Targeted edits to version sites and docs, plus consolidating two philosophy files into one and rewriting one reference doc. No new modules, dependencies, or gates; the only new files are illustrated art assets copied into docs/images/art/.",
+    "rejected_lower_rungs": [
+      {
+        "rung": "reuse",
+        "why_insufficient": "A false 5.0.1 version bump would reuse the release machinery but is dishonest: 5.0.0 was authored but never shipped, so completing 5.0.0 is correct."
+      },
+      {
+        "rung": "skip",
+        "why_insufficient": "The version drift and stale docs are real defects that block the release; they cannot be skipped."
+      }
+    ]
+  },
+  "plan": [
+    "Sync all version sites to 5.0.0 and confirm check-config green",
+    "Copy new art assets, update generators, regenerate media, fill/remove placeholders",
+    "Rewrite README as v5 landing page",
+    "Rewrite agentic-orchestration.md (orchestrator/worker), consolidate philosophy",
+    "Mechanical doc fixes + Droid/Pi maintenance banners + stale model ids",
+    "ROADMAP v5 section, CONTRIBUTING suite list, CHANGELOG release-completion note",
+    "Run all evals + link check; commit slices; open PR"
+  ],
+  "commands_run": [
+    {
+      "cmd": "python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json",
+      "evidence": "config ok",
+      "result": "pass",
+      "class": "lint"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json",
+      "evidence": "11/11 eval cases passed (static suite)",
+      "result": "pass",
+      "class": "lint"
+    },
+    {
+      "cmd": "python3 evals/run_evals.py",
+      "evidence": "44/44 eval cases passed (behavioral)",
+      "result": "pass",
+      "class": "unit"
+    },
+    {
+      "cmd": "python3 evals/run_memory_evals.py",
+      "evidence": "26/26 memory eval cases passed",
+      "result": "pass",
+      "class": "unit"
+    },
+    {
+      "cmd": "python3 evals/run_reality_evals.py",
+      "evidence": "23/23 reality eval cases passed",
+      "result": "pass",
+      "class": "unit"
+    },
+    {
+      "cmd": "python3 evals/run_routing_evals.py",
+      "evidence": "24/24 routing eval cases passed",
+      "result": "pass",
+      "class": "unit"
+    },
+    {
+      "cmd": "python3 evals/run_hook_evals.py",
+      "evidence": "16/16 hook eval cases passed",
+      "result": "pass",
+      "class": "unit"
+    },
+    {
+      "cmd": "python3 evals/run_control_evals.py",
+      "evidence": "20/20 control-plane eval cases passed",
+      "result": "pass",
+      "class": "unit"
+    },
+    {
+      "cmd": "python3 evals/run_trigger_evals.py",
+      "evidence": "10/10 trigger smoke cases passed (excluded from the 164 count)",
+      "result": "pass",
+      "class": "unit"
+    }
+  ],
+  "open_risks": [
+    "Independent review is pending: this record is single-agent dogfooding evidence, not a completed two-vendor review. The routed v5 loop would send this diff to a Codex reviewer before ship."
+  ],
+  "review_findings": [
+    "Independent cross-family review (openai/gpt-5.5, fresh context): APPROVE. All 8 ACs pass; 164/164 across 7 suites re-run; check-config ok; no gate logic weakened.",
+    "Advisory A1: historical GLM-5.2 eval citation kept (candor); A2: anatomy/gate_gaming images carry no stale data; A3: verdict now embedded in this record.",
+    "No blocking findings."
+  ],
+  "next_action": "Independent review embedded (APPROVE). Merge PR #7 to main with a merge commit; do not squash.",
+  "status": "review"
+}

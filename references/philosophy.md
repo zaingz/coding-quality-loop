@@ -2,9 +2,10 @@
 
 > **Bounded autonomy. Smallest correct change. Evidence over confidence.**
 
-This document is the *why* behind the Coding Quality Loop. For the *how* — the five parts, task
-classes, and harness modes — see [`engineering-operating-system.md`](engineering-operating-system.md).
-For the executable lifecycle, see [`lifecycle.md`](lifecycle.md).
+This document is the *why* behind the Coding Quality Loop, and the *how* it becomes durable
+artifacts: an **engineering operating system** for coding agents — portable process that makes
+agent work consistent, verifiable, and improvable across sessions, models, and platforms. For
+the executable lifecycle, see [`lifecycle.md`](lifecycle.md).
 
 ## The mantra
 
@@ -132,6 +133,46 @@ above into one self-contained Agent Skill:
   CI so the claims stay verifiable.
 - **Host-native install paths** for Claude Code, Codex, Cursor, Pi, and standalone runtimes, so
   the same philosophy drops into whatever you already use.
+
+## The engineering operating system
+
+Ad-hoc prompting is being replaced by reusable process artifacts. Each converging trend maps to
+an artifact this skill ships — prompting → durable instructions, capability → skills, one
+context → orchestration, vague verification → validation contract, complexity creep → complexity
+discipline, advisory text → deterministic gates, context stuffing → repo maps. Those transitions
+land as five concrete parts:
+
+1. **Durable repo instructions** — `AGENTS.md` (global, project, nested overrides — closer
+   instructions win), `CLAUDE.md` (project/user/local, imports, `/init`; keep ~200 lines),
+   Cursor rules (`.cursor/rules/*.mdc`: Always / Auto Attached / Agent Requested / Manual).
+2. **Reusable skills** — focused `SKILL.md` workflows with triggers, steps, and exit criteria;
+   the portable capability unit, shareable across hosts.
+3. **Mission artifacts** — `context-map.md`, `validation-contract.md`, `plan.md`,
+   `execution-log.md`, `decision-log.md`, `completion-record.md`. Shared state that makes
+   long-horizon work orchestratable.
+4. **Independent verification** — implementer and validator separated for non-trivial work; the
+   implementer is never the final validator, and the reviewer runs on a different vendor.
+5. **Complexity discipline** — the right-size gate, applied before planning and again before
+   review. Canonical rung ladder: SKILL.md §Right-Size Gate.
+
+**Scaling rules.** Default to the smallest task class that safely satisfies the goal (canonical
+definitions: SKILL.md §Task Classes). A tiny task must not be forced through mission ceremony; a
+medium task must not ship without a validation contract and an independent review; a mission must
+keep shared state compact and review at milestone boundaries with fresh context.
+
+**Harness implementation modes** — adopt the lightest that fits, combine as risk grows:
+instruction-only (the loop lives in `AGENTS.md` / `CLAUDE.md` / `.cursor/rules`; advisory);
+skill-based (a portable skill directory with progressive disclosure); hook-enforced
+(deterministic gates — protected-path writes, format/test after edit, dependency approval,
+destructive-command blocks, the completion-record shipping gate); and mission agent
+(orchestrator + workers + validators, for medium/mission work only).
+
+**The improvement loop.** The harness — not the prompt — is the unit of iteration: collect
+signals (traces, validator findings, escaped defects, diff size, evidence rate, repeated
+mistakes), rank candidate changes by impact, apply the change as a durable artifact (a rule, a
+test, a hook, a checklist item, a template), and pin a regression eval so the fix sticks. Every
+repeated failure becomes a durable harness change (canonical: SKILL.md §RETROSPECTIVE), not a
+repeated chat correction.
 
 ## What this deliberately is *not*
 

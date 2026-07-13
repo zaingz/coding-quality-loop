@@ -12,7 +12,7 @@ One-command installer for the [Coding Quality Loop](https://github.com/zaingz/co
 npx coding-quality-loop init
 ```
 
-That's it. The installer auto-detects your host (Claude Code, Codex, Cursor, Droid, Pi), copies the skill files, wires the hooks, and prints next steps. No prerequisites beyond Node 18+ and Python 3.
+That's it. The installer auto-detects your host, copies the skill files, wires the hooks, and prints next steps. No prerequisites beyond Node 18+ and Python 3. The routed loop runs **Claude Code (implementer) + Codex (independent reviewer)**; Cursor, Droid, and Pi are supported install targets outside that two-vendor kernel.
 
 ## Commands
 

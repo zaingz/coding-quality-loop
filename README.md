@@ -1,10 +1,6 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/banner-v2-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/banner-v2-light.png">
-  <img src="docs/images/banner-v2-dark.png" alt="Coding Quality Loop hero — Make your AI coding agent ship changes you can trust. Executable gates, independent review, radical candor. The PLAN → EXECUTE → REVIEW loop." width="900">
-</picture>
+<img src="docs/images/art/hero-art.png" alt="Coding Quality Loop — a glowing PLAN → EXECUTE → REVIEW ring with three nodes (implement, review, map) over a dark background." width="820">
 
 # Coding Quality Loop
 
@@ -14,20 +10,18 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-4.3.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-5.0.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
 [![offline gates](https://img.shields.io/badge/offline%20gates-164%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-111111?style=flat-square)](#install--use-matrix)
-[![Codex](https://img.shields.io/badge/Codex-compatible-111111?style=flat-square)](#install--use-matrix)
-[![Cursor](https://img.shields.io/badge/Cursor-compatible-111111?style=flat-square)](#install--use-matrix)
-[![Pi](https://img.shields.io/badge/Pi-compatible-111111?style=flat-square)](#install--use-matrix)
-[![Droid](https://img.shields.io/badge/Droid-compatible-111111?style=flat-square)](#install--use-matrix)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-routed-111111?style=flat-square)](#install--use-matrix)
+[![Codex](https://img.shields.io/badge/Codex-routed-111111?style=flat-square)](#install--use-matrix)
+[![more install targets](https://img.shields.io/badge/also%20installs-Cursor%20·%20Droid%20·%20Pi%20·%20git%20·%20GitHub-111111?style=flat-square)](#install--use-matrix)
 [![Anthropic Agent Skills](https://img.shields.io/badge/Anthropic%20Agent%20Skills-compatible-111111?style=flat-square)](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills)
 
-[Quickstart](#quickstart-60-seconds) · [The loop](#the-loop-visualized) · [Proof](#proof-you-can-run) · [Install](#install--use-matrix) · [Compare](#how-it-compares) · [FAQ](#faq) · [Docs](docs/)
+[Quickstart](#quickstart-60-seconds) · [Orchestrator layer](#the-orchestrator-layer) · [The loop](#the-loop-visualized) · [Proof](#proof-you-can-run) · [Install](#install--use-matrix) · [Compare](#how-it-compares) · [FAQ](#faq) · [Docs](docs/)
 
 </div>
 
@@ -35,7 +29,7 @@ AI coding agents are fast. Point one at a vague ticket and it can refactor thing
 
 **Coding Quality Loop makes the agent work like a careful engineer instead.** It pins down what "done" means before writing code, changes as little as possible, proves the change with a test you can see, and has a *separate* agent review the work before it reaches you. What comes back is small, checked, and reversible: something you can read, trust, and merge in minutes.
 
-It is a portable [Agent Skill](https://agentskills.io/specification) for anyone using Claude Code, Codex, Cursor, Pi, or Droid to write production code. Use it as a copy-paste prompt, a loadable skill, or a multi-agent config. No new tools, no lock-in.
+It is a portable [Agent Skill](https://agentskills.io/specification). In v5 the loop **routes across two frontier hosts** — Claude Code plans and implements, Codex reviews in a different model family — and it still **installs into more** (Cursor, Droid, Pi, git, GitHub) as instruction and hook targets outside that routed loop. Use it as a copy-paste prompt, a loadable skill, or a multi-agent config. No new tools, no lock-in.
 
 ---
 
@@ -56,8 +50,6 @@ You ask your agent to *"fix the checkout retry bug."*
 
 That is the whole idea: smaller changes, real proof, a second set of eyes, and memory that sticks. The work scales to the risk: a typo just gets fixed; a payment migration runs the full process. See a real worked example in [`examples/walkthrough/`](examples/walkthrough/README.md).
 
-- **New in 4.1.0**: the trust chain closes end-to-end on top of the 4.0.0 gate-hardening base. The GitHub Action executes its **own pinned copy** of the gate scripts (the documented soften-and-commit attack now fails in CI, pinned by a red-team eval case); the stop gate fires at verify/review with a dirty tree and fails **closed** on an unreadable record; `verify --require-terminal` blocks work shipped without closing the loop; live bench runs must record **cost/tokens/duration** or fail validation; and the eval table publishes all five runs with methodology labels — negatives included. The 4.0.0 base itself added the blocking/advisory `diff-audit` split, the `RETROSPECT` lifecycle step, and the `advisor` role. See [`CHANGELOG.md`](CHANGELOG.md) for the full list.
-
 <details>
 <summary><strong>What the agent produces, step by step</strong></summary>
 
@@ -74,6 +66,30 @@ That is the whole idea: smaller changes, real proof, a second set of eyes, and m
 The state record in the walkthrough passes the same [`verify-gates`](scripts/quality_loop.py) check the loop enforces.
 
 </details>
+
+---
+
+## The Orchestrator Layer
+
+<div align="center">
+
+<img src="docs/images/art/orchestrator-layer.png" alt="Orchestrator layer — a top 'orchestrator' node branching to two worker nodes, 'implementer' (blue) and 'reviewer' (green), each fed a small brief card." width="620">
+
+</div>
+
+**New in v5.0.0 — and the headline of the release.** The main session is the **orchestrator**: it thinks hard and makes *every* decision — task class, context map, contract, right-size rung, plan, model routing, the verdict on findings, and the stop-if-unsafe call. Workers (the implementer and the reviewer) never see the skill: they receive a **brief, not context** — goal, contract slice, files, commands, done-check, one screen max. No skill text, no references, no repository tour.
+
+That inversion is a **token diet**. The always-loaded agent surface (`SKILL.md`) is now roughly **half its former size**, and workers load none of it. Decisions concentrate where the reasoning is; execution stays cheap and narrow. The rule that earns it: **every gate must earn its tokens** — a gate is kept only on measured eval lift, and a deletion is a win.
+
+Routing is pinned to **two hosts, two vendors**: Claude Code plans and implements on frontier Anthropic models; Codex reviews on a frontier OpenAI model, always a **different family** than the implementer. This is a floor the config enforces (`check-config`), not a suggestion.
+
+| | Orchestrator (main session) | Workers (implementer, reviewer) |
+|---|---|---|
+| Sees | full skill, references, repo | a one-screen brief only |
+| Owns | every decision + the verdict | one narrow execution task |
+| Model | frontier reasoning (plan/route) | implement on Claude Code · review on Codex (different family) |
+
+See [`SKILL.md`](SKILL.md#orchestrator-layer) for the canonical contract and [`references/agentic-orchestration.md`](references/agentic-orchestration.md) for the orchestrator/worker topology.
 
 ---
 
@@ -143,6 +159,12 @@ agent: PR: summary, files changed, evidence table, risk note, rollback: revert t
 
 ## The loop, visualized
 
+<div align="center">
+
+<img src="docs/images/art/loop-phases.png" alt="The loop — a glowing circular flow through three checkpointed phases: PLAN, EXECUTE, REVIEW, each with a check-mark gate node." width="440">
+
+</div>
+
 Three phases, smallest-safe-first, each closed by its own verification gate before the next may start. **Context is a budget; verification is what terminates a phase.** The **right-size gate runs twice**: once in PLAN to choose the smallest approach, once in REVIEW to confirm nothing crept in.
 
 ```text
@@ -195,7 +217,7 @@ Every claim on this page is checkable on a clean checkout with no dependencies. 
 
 <div align="center">
 
-<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard — 164 offline gate cases across 7 suites (11 static, 44 behavioral, 26 memory, 23 reality, 24 routing, 16 hook, 20 control), plus a 10-case trigger smoke fixture; per-agent code-quality lift excluding process artifacts: Droid/GLM-5.2 +8.0, Claude Code +6.67 (webapp) and +4.5 (Sudoku), Codex +1.0 (Sudoku) and −1.11 (webapp); zero runtime dependencies; five supported hosts; five published eval runs." width="900">
+<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard — 164 offline gate cases across 7 suites (11 static, 44 behavioral, 26 memory, 23 reality, 24 routing, 16 hook, 20 control), plus a 10-case trigger smoke fixture; per-agent code-quality lift excluding process artifacts, negatives shown next to positives; zero runtime dependencies; two routed hosts (Claude Code + Codex); five published eval runs." width="900">
 
 </div>
 
@@ -279,17 +301,23 @@ Process is not free, and we measure it like everything else. A full **medium** l
 
 ## What it enforces and what it does not
 
+<div align="center">
+
+<img src="docs/images/art/gates.png" alt="Enforcement — a diff document passing through a series of gates: two pass with a check mark, one fails with a red X and stops the change." width="620">
+
+</div>
+
 Most tools hide this table. Ours is one of the best marketing artifacts in the repo. The differentiator is that the gates are **executable**, not advisory, and the boundaries are explicit. `scripts/quality_loop.py` is a portable, stdlib-only checker. It **complements** CI, tests, scanners, and human review. It does not replace them.
 
 | Enforced today | Not enforced by design, to stay portable |
 |---|---|
 | Non-trivial work, meaning medium/mission or any medium/high-risk or security-sensitive task, requires a named implementer, a real **validation contract**, an approving **independent review** by someone *other than* the implementer, and, at ship, a **completion record** with evidence. Required fields must be present and non-empty; bare booleans, empty strings, and nonexistent paths are rejected. It checks *shape*, not whether the content is substantive. A small low-risk task ships with handoff evidence, not a formal completion record. | `run-evidence` re-executes allowlisted commands but is **not a sandbox**. The trust model is repo-defined commands, same as CI. Commands not on the `.quality-loop/allowed-commands` allowlist are skipped and reported as `not_allowed`, not run. |
-| **Reality layer (v1.5).** `verify-gates --against-diff` reads the real git diff and catches **phantom completion**, **scope integrity**, a **diff-derived risk floor**, **bugfix-test co-presence**, and **stale review hashes**. `run-evidence` **re-executes** recorded pass commands; `--red-green` replays a red_green command in a worktree at base and HEAD. Worktree unavailable means "not proven", never a silent pass. `attest-review` embeds the recomputed diff hash. | Reviewer/implementer separation is compared as trimmed strings and fresh context is self-attested. `attest-review` plus `--against-diff` make review *freshness* checkable, but cannot prove the reviewer *read* the diff. |
+| **Reality layer.** `verify-gates --against-diff` reads the real git diff and catches **phantom completion**, **scope integrity**, a **diff-derived risk floor**, **bugfix-test co-presence**, and **stale review hashes**. `run-evidence` **re-executes** recorded pass commands; `--red-green` replays a red_green command in a worktree at base and HEAD. Worktree unavailable means "not proven", never a silent pass. `attest-review` embeds the recomputed diff hash. | Reviewer/implementer separation is compared as trimmed strings and fresh context is self-attested. `attest-review` plus `--against-diff` make review *freshness* checkable, but cannot prove the reviewer *read* the diff. |
 | **Detected-risk floor.** The record goal, criteria, and plan are scanned for auth/authz, secrets, crypto, payments, migrations, destructive, concurrency, data-loss, PII, and infra boundaries. Any hit forces high-risk plus security-review gates regardless of the declared tier. | The detected-risk floor is a curated heuristic. It catches honest mis-tiering, not an agent deliberately phrasing around it. **Deterministic policy hooks** remain the backstop for anything you cannot afford an agent to get wrong. |
 | **UNDERSTAND is gated.** Non-trivial work must carry a substantive context map with entry points or likely files plus callers or tests. | **`verify-gates` without `--against-diff` reads the record, not the diff.** It confirms recorded evidence is present and well-formed; `--against-diff` adds diff-grounded checks. `diff-audit` and CI remain the blocking layer. |
 | Every `pass` command carries a verifiable evidence handle and known `class`; a recorded minimality decision; and `diff-audit` flags secrets, including **untracked files** and **test-weakening**, dependency edits, migrations, and oversized diffs. `diff-audit --staged` covers the pre-commit diff; `scan-text --stdin` is a secret-scan-as-a-service for hook shims. | The helper is not a hosted agent service. Authentication, model cost, and production rollout remain the caller's responsibility. |
 | **Repeated failure -> durable change.** A recurring mistake must become a rule/test/hook/checklist/template, so a clean final record cannot bury a mistake corrected only in chat. | Host hooks are advisory unless the host or repo chooses to trust and enable them. Git hooks and CI are the portable backstop. |
-| **Helper-integrity reporting (v3.1).** `verify` prints the sha256 of each helper module so a hook or CI can catch a locally modified gate script. Motivated by the [gate-gaming incident](#the-gate-gaming-story). | Helper-integrity is a *report*, not an enforcement action by itself — pair it with a CI check that compares against a known-good sha to make it blocking. |
+| **Helper-integrity reporting.** `verify` prints the sha256 of each helper module so a hook or CI can catch a locally modified gate script. Motivated by the [gate-gaming incident](#the-gate-gaming-story). | Helper-integrity is a *report*, not an enforcement action by itself — pair it with a CI check that compares against a known-good sha to make it blocking. |
 
 The runtime entry points are `verify` (the umbrella: record gates + diff audit + evidence re-execution + AC coverage), `verify-gates`, `verify-gates --against-diff`, `check-record`, `diff-audit`, `run-evidence`, `attest-review`, and `scan-text --stdin`, pinned by [evals](evals/).
 
@@ -365,7 +393,7 @@ coding-quality-loop/
 │                       #   plan, logs, completion record, PR summary, progress, record schema,
 │                       #   config, per-role prompt cards)
 ├── references/         # deep-dive docs pulled only when needed (lifecycle, orchestration,
-│                       #   reviewer checklists, tool contracts, engineering-OS, philosophy,
+│                       #   reviewer checklists, tool contracts, philosophy,
 │                       #   the memory contract, enforcement matrix)
 ├── examples/           # host-native copy-paste: claude-code, codex, cursor, pi, droid,
 │                       #   standalone, a real before/after walkthrough, + committed live evals
@@ -406,7 +434,7 @@ python3 scripts/quality_loop.py control-serve    # dashboard + JSON API on 127.0
 
 ## Project memory
 
-Most agents relearn the same lesson every session. The loop can keep a tiny per-project ledger of **distilled lessons**: failure modes, conventions like "no new dependencies here", and gotchas like "this module broke twice". New in v1.4.0.
+Most agents relearn the same lesson every session. The loop can keep a tiny per-project ledger of **distilled lessons**: failure modes, conventions like "no new dependencies here", and gotchas like "this module broke twice".
 
 It is **retrieval, not context stuffing**: only a <=40-line index auto-loads, recall is budget-capped and scoped to the task goal and files, lessons are distilled rather than raw transcripts, **secrets are redacted before they are written**, and writes stay **advisory**. Memory adds no new gate.
 
@@ -426,7 +454,7 @@ See [`references/memory.md`](references/memory.md) for the memory contract.
 
 ## Control plane
 
-One local dashboard to monitor, observe, and learn what the agents are doing — every session, every model call with **exact token counts**, tool calls, token spend, routing, and every loop artifact (records, reviews, minimality decisions, plans, escalations, memory). New in v4.3.0.
+One local dashboard to monitor, observe, and learn what the agents are doing — every session, every model call with **exact token counts**, tool calls, token spend, routing, and every loop artifact (records, reviews, minimality decisions, plans, escalations, memory). Shipped in v4.3.0.
 
 ```bash
 python3 scripts/quality_loop.py control-index   # SQLite index from transcripts + CQL artifacts
@@ -441,9 +469,11 @@ It is an **index over evidence, never a gate**: a disposable SQLite cache under 
 
 ## Why agentic-first
 
-One model grading its own work is the dominant failure mode. The skill splits the loop into role-based profiles: `orchestrator`, `context_mapper`, `implementer`, `validator`, `simplicity_reviewer`, `security_reviewer`, `advisor`, `policy_guard`. Map each role to the best available model or tool profile. Defaults stay simple: **one implementer + one independent validator + deterministic policy hooks.** Add specialists only when risk justifies the coordination cost; over-parallelization is an anti-pattern. ([Orchestration](references/agentic-orchestration.md))
+One model grading its own work is the dominant failure mode. v5 answers it with the [Orchestrator Layer](#the-orchestrator-layer): the main session reasons and decides; workers only execute against a one-screen brief. The default split stays small — **one implementer on Claude Code + one independent reviewer on Codex (a different model family) + deterministic policy hooks.** Add specialists (a dedicated context mapper, a security reviewer) only when risk justifies the coordination cost; over-parallelization is an anti-pattern. ([Orchestration](references/agentic-orchestration.md))
 
-**Advisor pattern (default for small/medium).** A cheap executor drives the whole loop and consults a stronger reasoning model *only at reasoning walls* — 2 failed repair attempts, merge conflicts, or architecture uncertainty. This is [Anthropic's advisor-tool pattern](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool): the advisor gets a fork of the executor's context and returns reasoning, **never code and never tool calls**; cap consultations (`max_uses` ≈ 3) so a wall triggers escalation, not an expensive back-and-forth. Per-host wiring: Claude subagent, Droid Task tool, Codex subagent. See [`references/agentic-orchestration.md`](references/agentic-orchestration.md).
+The reviewer being a **different vendor** than the implementer is the load-bearing part: `check-config` hard-fails a medium+ config where the implementer and reviewer resolve to the same model family, so "one model grading its own work" cannot happen by accident.
+
+> **History:** v3–v4 organized the loop around an *advisor / Smart Friend* pattern — a cheap executor that drove the loop and consulted a stronger model only at reasoning walls. v5 inverts it: the strong model orchestrates from the top and workers never consult upward. The older topology is retained as a note in [`references/agentic-orchestration.md`](references/agentic-orchestration.md).
 
 ---
 
@@ -509,7 +539,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   provenance is not hand-faked.
 - **Skills Hub publish checklist.** Before publishing to the
   [agentskills.io](https://agentskills.io) Skills Hub:
-  1. Bump `packages/npm/package.json` and tag a release (`git tag v4.3.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
+  1. Bump `packages/npm/package.json` and tag a release (`git tag v5.0.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`

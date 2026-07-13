@@ -1,17 +1,17 @@
 # Cross-CLI orchestrator recipe (R7)
 
-One page of verified headless commands for running the loop's roles across
-harnesses. Verified live on **2026-07-12** with: Claude Code **2.1.207**,
-codex-cli **0.144.1**, droid **0.170.0**. Re-verify after CLI upgrades — flags
-move.
+One page of verified headless commands for running the loop's routed kernel —
+**Claude Code as implementer, Codex as the independent reviewer**. Verified live
+on **2026-07-12** with: Claude Code **2.1.207**, codex-cli **0.144.1**.
+Re-verify after CLI upgrades — flags move.
 
 **The caveat first:** harness diversity does not guarantee model heterogeneity.
-A different CLI can host the same model family (Droid's default model is a
-Claude model). `check-config` stays the arbiter: it compares the resolved model
-*families* across hosts, and `verify-gates` string-compares reviewer ≠
-implementer on the record. Declare your topology in `model_routing`
-(`agents: {name: {host, class}}` + `main_session`) so the check sees what you
-actually run — see `assets/routing/` for pre-validated variants.
+A different CLI can host the same model family. `check-config` stays the
+arbiter: it compares the resolved model *families* across hosts, and
+`verify-gates` string-compares reviewer ≠ implementer on the record. Declare
+your topology in `model_routing` (`agents: {name: {host, class}}` +
+`main_session`) so the check sees what you actually run — see `assets/routing/`
+for pre-validated variants.
 
 ## Role → headless command
 
@@ -23,19 +23,19 @@ implementer context) unless you explicitly resume one.
 |---|---|---|
 | context mapper | `cat assets/prompts/context-map.md task.md \| claude -p --model haiku` | cheap_fast leg |
 | planner | `cat assets/prompts/planner.md task.md \| claude -p --model claude-fable-5` | strong_reasoning leg |
-| implementer | `droid exec -m glm-5.2-fast --auto low -f slice-prompt.md` | `-w` runs in a git worktree for isolation; `--auto low` keeps permission checks on |
-| verification runner | `droid exec -m glm-5.2-fast --auto low "run: <commands from the validation contract>; record exact output"` | or run the commands yourself — `run-evidence` re-executes them anyway |
+| implementer | `cat assets/prompts/implementer.md slice-prompt.md \| claude -p --model claude-fable-5` | the main-session leg; run in a git worktree for isolation on parallel slices |
+| verification runner | run the validation-contract commands yourself and record exact output | `run-evidence` re-executes them from the allowlist anyway |
 | fresh reviewer | `cat assets/prompts/reviewer.md \| codex exec -s read-only -m gpt-5.6-sol` | fresh session, read-only sandbox — the reviewer needs no writes; run inside the repo (codex requires a trusted git dir; close stdin or pipe the card) |
 | security reviewer | `cat assets/prompts/security-reviewer.md \| codex exec -s read-only -m gpt-5.6-sol` | boundary changes only |
 
-The implementer needing writes is the reason `codex exec -s workspace-write`
-exists; reserve it for a Codex-implementer topology, not for review legs.
+The reviewer legs run read-only; `codex exec -s workspace-write` exists for a
+Codex-implementer topology, not for review legs.
 
 ## Session and evidence mechanics
 
-- **Fresh sessions:** `claude -p`, `codex exec`, and `droid exec` each start a
-  new session per invocation. Droid resumes only with `-s <session-id>`; don't
-  pass it for reviewer roles.
+- **Fresh sessions:** `claude -p` and `codex exec` each start a new session per
+  invocation; don't resume a session for reviewer roles — the reviewer must
+  arrive with fresh context.
 - **Exit codes are the evidence:** capture each command's exit code and record
   it in the agent record —
 

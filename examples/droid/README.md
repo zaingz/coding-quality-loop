@@ -1,5 +1,10 @@
 # Coding Quality Loop (Droid)
 
+> **Maintenance mode — outside the v5 routed loop.** The first-class v5 loop routes
+> **Claude Code (implementer) + Codex (independent reviewer)**. Droid remains a supported
+> install target: the skill, gates, and `setup-models --host droid` still work, and this
+> example is kept current, but Droid is not part of the two-vendor routed kernel.
+
 Droid loads custom droids from `.factory/droids/` (project scope) or
 `~/.factory/droids/` (user scope). Each droid is a Markdown file with YAML
 frontmatter (`name`, `description`, `model`) plus a system prompt. Invoke a
@@ -45,7 +50,7 @@ python3 scripts/quality_loop.py setup-models --host droid
 ```
 
 This rewrites each droid's `model:` frontmatter to the configured Factory model
-id (e.g. `claude-sonnet-4-5-20250929`, `gpt-5-codex`, or `custom:<id>` for
+id (e.g. `claude-sonnet-5`, `gpt-5.6-sol`, or `custom:<id>` for
 BYOK) and sets `reasoningEffort:` (`low`/`medium`/`high`) where configured. The
 `assets/quality-loop.config.example.json` profiles are the canonical
 role-to-model-class mapping; the droid frontmatter is the Droid-native

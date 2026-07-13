@@ -35,6 +35,15 @@ delegation is pinned to frontier Anthropic + OpenAI models on two hosts
 No changes to scripts, hooks, gates, schemas, or eval logic; all record
 shapes and machine names are unchanged.
 
+**Release completion (2026-07-13):** synced the shared-version invariant to
+`5.0.0` at every site the earlier 5.0.0 commit missed — `packages/npm/package.json`,
+`EXPECTED_CONFIG_VERSION` in `scripts/quality_loop.py`, the example config
+version, and the GitHub Action pin in `hosts/github/quality-loop-example.yml` —
+and completed the v5 documentation overhaul (README landing page, new visual
+identity in `docs/images/art/`, orchestrator/worker rewrite of
+`references/agentic-orchestration.md`, philosophy consolidation). No gate,
+schema, or runtime behavior changed.
+
 ## 4.3.0
 
 The control-plane release: one local dashboard to monitor, observe, and learn

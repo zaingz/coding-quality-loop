@@ -29,13 +29,18 @@ the repo stays trustable.
       python3 -m py_compile scripts/*.py evals/*.py
       python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
       python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
-      python3 evals/run_evals.py
+      python3 evals/run_evals.py            # static + behavioral gate cases
       python3 evals/run_memory_evals.py
       python3 evals/run_reality_evals.py
-      python3 evals/run_hook_evals.py
-      python3 evals/run_trigger_evals.py
       python3 evals/run_routing_evals.py
+      python3 evals/run_hook_evals.py
+      python3 evals/run_control_evals.py
+      python3 evals/run_trigger_evals.py    # trigger smoke fixture (excluded from the 164 count; its default grader cannot fail)
       ```
+
+      The seven gate suites total **164 offline gate cases** (11 static + 44 behavioral +
+      26 memory + 23 reality + 24 routing + 16 hook + 20 control). The trigger smoke
+      fixture is run separately and is **not** part of that count.
 
 - [ ] The GitHub Actions [`evals.yml`](.github/workflows/evals.yml) run is green.
 - [ ] If your change touches docs, you regenerated any affected images or diagrams and
