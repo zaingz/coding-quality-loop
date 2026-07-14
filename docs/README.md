@@ -44,5 +44,5 @@ regenerable diagrams whose sources are in [`images/src/`](images/src/README.md).
 - `art/orchestrator-layer.png`, `art/loop-phases.png`, `art/gates.png` — v5 section art (orchestrator topology, loop phases, enforcement gates).
 - `terminal-demo.gif` (+ `terminal-demo-poster.png` fallback) — 60-second quickstart demo.
 - `anatomy-of-a-change.png` — seven-card walkthrough traced on `examples/walkthrough/agent-record.json`.
-- `evidence-dashboard.png` — 164 offline gate cases across 7 suites + honest per-agent lift, with the Codex webapp regression published in red.
+- `evidence-dashboard.png` — 171 offline gate cases across 7 suites + honest per-agent lift, with the Codex webapp regression published in red.
 - `gate-gaming.png` — three-panel comic of the 2026-07-07 gate-gaming incident and its harness fix.

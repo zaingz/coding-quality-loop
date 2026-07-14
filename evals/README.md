@@ -6,7 +6,7 @@ config is well-formed. They run fully offline — no models, no network, no exte
 ## Gate suites and the canonical count
 
 The offline **gate** suites — the ones that can fail on a real regression — total
-**164 gate cases across 7 suites**:
+**171 gate cases across 7 suites**:
 
 | Suite | Cases | Runner |
 |---|---:|---|
@@ -16,8 +16,8 @@ The offline **gate** suites — the ones that can fail on a real regression — 
 | Reality (record ↔ diff) | 23 | `evals/run_reality_evals.py` |
 | Routing | 24 | `evals/run_routing_evals.py` |
 | Hook (host shims) | 16 | `evals/run_hook_evals.py` |
-| Control plane (index, server, ingest) | 20 | `evals/run_control_evals.py` |
-| **Total gate cases** | **164** | re-run by `.github/workflows/evals.yml` |
+| Control plane (index, server, ingest) | 27 | `evals/run_control_evals.py` |
+| **Total gate cases** | **171** | re-run by `.github/workflows/evals.yml` |
 
 The canonical number lives in exactly one place — `CANONICAL_GATE_CASES` in
 [`run_evals.py`](run_evals.py) — and a behavioral case
@@ -96,7 +96,7 @@ python3 evals/run_hook_evals.py     # policy-hook enforcement
 keyword-overlap heuristic whose `coding` / `quiet` word lists were reverse-engineered from these
 exact 10 prompts. It therefore **structurally cannot fail** — passing it proves nothing about
 whether a changed `description` would actually activate. For that reason the fixture is
-**excluded from the 164-gate-case count** and the suite is **not wired into CI**.
+**excluded from the 171-gate-case count** and the suite is **not wired into CI**.
 
 A **real** activation check requires an LLM judge supplied via `--judge-command` (a command that
 reads `{"description", "prompt"}` on stdin and prints `true`/`false`). That is kept opt-in

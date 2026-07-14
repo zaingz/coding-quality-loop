@@ -13,7 +13,7 @@ python3 scripts/quality_loop.py control-index    # build/update the index
 python3 scripts/quality_loop.py control-serve    # open http://127.0.0.1:4477/
 ```
 
-<img src="images/control-plane.png" alt="Control plane dashboard — overview with session totals, model calls, exact input/output/cache token tiles, an output-tokens-by-day bar chart, and a per-model breakdown table" width="900">
+<img src="images/control-plane.png" alt="Control plane dashboard — Overview with session, model-call, and tool-call tiles, exact input/output/cache-read token tiles and an estimated-spend tile, a tokens-by-day input+output bar chart, and a per-model breakdown table (claude-opus-4-8, claude-sonnet-4-6) with calls, in/out tokens, cache read, and est. USD" width="900">
 
 ## Design rules (why this doesn't violate the repo's own doctrine)
 
@@ -23,7 +23,8 @@ python3 scripts/quality_loop.py control-serve    # open http://127.0.0.1:4477/
    directory loses nothing rebuildable — `control-index` regenerates
    everything except recorded hook events, which exist only in the DB (stop
    the server first; a schema bump rebuilds the cache automatically the same
-   way). No gate reads it.
+   way — v5.1.0 lands at `SCHEMA_VERSION 7`, whose rebuild also re-redacts any
+   tool-call targets an older revision had stored raw). No gate reads it.
 2. **Local only.** Stdlib `sqlite3` + `http.server`, zero dependencies. The
    server is hard-bound to `127.0.0.1` (not configurable), serves **GET
    only** (anything else is 405), and has no auth because it has no remote
@@ -52,6 +53,7 @@ python3 scripts/quality_loop.py control-serve    # open http://127.0.0.1:4477/
 | `~/.claude/projects/<repo-slug>*/*.jsonl` (subdirectory slugs included after a per-file cwd check — sessions started from `repo/sub` land under a longer slug) | sessions, model calls (exact `usage` tokens, deduped per API response), tool calls with ok/error status, subagent attribution | Claude Code (transcript adapter) |
 | `.quality-loop/agent-record.json` + `docs/records/*.json` | record / review / **finding** / decision / plan / escalation / models_used artifacts | any host running the loop |
 | `.quality-loop/delegations.jsonl` | `delegation` artifacts (one per orchestrator hand-off), joined to their session at query time | any host; written by the orchestrator |
+| Hook events via `control-ingest` | session start/end rows, live event feed | claude-code + codex wiring shipped; any host that can pipe JSON |
 | `.quality-loop/memory/lessons.jsonl`, `.quality-loop/progress.md` | memory + progress artifacts | any host |
 
 Each review finding (from `review_findings[]` or a review's own `findings[]`)
@@ -74,7 +76,8 @@ At query time each line is matched to the session it ran in — `sessions.agent_
 equal to `expected_agent_name`, started within `[ts-5m, ts+60m]`, nearest wins —
 so token totals per delegation are computed live, never stored as a join. A
 malformed line is counted (surfaced as `skipped_lines`) and skipped, never fatal.
-| Hook events via `control-ingest` | session start/end rows, live event feed | claude-code + codex wiring shipped; any host that can pipe JSON |
+
+<img src="images/control-plane-delegations.png" alt="Control plane Delegations view — orchestrator hand-offs read from .quality-loop/delegations.jsonl and joined to the session each ran in (3 total, 3 linked): an implementer on claude-code/opus-4-8, a validator on codex/gpt-5, and a simplicity_reviewer on claude-code/sonnet-4-6, each row showing when, task, role, model, host, brief, and its linked session" width="900">
 
 Honest labeling: only Claude Code gets deep transcript indexing today. Codex
 sessions appear through the shipped hook wiring plus the CQL artifacts they
@@ -110,6 +113,8 @@ and `/api/metrics` (loop KPIs; a zeroed 200 on an empty DB). The dashboard at
 keyboard navigable, with Overview / Sessions / Delegations / Tasks / Metrics /
 Spend / Records / Routing / Memory / Events views) — an eval case pins the
 self-containment.
+
+<img src="images/control-plane-metrics.png" alt="Control plane Loop metrics view — KPI tiles for evidence rate (100%, 3/3), escalations (0), and repair attempts (0), aggregated at query time from indexed artifacts, above tables for review verdicts (4 approve), findings by severity (35 unspecified, 3 advisory), minimality rungs (3 minimal_new_code), spend by role (other / quality-loop-reviewer / main with call, token, and est-USD columns), and session durations" width="900">
 
 **Tool-target redaction.** Tool-call targets (command lines, paths, URLs, and
 sub-agent prompt excerpts) can contain a secret you typed at the prompt, so
