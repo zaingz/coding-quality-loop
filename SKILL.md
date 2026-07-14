@@ -18,7 +18,7 @@ The main session is the **orchestrator**. It thinks hard and makes every decisio
 
 - Orchestrator owns: task class, context map, contract, right-size rung, plan, model routing, verdict on findings, stop-if-unsafe.
 - Workers (implementer, reviewer) receive a **brief, not context**: goal, contract slice, files, commands, done-check. One screen max. No skill text, no references, no repository tour.
-- Delegate only to frontier Anthropic and OpenAI models on Claude Code and Codex (see Routing). Reviewer must be a different model family than the implementer.
+- Delegate only to frontier Anthropic and OpenAI models on Claude Code, Codex, or Droid (see Routing). The reviewer must be fresh context and cannot be the implementer. Different-family review is the portable default; an explicit higher-level harness may pin the same model across separate hosts/sessions when deterministic gates and supervisor verification retain final truth.
 
 ## Task Class (pick the smallest safe)
 
@@ -40,7 +40,7 @@ A new dependency, framework, queue, cache, service, migration, or abstraction mu
 
 **EXECUTE** — one coherent slice at a time. Boring code, existing conventions, small diffs, no speculative abstraction, no unrelated cleanup. Tests move with the behavior. Mark known shortcuts inline with a `cql:` comment naming the ceiling and upgrade path. Verify: smallest sufficient checks first; record exact commands and results; add each command to `.quality-loop/allowed-commands` so `run-evidence` can re-execute it. Bug fix = RED then GREEN. Never weaken, skip, or delete tests to reach green. If a helper script is broken, report and stop — never repair the gate.
 
-**REVIEW** — medium+: a fresh-context reviewer in a different model family checks the diff against the contract, executes tests when possible (`ran_checks: true|false`), and flags stubs as blocking. The implementer is never the final validator. Security review at risk boundaries: auth, secrets, payments, PII, migrations, upload/download, network, shell, dependency changes. User-facing work carries a product floor: keyboard operable, labeled inputs, no `prompt()`/`confirm()` primary flows. Bridge: in-scope findings become fix tasks; out-of-scope findings become follow-ups, not blockers. `attest-review` is the final act on the diff; any later code edit requires re-attestation. Package: goal, files changed, right-size decision, evidence, risks, rollback, follow-ups.
+**REVIEW** — medium+: a fresh-context reviewer checks the diff against the contract, executes tests when possible (`ran_checks: true|false`), and flags stubs as blocking. Use a different model family by default; an explicit higher-level harness may use the same model only in a separate host/session. The implementer is never the final validator. Security review at risk boundaries: auth, secrets, payments, PII, migrations, upload/download, network, shell, dependency changes. User-facing work carries a product floor: keyboard operable, labeled inputs, no `prompt()`/`confirm()` primary flows. Bridge: in-scope findings become fix tasks; out-of-scope findings become follow-ups, not blockers. `attest-review` is the final act on the diff; any later code edit requires re-attestation. Package: goal, files changed, right-size decision, evidence, risks, rollback, follow-ups.
 
 **RETROSPECTIVE** — every repeated mistake becomes a durable harness change (a rule, a test, a hook, an eval case), never a repeated chat correction. On recurring verification failure, record `repeated_failure: true` and the fix in `harness_update`.
 
@@ -50,7 +50,7 @@ A new dependency, framework, queue, cache, service, migration, or abstraction mu
 
 Rules 1–6 are enforced as record-shape or diff-grounded gates by the helper script; see `references/enforcement-matrix.md`.
 
-## Routing (Claude Code + Codex only)
+## Stock Routing
 
 | Role | Model | Host |
 |---|---|---|
@@ -60,6 +60,8 @@ Rules 1–6 are enforced as record-shape or diff-grounded gates by the helper sc
 | map / summarize | Claude Haiku 4.5 | Claude Code |
 
 Escalate a model tier only on a recorded failing check — never on a "stuck" or "done" self-report. Record per-role models in `models_used`. Pre-validated variants: `assets/routing/` (apply with `setup-models`, validate with `check-config`).
+
+When agent-os is active, it owns model selection and replaces the stock table: Fable/max planning → Droid/GPT-5.6 Sol/high implementation → fresh Codex/GPT-5.6 Sol/xhigh review. This is an explicit same-model, separate-host/session exception. CQL routing stays host-neutral rather than claiming model heterogeneity; fresh context, a non-editing reviewer, deterministic gates, and supervisor verification remain mandatory.
 
 ## Persistent Project Memory (optional, advisory)
 

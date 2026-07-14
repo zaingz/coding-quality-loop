@@ -165,6 +165,11 @@ their reviews get noisier rather than sharper. `check-config` rejects `xhigh`/`m
 explicit, greppable escape hatch for a genuinely ambiguous, architecture-sensitive one-off,
 never a default and never bulk work.
 
+A higher-level harness may own effort routing instead of `model_routing`. Agent-os does this
+explicitly: planning uses max, review/read/computer-use use xhigh, and execution uses high.
+Keep CQL routing host-neutral in that topology; `check-config` cannot apply or verify an
+external wrapper's effort pin, so the wrapper and supervisor must verify it directly.
+
 ### Enforced heterogeneity
 
 `check-config` is the arbiter of independence: on medium+ work it verifies the implementer and
@@ -177,6 +182,12 @@ heterogeneity; unknown or BYOK ids are skipped, never failed. This closes the al
 on a different CLI is not by itself model diversity. `"allow_same_family": true` is the
 explicit, greppable escape hatch for same-family (never same-model) setups. `verify-gates`
 additionally string-compares reviewer ≠ implementer on the record.
+
+Agent-os intentionally uses GPT-5.6 Sol in separate Droid implementation and Codex review
+sessions. That external same-model route is not model heterogeneity and must never be reported
+as if `check-config` proved it. Its independence comes from fresh context, separate hosts, a
+non-editing reviewer, deterministic gates, and supervisor verification; CQL `model_routing`
+stays host-neutral for this explicit harness-level exception.
 
 ## Config-driven model setup
 
