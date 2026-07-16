@@ -1,0 +1,15 @@
+{
+  "name": "version-trust-chain-tag-lag-enforced",
+  "description": "Same lagging tag as case 14, but on a release-framed CI event (enforce_tag). The tag mismatch is now a hard error — the release surface must not ship with a tag that disagrees with the files.",
+  "check": "version",
+  "version": {
+    "package": "5.1.0",
+    "skill": "5.1.0",
+    "tag": "v4.2.0",
+    "enforce_tag": true
+  },
+  "expect": {
+    "exit": 1,
+    "errors_include": ["does not match the file version"]
+  }
+}

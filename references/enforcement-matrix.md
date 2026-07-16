@@ -18,9 +18,26 @@ integration point, not a shipped dependency.
 | Don't game the tests | `--against-diff` (bugfix-test co-presence) + `run-evidence --red-green` + `diff-audit` (test-weakening) | test coverage of the contract is advisory |
 | Stop at risk boundaries | `detect_risk_floor` (text scan) + `--against-diff` (diff-derived path floor) | whether to escalate to a human is advisory |
 | Delete when deletion is simplest | `verify-gates` (minimality_decision.rung) | whether deletion was considered is advisory |
+| Release claims must be checkable | `check-version` (npm package == SKILL.md == latest git tag) | — |
 
 Records may carry optional `diff_sha256` (attest-review), `files_changed`
 (completion record), and `red_green` (commands_run) fields.
+
+## Version trust chain (`check-version`)
+
+For a project whose brand is checkable claims, the release surface itself passes
+a gate. `check-version` asserts three versions agree: the npm package
+(`packages/npm/package.json`), the `SKILL.md` frontmatter, and the latest git
+tag.
+
+- **package.json ↔ SKILL.md** mismatch is a **hard failure everywhere** — they
+  ship together.
+- **git tag** mismatch is a **local warning** but a **hard failure on
+  release-framed CI** (a push to `main`, a tag, or a published release, detected
+  via `GITHUB_ACTIONS` + `GITHUB_REF`/`GITHUB_EVENT_NAME`). A tag that lags the
+  files between releases is expected and must not block a feature PR; the CI
+  workflow runs the check on every build but only enforces the tag leg on
+  main/release events. A missing tag (fresh/shallow clone) is always a warning.
 
 ## Helper integrity
 

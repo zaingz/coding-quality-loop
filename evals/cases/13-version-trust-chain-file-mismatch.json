@@ -1,0 +1,15 @@
+{
+  "name": "version-trust-chain-file-mismatch",
+  "description": "package.json and SKILL.md disagree. Because they ship together, this is a hard failure everywhere (not just on release CI).",
+  "check": "version",
+  "version": {
+    "package": "5.1.0",
+    "skill": "5.0.0",
+    "tag": "v5.1.0",
+    "enforce_tag": false
+  },
+  "expect": {
+    "exit": 1,
+    "errors_include": ["version mismatch"]
+  }
+}
