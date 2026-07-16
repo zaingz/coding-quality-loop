@@ -7,7 +7,6 @@ import json
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -16,8 +15,11 @@ STOP = ROOT / "hosts" / "claude-code" / "stop_gate.py"
 START = ROOT / "hosts" / "claude-code" / "sessionstart_context.py"
 INSTALL = ROOT / "scripts" / "install.py"
 
-PASS = "PASS"
-FAIL = "FAIL"
+from _harness import main_loop  # noqa: E402
+
+# run_script / run_cli stay local: they invoke arbitrary host shims (not the
+# quality_loop.py CLI) with a required cwd, so they do not share the harness's
+# run_cli contract.
 
 
 def run_script(path: Path, payload: dict, cwd: Path) -> tuple[int, str, str]:
@@ -295,19 +297,5 @@ CASES = [
 ]
 
 
-def main() -> int:
-    failures = 0
-    for name, fn in CASES:
-        with tempfile.TemporaryDirectory() as td:
-            try:
-                ok, detail = fn(Path(td))
-            except Exception as exc:  # noqa: BLE001
-                ok, detail = False, f"exception: {exc!r}"
-        print(f"[{PASS if ok else FAIL}] {name}\n        {detail}")
-        failures += 0 if ok else 1
-    print(f"\n{len(CASES) - failures}/{len(CASES)} hook eval cases passed")
-    return 1 if failures else 0
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main_loop(CASES, "hook eval cases passed"))
