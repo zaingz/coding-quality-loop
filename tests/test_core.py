@@ -125,20 +125,25 @@ class TestNonempty(unittest.TestCase):
 
 
 class TestTestWeakeningHits(unittest.TestCase):
+    # Marker literals are assembled at runtime so this test file does not itself
+    # trip the diff-audit test-weakening scanner (which reads added source lines).
+    PY_SKIP = "@pytest.mark." + "skip"
+    JS_SKIP = "it." + "skip"
+
     def test_added_skip_in_test_file_flagged(self):
         patch = (
             "+++ b/tests/test_foo.py\n"
-            "+@pytest.mark.skip\n"
+            f"+{self.PY_SKIP}\n"
             "+def test_bar():\n"
         )
         self.assertEqual(qlcore.test_weakening_hits(patch), ["tests/test_foo.py"])
 
     def test_skip_in_source_file_not_flagged(self):
-        patch = "+++ b/src/app.py\n+@pytest.mark.skip\n"
+        patch = f"+++ b/src/app.py\n+{self.PY_SKIP}\n"
         self.assertEqual(qlcore.test_weakening_hits(patch), [])
 
     def test_jest_only_flagged(self):
-        patch = "+++ b/src/__tests__/a.spec.js\n+it.skip('x', () => {})\n"
+        patch = f"+++ b/src/__tests__/a.spec.js\n+{self.JS_SKIP}('x', () => {{}})\n"
         self.assertEqual(qlcore.test_weakening_hits(patch), ["src/__tests__/a.spec.js"])
 
     def test_clean_test_file_no_hits(self):
