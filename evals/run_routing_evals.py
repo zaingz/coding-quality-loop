@@ -10,9 +10,7 @@ Run: python evals/run_routing_evals.py   (exits non-zero if any case fails)
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,23 +21,10 @@ SCHEMA_CONFIG = ROOT / "assets" / "quality-loop.config.schema.json"
 sys.path.insert(0, str(ROOT / "scripts"))
 import quality_loop_routing as qlroute  # noqa: E402
 
-PASS = "PASS"
-FAIL = "FAIL"
+from _harness import FAIL, PASS, main_loop, run_cli  # noqa: E402
 
 DEFAULT_AGENTS = dict(qlroute.DEFAULT_AGENTS)
 AGENT_NAMES = list(DEFAULT_AGENTS.keys())
-
-
-def run_cli(*args: str, cwd: str | None = None) -> tuple[int, str, str]:
-    proc = subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=str(cwd) if cwd else None,
-        check=False,
-    )
-    return proc.returncode, proc.stdout, proc.stderr
 
 
 def load_example() -> dict:
@@ -851,19 +836,5 @@ CASES = [
 ]
 
 
-def main() -> int:
-    failures = 0
-    for name, fn in CASES:
-        with tempfile.TemporaryDirectory() as td:
-            try:
-                ok, detail = fn(Path(td))
-            except Exception as exc:  # noqa: BLE001
-                ok, detail = False, f"exception: {exc!r}"
-        print(f"[{PASS if ok else FAIL}] {name}\n        {detail}")
-        failures += 0 if ok else 1
-    print(f"\n{len(CASES) - failures}/{len(CASES)} routing eval cases passed")
-    return 1 if failures else 0
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main_loop(CASES, "routing eval cases passed"))

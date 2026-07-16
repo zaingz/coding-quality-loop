@@ -14,7 +14,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -25,11 +24,10 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import quality_loop_control as ctl  # noqa: E402
 
+from _harness import main_loop  # noqa: E402
+
 SHIM = ROOT / "hosts" / "claude-code" / "control_plane.py"
 QL = ROOT / "scripts" / "quality_loop.py"
-
-PASS = "PASS"
-FAIL = "FAIL"
 
 
 # ---------------------------------------------------------------------------
@@ -997,25 +995,5 @@ CASES = [
 ]
 
 
-def main() -> int:
-    failures = 0
-    for name, fn in CASES:
-        with tempfile.TemporaryDirectory() as td:
-            saved_env = os.environ.get("CLAUDE_CONFIG_DIR")
-            try:
-                ok, detail = fn(Path(td))
-            except Exception as exc:  # noqa: BLE001
-                ok, detail = False, f"exception: {exc!r}"
-            finally:
-                if saved_env is None:
-                    os.environ.pop("CLAUDE_CONFIG_DIR", None)
-                else:
-                    os.environ["CLAUDE_CONFIG_DIR"] = saved_env
-        print(f"[{PASS if ok else FAIL}] {name}\n        {detail}")
-        failures += 0 if ok else 1
-    print(f"\n{len(CASES) - failures}/{len(CASES)} control-plane eval cases passed")
-    return 1 if failures else 0
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main_loop(CASES, "control-plane eval cases passed", preserve_env=("CLAUDE_CONFIG_DIR",)))

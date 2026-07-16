@@ -138,51 +138,6 @@
       },
       "additionalProperties": true
     },
-    "advisor": {
-      "type": "object",
-      "description": "Optional Anthropic advisor-tool block. A cheap executor consults a stronger reasoning model at reasoning walls; the advisor never calls tools.",
-      "properties": {
-        "description": {
-          "type": "string"
-        },
-        "enabled_for": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "tiny",
-              "small",
-              "medium",
-              "mission"
-            ]
-          }
-        },
-        "executor_model_class": {
-          "type": "string",
-          "enum": [
-            "cheap_fast",
-            "strong_reasoning",
-            "code_specialized"
-          ]
-        },
-        "advisor_model_class": {
-          "type": "string",
-          "enum": [
-            "cheap_fast",
-            "strong_reasoning",
-            "code_specialized"
-          ]
-        },
-        "advisor_calls_tools": {
-          "type": "boolean"
-        },
-        "max_uses": {
-          "type": "integer",
-          "minimum": 1
-        }
-      },
-      "additionalProperties": true
-    },
     "memory": {
       "type": "object",
       "properties": {

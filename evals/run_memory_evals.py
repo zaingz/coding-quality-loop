@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import tempfile
 from datetime import date as _date
 from pathlib import Path
 
@@ -22,20 +21,7 @@ SCRIPT = ROOT / "scripts" / "quality_loop.py"
 sys.path.insert(0, str(ROOT / "scripts"))
 import quality_loop_memory as mem  # noqa: E402
 
-PASS = "PASS"
-FAIL = "FAIL"
-
-
-def run_cli(*args: str, cwd: str | None = None) -> tuple[int, str, str]:
-    proc = subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=cwd,
-        check=False,
-    )
-    return proc.returncode, proc.stdout, proc.stderr
+from _harness import FAIL, PASS, main_loop, run_cli  # noqa: E402
 
 
 def case_slugify_and_resolve(tmp: Path) -> tuple[bool, str]:
@@ -507,22 +493,5 @@ CASES = [
 ]
 
 
-def main() -> int:
-    failures = 0
-    for name, fn in CASES:
-        with tempfile.TemporaryDirectory() as td:
-            try:
-                ok, detail = fn(Path(td))
-            except Exception as exc:  # noqa: BLE001
-                ok, detail = False, f"exception: {exc!r}"
-        status = PASS if ok else FAIL
-        if not ok:
-            failures += 1
-        print(f"[{status}] {name}\n        {detail}")
-    total = len(CASES)
-    print(f"\n{total - failures}/{total} memory eval cases passed")
-    return 1 if failures else 0
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main_loop(CASES, "memory eval cases passed"))
