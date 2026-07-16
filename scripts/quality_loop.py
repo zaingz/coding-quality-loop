@@ -55,6 +55,9 @@ from quality_loop_core import (  # noqa: E402
     has_evidence,
     load_json,
     redact,
+    require_list,
+    require_number,
+    require_str,
     run_git,
     write_json,
 )
@@ -398,10 +401,8 @@ def check_record(args: argparse.Namespace) -> int:
         if key not in record:
             errors.append(f"missing required field: {key}")
 
-    if not isinstance(record.get("task_id"), str) or not record.get("task_id", "").strip():
-        errors.append("task_id must be a non-empty string")
-    if not isinstance(record.get("goal"), str) or not record.get("goal", "").strip():
-        errors.append("goal must be a non-empty string")
+    require_str(errors, record.get("task_id"), "task_id")
+    require_str(errors, record.get("goal"), "goal")
     if record.get("risk_tier") not in RISK_TIERS:
         errors.append("risk_tier must be one of: low, medium, high")
     status = record.get("status")
@@ -433,8 +434,8 @@ def check_record(args: argparse.Namespace) -> int:
         "open_risks",
         "review_findings",
     ]:
-        if array_key in record and not isinstance(record[array_key], list):
-            errors.append(f"{array_key} must be an array")
+        if array_key in record:
+            require_list(errors, record[array_key], array_key)
 
     commands = record.get("commands_run")
     if isinstance(commands, list):
@@ -442,8 +443,7 @@ def check_record(args: argparse.Namespace) -> int:
             if not isinstance(cmd, dict):
                 errors.append(f"commands_run[{idx}] must be an object")
                 continue
-            if not isinstance(cmd.get("cmd"), str) or not cmd.get("cmd", "").strip():
-                errors.append(f"commands_run[{idx}].cmd must be a non-empty string")
+            require_str(errors, cmd.get("cmd"), f"commands_run[{idx}].cmd")
             if cmd.get("result") not in COMMAND_RESULTS:
                 errors.append(f"commands_run[{idx}].result must be one of: pass, fail, blocked")
             cls = cmd.get("class")
@@ -484,82 +484,69 @@ def check_record(args: argparse.Namespace) -> int:
             for key, value in run_metrics.items():
                 if key not in RUN_METRICS_FIELDS:
                     errors.append(f"run_metrics has unknown key: {key!r}")
-                elif isinstance(value, bool) or not isinstance(value, (int, float)):
-                    errors.append(f"run_metrics.{key} must be a number")
-                elif value < 0:
-                    errors.append(f"run_metrics.{key} must be >= 0")
+                else:
+                    require_number(errors, value, f"run_metrics.{key}")
 
     if "implementer" in record and record["implementer"] is not None:
-        if not isinstance(record["implementer"], str) or not record["implementer"].strip():
-            errors.append("implementer must be a non-empty string")
+        require_str(errors, record["implementer"], "implementer")
 
     # Optional multi-model routing evidence (v4.2): per-role model attribution
     # and escalation events. Absent is fine; when present the shape must hold so
     # the R5 evidence base stays machine-readable.
     models_used = record.get("models_used")
-    if models_used is not None:
-        if not isinstance(models_used, list):
-            errors.append("models_used must be an array")
-        else:
-            for idx, entry in enumerate(models_used):
-                if not isinstance(entry, dict):
-                    errors.append(f"models_used[{idx}] must be an object")
-                    continue
-                for req in ("role", "model"):
-                    val = entry.get(req)
-                    if not isinstance(val, str) or not val.strip():
-                        errors.append(f"models_used[{idx}].{req} must be a non-empty string")
-                attempts = entry.get("attempts")
-                if attempts is not None and (
-                    isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1
+    if models_used is not None and require_list(errors, models_used, "models_used"):
+        for idx, entry in enumerate(models_used):
+            if not isinstance(entry, dict):
+                errors.append(f"models_used[{idx}] must be an object")
+                continue
+            for req in ("role", "model"):
+                require_str(errors, entry.get(req), f"models_used[{idx}].{req}")
+            attempts = entry.get("attempts")
+            if attempts is not None and (
+                isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1
+            ):
+                errors.append(f"models_used[{idx}].attempts must be an integer >= 1")
+            for num_key in ("tokens_in", "tokens_out", "cost_usd"):
+                val = entry.get(num_key)
+                if val is not None and (
+                    isinstance(val, bool) or not isinstance(val, (int, float)) or val < 0
                 ):
-                    errors.append(f"models_used[{idx}].attempts must be an integer >= 1")
-                for num_key in ("tokens_in", "tokens_out", "cost_usd"):
-                    val = entry.get(num_key)
-                    if val is not None and (
-                        isinstance(val, bool) or not isinstance(val, (int, float)) or val < 0
-                    ):
-                        errors.append(f"models_used[{idx}].{num_key} must be a non-negative number")
+                    errors.append(f"models_used[{idx}].{num_key} must be a non-negative number")
     escalations = record.get("escalations")
-    if escalations is not None:
-        if not isinstance(escalations, list):
-            errors.append("escalations must be an array")
-        else:
-            for idx, entry in enumerate(escalations):
-                if not isinstance(entry, dict):
-                    errors.append(f"escalations[{idx}] must be an object")
-                    continue
-                for req in ("step", "from_model", "to_model"):
-                    val = entry.get(req)
-                    if not isinstance(val, str) or not val.strip():
-                        errors.append(f"escalations[{idx}].{req} must be a non-empty string")
-                if entry.get("trigger") != "verified_failure":
-                    errors.append(
-                        f"escalations[{idx}].trigger must be 'verified_failure' -- the only "
-                        f"recordable escalation is one backed by failing check evidence"
-                    )
-                failing = entry.get("failing_commands")
-                if (
-                    not isinstance(failing, list)
-                    or not failing
-                    or not all(isinstance(c, str) and c.strip() for c in failing)
-                ):
-                    errors.append(
-                        f"escalations[{idx}].failing_commands must be a non-empty array of "
-                        f"command strings"
-                    )
-                from_model = entry.get("from_model")
-                to_model = entry.get("to_model")
-                if (
-                    isinstance(from_model, str) and isinstance(to_model, str)
-                    and from_model.strip() and from_model == to_model
-                ):
-                    errors.append(f"escalations[{idx}]: from_model and to_model must differ")
-                attempts = entry.get("attempts")
-                if attempts is not None and (
-                    isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1
-                ):
-                    errors.append(f"escalations[{idx}].attempts must be an integer >= 1")
+    if escalations is not None and require_list(errors, escalations, "escalations"):
+        for idx, entry in enumerate(escalations):
+            if not isinstance(entry, dict):
+                errors.append(f"escalations[{idx}] must be an object")
+                continue
+            for req in ("step", "from_model", "to_model"):
+                require_str(errors, entry.get(req), f"escalations[{idx}].{req}")
+            if entry.get("trigger") != "verified_failure":
+                errors.append(
+                    f"escalations[{idx}].trigger must be 'verified_failure' -- the only "
+                    f"recordable escalation is one backed by failing check evidence"
+                )
+            failing = entry.get("failing_commands")
+            if (
+                not isinstance(failing, list)
+                or not failing
+                or not all(isinstance(c, str) and c.strip() for c in failing)
+            ):
+                errors.append(
+                    f"escalations[{idx}].failing_commands must be a non-empty array of "
+                    f"command strings"
+                )
+            from_model = entry.get("from_model")
+            to_model = entry.get("to_model")
+            if (
+                isinstance(from_model, str) and isinstance(to_model, str)
+                and from_model.strip() and from_model == to_model
+            ):
+                errors.append(f"escalations[{idx}]: from_model and to_model must differ")
+            attempts = entry.get("attempts")
+            if attempts is not None and (
+                isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1
+            ):
+                errors.append(f"escalations[{idx}].attempts must be an integer >= 1")
 
     for review_key in ("independent_review", "security_review"):
         review = record.get(review_key)

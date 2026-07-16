@@ -317,3 +317,59 @@ def _nonempty(value: Any) -> bool:
     if isinstance(value, (int, float)):
         return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Field-shape validators
+# ---------------------------------------------------------------------------
+# The record checker repeats the same isinstance -> errors.append idiom dozens
+# of times. These collapse the three regular shapes into one call each; each
+# returns whether the field was valid so a caller can gate nested validation on
+# it. Messages are fixed strings the eval suite pins byte-for-byte, so any new
+# call site must produce a label whose message reads correctly.
+
+def require_str(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is a non-empty string; else append the standard error."""
+    if isinstance(value, str) and value.strip():
+        return True
+    errors.append(f"{label} must be a non-empty string")
+    return False
+
+
+def require_list(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is a list; else append the standard "must be an array" error."""
+    if isinstance(value, list):
+        return True
+    errors.append(f"{label} must be an array")
+    return False
+
+
+def require_number(errors: list[str], value: Any, label: str, *, minimum: float = 0) -> bool:
+    """True iff ``value`` is a real number >= ``minimum``; else append the error.
+
+    Booleans are rejected (a bool is not a number here). Emits the "must be a
+    number" message for the wrong type and "must be >= {minimum}" below range.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        errors.append(f"{label} must be a number")
+        return False
+    if value < minimum:
+        errors.append(f"{label} must be >= {minimum}")
+        return False
+    return True
+
+
+def require_bool_or_null(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is None or a bool; else append "{label} must be a boolean"."""
+    if value is None or isinstance(value, bool):
+        return True
+    errors.append(f"{label} must be a boolean")
+    return False
+
+
+def require_str_or_null(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is None or a str; else append "{label} must be a string or null"."""
+    if value is None or isinstance(value, str):
+        return True
+    errors.append(f"{label} must be a string or null")
+    return False

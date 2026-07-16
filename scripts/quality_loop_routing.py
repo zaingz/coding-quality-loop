@@ -189,11 +189,10 @@ def validate_model_routing(section: Any) -> list[str]:
                         f"model_routing.host_models.{hname}.{cname} must be an object"
                     )
                     continue
-                model = cblock.get("model")
-                if model is not None and not isinstance(model, str):
-                    errors.append(
-                        f"model_routing.host_models.{hname}.{cname}.model must be a string or null"
-                    )
+                qlcore.require_str_or_null(
+                    errors, cblock.get("model"),
+                    f"model_routing.host_models.{hname}.{cname}.model",
+                )
                 thinking = cblock.get("thinking")
                 if thinking is not None and thinking not in THINKING_VALUES:
                     errors.append(
@@ -201,15 +200,14 @@ def validate_model_routing(section: Any) -> list[str]:
                         f"{list(THINKING_VALUES)} or null, got {thinking!r}"
                     )
                 allow_overthink = cblock.get("allow_overthink")
-                if allow_overthink is not None and not isinstance(allow_overthink, bool):
-                    errors.append(
-                        f"model_routing.host_models.{hname}.{cname}.allow_overthink must be a boolean"
-                    )
-                family = cblock.get("family")
-                if family is not None and not isinstance(family, str):
-                    errors.append(
-                        f"model_routing.host_models.{hname}.{cname}.family must be a string or null"
-                    )
+                qlcore.require_bool_or_null(
+                    errors, allow_overthink,
+                    f"model_routing.host_models.{hname}.{cname}.allow_overthink",
+                )
+                qlcore.require_str_or_null(
+                    errors, cblock.get("family"),
+                    f"model_routing.host_models.{hname}.{cname}.family",
+                )
                 if thinking in OVERTHINK_LEVELS and allow_overthink is not True:
                     errors.append(
                         f"model_routing.host_models.{hname}.{cname}.thinking={thinking!r} exceeds the "
@@ -258,18 +256,18 @@ def validate_model_routing(section: Any) -> list[str]:
                     f"model_routing.main_session.class must be one of "
                     f"{list(MODEL_CLASSES)}, got {ms_class!r}"
                 )
-            ms_model = main_session.get("model")
-            if ms_model is not None and not isinstance(ms_model, str):
-                errors.append("model_routing.main_session.model must be a string or null")
+            qlcore.require_str_or_null(
+                errors, main_session.get("model"), "model_routing.main_session.model"
+            )
             if main_session.get("host") is None and host is None:
                 errors.append(
                     "model_routing.main_session needs a host: set main_session.host or "
                     "model_routing.host -- a hostless main_session cannot be resolved and "
                     "would silently skip the reviewer-heterogeneity check"
                 )
-    allow_same_family = section.get("allow_same_family")
-    if allow_same_family is not None and not isinstance(allow_same_family, bool):
-        errors.append("model_routing.allow_same_family must be a boolean")
+    qlcore.require_bool_or_null(
+        errors, section.get("allow_same_family"), "model_routing.allow_same_family"
+    )
     if isinstance(host_models, dict) and isinstance(agents, dict):
         for aname, aval in agents.items():
             entry = _agent_entry(aval)
