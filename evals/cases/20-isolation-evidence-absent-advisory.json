@@ -1,0 +1,40 @@
+{
+  "name": "isolation-evidence-absent-self-attested",
+  "description": "A clean medium record with a delegation ledger present but no isolation_evidence field. Independence is self-attested only: verify-gates emits a non-blocking advisory and the record still ships (exit 0) — a missing link is a trust signal, never a hard failure.",
+  "record": {
+    "task_id": "t-20",
+    "goal": "Ship a multi-feature library (tokenizer, parser, ranker, serializer) behind one query entry point",
+    "task_class": "medium",
+    "risk_tier": "medium",
+    "acceptance_criteria": ["Query returns ranked snippets across all feature paths"],
+    "verification_plan": ["unit tests per feature"],
+    "minimality_decision": {"rung": "build", "reason": "new library; fan out per feature module"},
+    "plan": ["tokenizer", "parser", "ranker", "serializer"],
+    "commands_run": [{"cmd": "pytest tests/test_lib.py", "class": "unit", "result": "pass", "evidence": "11 passed"}],
+    "open_risks": [],
+    "review_findings": ["fresh-context review: approved"],
+    "repo_map": {
+      "entry_points": ["lib/query.py:run"],
+      "likely_files": ["lib/query.py"],
+      "callers_checked": ["app/search.py:call"],
+      "tests": ["tests/test_lib.py"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {"goal": "Search library", "acceptance_criteria": ["ranked snippets"], "evidence": ["pytest -> pass"]},
+    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "security_review": null,
+    "completion_record": {"goal": "Search library", "acceptance_criteria": ["ranked snippets"], "evidence": ["pytest -> passed", "review: approve"]},
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "delegations": [
+    {"ts": "2026-07-20T09:00:00Z", "task_id": "t-20", "role": "implementer", "host": "claude-code", "model": "claude-opus-4-8", "expected_agent_name": "implementer"},
+    {"ts": "2026-07-20T10:00:00Z", "task_id": "t-20", "role": "reviewer", "host": "codex", "model": "gpt-5", "expected_agent_name": "reviewer"}
+  ],
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 0,
+    "advisories_include": ["self-attested"],
+    "findings_exclude": ["does not ground the review as isolated"]
+  }
+}

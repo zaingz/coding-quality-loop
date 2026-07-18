@@ -1,0 +1,40 @@
+{
+  "name": "isolation-evidence-same-host-and-family",
+  "description": "A medium record claims independent review, but its isolation_evidence resolves to a reviewer delegation on the SAME host and SAME model family as the implementer (claude-code/opus for both). Isolation is not real: verify-gates emits a finding and the record does not ship.",
+  "record": {
+    "task_id": "t-19",
+    "goal": "Ship a multi-feature library (tokenizer, parser, ranker, serializer) behind one query entry point",
+    "task_class": "medium",
+    "risk_tier": "medium",
+    "acceptance_criteria": ["Query returns ranked snippets across all feature paths"],
+    "verification_plan": ["unit tests per feature"],
+    "minimality_decision": {"rung": "build", "reason": "new library; fan out per feature module"},
+    "plan": ["tokenizer", "parser", "ranker", "serializer"],
+    "commands_run": [{"cmd": "pytest tests/test_lib.py", "class": "unit", "result": "pass", "evidence": "11 passed"}],
+    "open_risks": [],
+    "review_findings": ["fresh-context review: approved"],
+    "repo_map": {
+      "entry_points": ["lib/query.py:run"],
+      "likely_files": ["lib/query.py"],
+      "callers_checked": ["app/search.py:call"],
+      "tests": ["tests/test_lib.py"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {"goal": "Search library", "acceptance_criteria": ["ranked snippets"], "evidence": ["pytest -> pass"]},
+    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "security_review": null,
+    "completion_record": {"goal": "Search library", "acceptance_criteria": ["ranked snippets"], "evidence": ["pytest -> passed", "review: approve"]},
+    "isolation_evidence": {"task_id": "t-19", "role": "reviewer"},
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "delegations": [
+    {"ts": "2026-07-19T09:00:00Z", "task_id": "t-19", "role": "implementer", "host": "claude-code", "model": "claude-opus-4-8", "expected_agent_name": "implementer"},
+    {"ts": "2026-07-19T10:00:00Z", "task_id": "t-19", "role": "reviewer", "host": "claude-code", "model": "claude-opus-4-8", "expected_agent_name": "reviewer"}
+  ],
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 1,
+    "findings_include": ["does not ground the review as isolated"]
+  }
+}

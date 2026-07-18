@@ -1,0 +1,15 @@
+{
+  "name": "version-trust-chain-consistent",
+  "description": "package.json, SKILL.md, and the latest git tag all agree. The version trust chain passes with no errors and no warnings, even under release-CI enforcement.",
+  "check": "version",
+  "version": {
+    "package": "5.1.0",
+    "skill": "5.1.0",
+    "tag": "v5.1.0",
+    "enforce_tag": true
+  },
+  "expect": {
+    "exit": 0,
+    "errors_exclude": ["mismatch"]
+  }
+}

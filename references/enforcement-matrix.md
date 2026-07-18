@@ -12,15 +12,83 @@ integration point, not a shipped dependency.
 |---|---|---|
 | Understand before editing | `verify-gates` (repo_map gate) + `--against-diff` (scope integrity) | context-map quality is advisory |
 | Write down "done" first | `verify-gates` (validation_contract required for non-trivial) | contract substance is advisory |
-| Prefer existing code | `verify-gates` (minimality_decision required) | rung choice is advisory |
-| Implementer cannot be the final validator | `verify-gates` (reviewer != implementer string-compare) + `check-config` (model heterogeneity on medium+) | fresh_context is self-attested |
+| Prefer existing code | `verify-gates` (minimality_decision required) | rung choice is advisory; `diff-audit` complexity delta flags added branching |
+| Implementer cannot be the final validator | `verify-gates` (reviewer != implementer string-compare) + `check-config` (model heterogeneity on medium+) + `verify-gates` (isolation_evidence grounded in ledger on medium+) | fresh_context absent a ledger is self-attested |
 | No success claim without evidence | `verify-gates` (evidence handle required) + `run-evidence` (re-execution) + `--against-diff` (phantom completion) | evidence substance beyond re-execution is advisory |
 | Don't game the tests | `--against-diff` (bugfix-test co-presence) + `run-evidence --red-green` + `diff-audit` (test-weakening) | test coverage of the contract is advisory |
 | Stop at risk boundaries | `detect_risk_floor` (text scan) + `--against-diff` (diff-derived path floor) | whether to escalate to a human is advisory |
 | Delete when deletion is simplest | `verify-gates` (minimality_decision.rung) | whether deletion was considered is advisory |
+| Release claims must be checkable | `check-version` (npm package == SKILL.md == latest git tag) | — |
 
 Records may carry optional `diff_sha256` (attest-review), `files_changed`
 (completion record), and `red_green` (commands_run) fields.
+
+## Version trust chain (`check-version`)
+
+For a project whose brand is checkable claims, the release surface itself passes
+a gate. `check-version` asserts three versions agree: the npm package
+(`packages/npm/package.json`), the `SKILL.md` frontmatter, and the latest git
+tag.
+
+- **package.json ↔ SKILL.md** mismatch is a **hard failure everywhere** — they
+  ship together.
+- **git tag** mismatch is a **local warning** but a **hard failure on
+  release-framed CI** (a push to `main`, a tag, or a published release, detected
+  via `GITHUB_ACTIONS` + `GITHUB_REF`/`GITHUB_EVENT_NAME`). A tag that lags the
+  files between releases is expected and must not block a feature PR; the CI
+  workflow runs the check on every build but only enforces the tag leg on
+  main/release events. A missing tag (fresh/shallow clone) is always a warning.
+
+## Delegation ledger advisories
+
+When `.quality-loop/delegations.jsonl` is present (most repos have none, so these
+no-op), two ledger-grounded checks run. Both are read by `verify-gates`; a
+malformed or half-flushed ledger is skipped, never crashing a gate.
+
+- **Brief size** is **advisory only**. Each ledger entry's brief size
+  (`brief_chars` if logged, else `len(brief_summary)`) is compared to
+  `delegation.brief_char_limit` (config, default 4000). Over the ceiling emits a
+  non-blocking `note:` in `verify-gates` and `control-report`; it never fails a
+  gate. An oversized hand-off brief signals context bloat, not a rule violation.
+
+- **Isolation evidence** grounds review independence when the ledger can prove
+  it. The check runs **only when a `.quality-loop/delegations.jsonl` ledger is
+  present**; a repo without a ledger is completely unaffected — no advisory, no
+  finding. When a ledger exists, on medium+ records `verify-gates` reads the
+  optional `isolation_evidence` field (`{task_id, role}`), resolves it to a
+  ledger entry, and compares that entry's **recorded** host and model family
+  against the implementer's delegation entry:
+  - **Different host or different model family** → grounded; the review is
+    isolated and no advisory fires.
+  - **Same host and same model family** → a **finding** (`warning:`, exit 1):
+    the recorded reviewer identity matches the implementer's, so the ledger does
+    not ground the review as isolated even though `fresh_context` was
+    self-attested.
+  - **Absent, unresolvable, or unattributable** (no `isolation_evidence`, the
+    named entry is missing, or the implementer identity cannot be matched in the
+    ledger) → a non-blocking `note:`: independence is self-attested only.
+  The grounding is opt-in on the presence of a ledger, and only a positively
+  proven same-family collision is ever a hard failure. The check reads the host
+  and model *fields* logged in the ledger — it verifies recorded identity, not
+  the runtime isolation of the reviewer process.
+
+## Complexity-delta advisory (`diff-audit`)
+
+`diff-audit` computes per-function cyclomatic complexity with the stdlib `ast`
+module for each changed Python file, comparing the base revision
+(`git show <base>:<path>`, or `HEAD:` when `--staged`) against the working
+tree. A function whose complexity rises by `diff_audit.complexity_delta` (config,
+default 5) or more emits an `advisory` line naming the function and its
+`old -> new (+delta)` score. This is **advisory only** — it never moves the
+`diff-audit` exit code, which stays keyed to blocking findings (secrets,
+test-weakening).
+
+The scan is best-effort and scoped to added branching in existing code: a file
+that will not parse or cannot be read at either revision is skipped, a brand-new
+function has no baseline (so new modules are silent), and a function that got
+simpler or held steady is never reported. It surfaces the "prefer existing code"
+rule's blind spot — a change that keeps the diff small while quietly deepening a
+hot path.
 
 ## Helper integrity
 

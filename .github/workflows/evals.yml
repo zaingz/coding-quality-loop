@@ -10,6 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Fetch tags so the version trust chain can compare against the latest
+          # git tag. PR builds only warn on a lagging tag; main/release enforce.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -17,6 +21,11 @@ jobs:
         run: python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py
       - name: Validate example orchestration config
         run: python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
+      - name: Version trust chain (package.json == SKILL.md == latest tag)
+        # Advisory on PRs; the tag check is enforced only on main/release events
+        # (see check_version._ci_enforces_tag), so a tag intentionally lagging the
+        # files does not block a feature PR.
+        run: python3 scripts/quality_loop.py check-version
       - name: Run static eval cases
         run: python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
       - name: Run behavioral eval harness

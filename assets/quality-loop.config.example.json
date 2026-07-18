@@ -315,6 +315,14 @@
     "retention_days": 90,
     "prices": {}
   },
+  "delegation": {
+    "description": "Governs the orchestrator's append-only delegation ledger (.quality-loop/delegations.jsonl). brief_char_limit is an ADVISORY ceiling on hand-off brief size: an oversized brief emits a non-blocking note in verify-gates and control-report (context bloat / unfocused hand-off) but never fails a gate. Log the true brief length as brief_chars on each ledger line even when only a truncated brief_summary is kept.",
+    "brief_char_limit": 4000
+  },
+  "diff_audit": {
+    "description": "Governs diff-audit advisory thresholds. complexity_delta is the per-function cyclomatic-complexity increase (base vs diff) at or above which a changed Python function emits a non-blocking note (added branching in existing code); it never fails a gate. New functions have no baseline and simplifications are silent.",
+    "complexity_delta": 5
+  },
   "model_routing": {
     "description": "Per-model-class routing applied by setup-models. Copy this file to quality-loop.config.json at your repo root, set host to your platform, adjust your host's block, then run: python3 scripts/quality_loop.py setup-models. Hosts that use frontmatter (claude-code, droid) get their agent .md files rewritten; codex and pi print the settings to apply (PRINT-ONLY: never applied or verified by CQL). model_class values (cheap_fast, strong_reasoning, code_specialized) match the steps[].model_class field above. Capability annotations: cheap_fast = map, package, summarize, verify-orchestration; strong_reasoning = plan, review, debug, risk-assess; code_specialized = implement, test. Multi-host topologies: an agents entry may be an object {host, class} to pin that role to another harness, and main_session {host, class, model} declares where the implementer runs -- see assets/routing/ for three pre-validated variants (max-intelligence / balanced / max-throughput). check-config enforces reviewer heterogeneity across hosts on the model FAMILY (explicit family field or well-known prefix; unknown skips): implementer and fresh_reviewer must not resolve to the same model, nor the same family unless allow_same_family:true, on medium+ tasks. Effort ceiling: route at 'high' -- reasoning effort is per-step, not per-task endurance, so xhigh/max only overthink and overspend each step; check-config rejects xhigh/max unless a block sets allow_overthink:true for a genuinely ambiguous, architecture-sensitive case.",
     "host": null,

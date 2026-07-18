@@ -1,0 +1,16 @@
+{
+  "name": "version-trust-chain-tag-lag-advisory-vs-enforced",
+  "description": "Files agree (5.1.0) but the latest tag lags at v4.2.0 — the current release state. Locally this is a warning that never blocks; the negative half (enforced) is pinned by 15-version-trust-chain-tag-lag-enforced.",
+  "check": "version",
+  "version": {
+    "package": "5.1.0",
+    "skill": "5.1.0",
+    "tag": "v4.2.0",
+    "enforce_tag": false
+  },
+  "expect": {
+    "exit": 0,
+    "warnings_include": ["does not match the file version"],
+    "errors_exclude": ["tag"]
+  }
+}

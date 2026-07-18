@@ -1,0 +1,27 @@
+{
+  "name": "delegation-brief-within-limit",
+  "description": "The same clean record with a delegation whose brief sits under the advisory ceiling. No brief-size note is emitted and the record ships clean — the advisory fires only above the limit, so a normal hand-off is silent.",
+  "record": {
+    "task_id": "t-17",
+    "goal": "Clarify the install step in README",
+    "task_class": "tiny",
+    "risk_tier": "low",
+    "acceptance_criteria": ["README install step reads correctly; no behavior change"],
+    "verification_plan": ["proofread rendered markdown"],
+    "minimality_decision": {"rung": "edit-in-place", "reason": "single-file copy edit"},
+    "plan": ["edit README"],
+    "commands_run": [{"cmd": "markdownlint README.md", "class": "lint", "result": "pass", "evidence": "0 issues"}],
+    "open_risks": [],
+    "review_findings": [],
+    "implementer": "agent-a",
+    "status": "done"
+  },
+  "delegations": [
+    {"ts": "2026-07-16T10:00:00Z", "task_id": "t-17", "role": "reviewer", "host": "codex", "model": "gpt-5", "brief_summary": "review the slice diff", "brief_chars": 1200, "expected_agent_name": "reviewer"}
+  ],
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 0,
+    "advisories_exclude": ["advisory limit"]
+  }
+}

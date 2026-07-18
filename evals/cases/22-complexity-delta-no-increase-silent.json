@@ -1,0 +1,14 @@
+{
+  "name": "complexity-delta-no-increase-silent",
+  "description": "A refactor that removes branching (a nested if/for collapses to a dict lookup) produces a negative delta, and a brand-new function has no baseline. Neither is reported: the complexity-delta advisory fires only on a net increase in an existing function, so simplifications and new code stay silent.",
+  "check": "complexity",
+  "complexity": {
+    "threshold": 5,
+    "before": "def route(kind):\n    if kind == 'a':\n        return 1\n    elif kind == 'b':\n        return 2\n    elif kind == 'c':\n        return 3\n    for _ in range(3):\n        if kind:\n            return 0\n    return -1\n",
+    "after": "def route(kind):\n    return {'a': 1, 'b': 2, 'c': 3}.get(kind, -1)\n\ndef brand_new(x):\n    if x:\n        if x > 1:\n            for _ in range(x):\n                if _ % 2:\n                    return _\n    return 0\n"
+  },
+  "expect": {
+    "findings_exclude": ["cyclomatic complexity"],
+    "finding_count": 0
+  }
+}

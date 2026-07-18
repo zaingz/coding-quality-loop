@@ -1,0 +1,36 @@
+{
+  "name": "isolation-evidence-no-ledger-silent",
+  "description": "A clean medium record with NO delegation ledger at all (no delegations key -> no .quality-loop/delegations.jsonl). The isolation check is opt-in and gated behind ledger presence, so a ledger-less repo is completely unaffected: no self-attested advisory, no finding, ships exit 0. This pins the ledger-less path the enforcement matrix promises.",
+  "record": {
+    "task_id": "t-23",
+    "goal": "Ship a multi-feature library (tokenizer, parser, ranker, serializer) behind one query entry point",
+    "task_class": "medium",
+    "risk_tier": "medium",
+    "acceptance_criteria": ["Query returns ranked snippets across all feature paths"],
+    "verification_plan": ["unit tests per feature"],
+    "minimality_decision": {"rung": "build", "reason": "new library; fan out per feature module"},
+    "plan": ["tokenizer", "parser", "ranker", "serializer"],
+    "commands_run": [{"cmd": "pytest tests/test_lib.py", "class": "unit", "result": "pass", "evidence": "11 passed"}],
+    "open_risks": [],
+    "review_findings": ["fresh-context review: approved"],
+    "repo_map": {
+      "entry_points": ["lib/query.py:run"],
+      "likely_files": ["lib/query.py"],
+      "callers_checked": ["app/search.py:call"],
+      "tests": ["tests/test_lib.py"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {"goal": "Search library", "acceptance_criteria": ["ranked snippets"], "evidence": ["pytest -> pass"]},
+    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "security_review": null,
+    "completion_record": {"goal": "Search library", "acceptance_criteria": ["ranked snippets"], "evidence": ["pytest -> passed", "review: approve"]},
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 0,
+    "advisories_exclude": ["self-attested"],
+    "findings_exclude": ["does not ground the review as isolated"]
+  }
+}

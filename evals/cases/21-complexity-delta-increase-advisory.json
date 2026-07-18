@@ -1,0 +1,14 @@
+{
+  "name": "complexity-delta-increase-advisory",
+  "description": "An existing function grows from a straight-line body to a deeply branched one. The per-function cyclomatic-complexity delta clears the advisory threshold, so diff-audit surfaces a named note. This never blocks — it is a 'look here before you ship' signal on added branching in existing code.",
+  "check": "complexity",
+  "complexity": {
+    "threshold": 5,
+    "before": "def classify(x):\n    return x\n",
+    "after": "def classify(x):\n    if x > 10:\n        if x > 20:\n            return 'big'\n        return 'mid'\n    for i in range(x):\n        if i % 2 == 0 and i > 0:\n            return i\n    while x < 0:\n        x += 1\n    return x\n"
+  },
+  "expect": {
+    "findings_include": ["classify: cyclomatic complexity"],
+    "finding_count": 1
+  }
+}

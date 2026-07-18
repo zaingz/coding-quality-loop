@@ -20,6 +20,7 @@ Stdlib-only, portable, no network.
 
 from __future__ import annotations
 
+import ast
 import json
 import math as _math
 import os
@@ -317,3 +318,213 @@ def _nonempty(value: Any) -> bool:
     if isinstance(value, (int, float)):
         return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Field-shape validators
+# ---------------------------------------------------------------------------
+# The record checker repeats the same isinstance -> errors.append idiom dozens
+# of times. These collapse the three regular shapes into one call each; each
+# returns whether the field was valid so a caller can gate nested validation on
+# it. Messages are fixed strings the eval suite pins byte-for-byte, so any new
+# call site must produce a label whose message reads correctly.
+
+def require_str(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is a non-empty string; else append the standard error."""
+    if isinstance(value, str) and value.strip():
+        return True
+    errors.append(f"{label} must be a non-empty string")
+    return False
+
+
+def require_list(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is a list; else append the standard "must be an array" error."""
+    if isinstance(value, list):
+        return True
+    errors.append(f"{label} must be an array")
+    return False
+
+
+def require_number(errors: list[str], value: Any, label: str, *, minimum: float = 0) -> bool:
+    """True iff ``value`` is a real number >= ``minimum``; else append the error.
+
+    Booleans are rejected (a bool is not a number here). Emits the "must be a
+    number" message for the wrong type and "must be >= {minimum}" below range.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        errors.append(f"{label} must be a number")
+        return False
+    if value < minimum:
+        errors.append(f"{label} must be >= {minimum}")
+        return False
+    return True
+
+
+def require_bool_or_null(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is None or a bool; else append "{label} must be a boolean"."""
+    if value is None or isinstance(value, bool):
+        return True
+    errors.append(f"{label} must be a boolean")
+    return False
+
+
+def require_str_or_null(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is None or a str; else append "{label} must be a string or null"."""
+    if value is None or isinstance(value, str):
+        return True
+    errors.append(f"{label} must be a string or null")
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Delegation ledger: brief-size advisory
+# ---------------------------------------------------------------------------
+# An oversized delegation brief is a soft signal (context bloat, unfocused
+# hand-off), never a hard failure: the char ceiling is advisory. Both
+# verify-gates and control-report read the same default and per-entry sizing so
+# the two surfaces cannot drift.
+BRIEF_CHAR_LIMIT_DEFAULT = 4000
+
+
+def brief_char_limit(config: Any) -> int:
+    """Advisory delegation-brief char ceiling from ``config.delegation.brief_char_limit``.
+
+    Falls back to :data:`BRIEF_CHAR_LIMIT_DEFAULT` when unset or malformed. Never
+    raises — a bad config downgrades to the default, it does not break a gate.
+    """
+    if isinstance(config, dict):
+        section = config.get("delegation")
+        if isinstance(section, dict):
+            val = section.get("brief_char_limit")
+            if isinstance(val, int) and not isinstance(val, bool) and val > 0:
+                return val
+    return BRIEF_CHAR_LIMIT_DEFAULT
+
+
+def brief_entry_chars(entry: Any) -> int:
+    """Recorded brief size for a delegation entry.
+
+    Prefers an explicit non-negative ``brief_chars`` (the orchestrator can log
+    the true brief length even when only a truncated ``brief_summary`` is kept);
+    else falls back to ``len(brief_summary)``. Unknown shapes score 0.
+    """
+    if isinstance(entry, dict):
+        chars = entry.get("brief_chars")
+        if isinstance(chars, int) and not isinstance(chars, bool) and chars >= 0:
+            return chars
+        summary = entry.get("brief_summary")
+        if isinstance(summary, str):
+            return len(summary)
+    return 0
+
+
+COMPLEXITY_DELTA_DEFAULT = 5
+
+# Decision-point node types that each add one to a function's cyclomatic
+# complexity. BoolOp is handled separately (each extra operand is a branch).
+_COMPLEXITY_NODES = (
+    ast.If,
+    ast.For,
+    ast.AsyncFor,
+    ast.While,
+    ast.ExceptHandler,
+    ast.With,
+    ast.AsyncWith,
+    ast.Assert,
+    ast.IfExp,
+    ast.comprehension,
+    getattr(ast, "match_case", ()),  # py3.10+; () is a harmless isinstance no-op
+)
+
+
+_NESTED_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _function_complexity(node: ast.AST) -> int:
+    """Cyclomatic complexity of a single function body (base 1 + decision points).
+
+    Descent stops at nested function/lambda scopes: their branches belong to
+    their own score (functions are scored under their own qualname), so they must
+    not inflate the enclosing function's complexity. ``ast.walk`` cannot prune, so
+    the traversal is an explicit stack over direct children.
+    """
+    complexity = 1
+    stack = list(ast.iter_child_nodes(node))
+    while stack:
+        child = stack.pop()
+        if isinstance(child, ast.BoolOp):
+            complexity += len(child.values) - 1
+        elif isinstance(child, _COMPLEXITY_NODES):
+            complexity += 1
+        if isinstance(child, _NESTED_SCOPE_NODES):
+            # A nested scope is a boundary: count it (a nested def is not itself a
+            # decision node, so nothing is added above) but do not descend.
+            continue
+        stack.extend(ast.iter_child_nodes(child))
+    return complexity
+
+
+def function_complexities(source: str) -> dict[str, int]:
+    """Map ``qualname`` -> cyclomatic complexity for every def in ``source``.
+
+    Best-effort: returns ``{}`` when the source will not parse (a half-written
+    file mid-edit, a non-Python blob), so callers never crash on bad input.
+    Nested functions get dotted qualnames (``outer.inner``) so a rename or move
+    does not silently merge two functions' scores.
+    """
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return {}
+    out: dict[str, int] = {}
+
+    def visit(node: ast.AST, prefix: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                qual = f"{prefix}{child.name}"
+                out[qual] = _function_complexity(child)
+                visit(child, f"{qual}.")
+            elif isinstance(child, ast.ClassDef):
+                visit(child, f"{prefix}{child.name}.")
+            else:
+                visit(child, prefix)
+
+    visit(tree, "")
+    return out
+
+
+def complexity_delta_findings(before: str, after: str, threshold: int) -> list[str]:
+    """Advisory strings for functions whose complexity rose by >= ``threshold``.
+
+    Compares per-qualname complexity between two source revisions. Only net
+    increases at or above the threshold are reported; a function that got
+    simpler, held steady, or is brand new (no ``before`` baseline) is silent —
+    the signal is *added* branching in existing code, not size per se.
+    """
+    old = function_complexities(before)
+    new = function_complexities(after)
+    findings: list[str] = []
+    for qual, new_cc in sorted(new.items()):
+        if qual not in old:
+            continue
+        delta = new_cc - old[qual]
+        if delta >= threshold:
+            findings.append(
+                f"{qual}: cyclomatic complexity {old[qual]} -> {new_cc} (+{delta})"
+            )
+    return findings
+
+
+def complexity_delta_threshold(config: Any) -> int:
+    """Advisory complexity-delta threshold from ``config.diff_audit.complexity_delta``.
+
+    Falls back to :data:`COMPLEXITY_DELTA_DEFAULT` when unset or malformed. Never
+    raises — a bad config downgrades to the default rather than breaking a gate.
+    """
+    if isinstance(config, dict):
+        section = config.get("diff_audit")
+        if isinstance(section, dict):
+            val = section.get("complexity_delta")
+            if isinstance(val, int) and not isinstance(val, bool) and val > 0:
+                return val
+    return COMPLEXITY_DELTA_DEFAULT

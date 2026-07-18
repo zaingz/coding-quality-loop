@@ -69,8 +69,15 @@ lessons file). Recognized fields:
 ```json
 {"ts": "2026-07-13T10:00:00Z", "task_id": "T-42", "role": "reviewer",
  "host": "codex", "model": "gpt-5", "brief_summary": "review the slice diff",
- "expected_agent_name": "reviewer"}
+ "brief_chars": 1820, "expected_agent_name": "reviewer"}
 ```
+
+`brief_chars` is optional: the true char length of the brief handed to the
+sub-agent (log it even when only a truncated `brief_summary` is kept). When it
+exceeds the advisory ceiling (`delegation.brief_char_limit` in
+`quality-loop.config.json`, default 4000), `verify-gates` and `control-report`
+emit a non-blocking note — an oversized brief signals context bloat, never a
+gate failure.
 
 At query time each line is matched to the session it ran in — `sessions.agent_name`
 equal to `expected_agent_name`, started within `[ts-5m, ts+60m]`, nearest wins —
