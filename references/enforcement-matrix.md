@@ -13,7 +13,7 @@ integration point, not a shipped dependency.
 | Understand before editing | `verify-gates` (repo_map gate) + `--against-diff` (scope integrity) | context-map quality is advisory |
 | Write down "done" first | `verify-gates` (validation_contract required for non-trivial) | contract substance is advisory |
 | Prefer existing code | `verify-gates` (minimality_decision required) | rung choice is advisory |
-| Implementer cannot be the final validator | `verify-gates` (reviewer != implementer string-compare) + `check-config` (model heterogeneity on medium+) | fresh_context is self-attested |
+| Implementer cannot be the final validator | `verify-gates` (reviewer != implementer string-compare) + `check-config` (model heterogeneity on medium+) + `verify-gates` (isolation_evidence grounded in ledger on medium+) | fresh_context absent a ledger is self-attested |
 | No success claim without evidence | `verify-gates` (evidence handle required) + `run-evidence` (re-execution) + `--against-diff` (phantom completion) | evidence substance beyond re-execution is advisory |
 | Don't game the tests | `--against-diff` (bugfix-test co-presence) + `run-evidence --red-green` + `diff-audit` (test-weakening) | test coverage of the contract is advisory |
 | Stop at risk boundaries | `detect_risk_floor` (text scan) + `--against-diff` (diff-derived path floor) | whether to escalate to a human is advisory |
@@ -50,6 +50,22 @@ malformed or half-flushed ledger is skipped, never crashing a gate.
   `delegation.brief_char_limit` (config, default 4000). Over the ceiling emits a
   non-blocking `note:` in `verify-gates` and `control-report`; it never fails a
   gate. An oversized hand-off brief signals context bloat, not a rule violation.
+
+- **Isolation evidence** grounds review independence when the ledger can prove
+  it. On medium+ records, `verify-gates` reads the optional
+  `isolation_evidence` field (`{task_id, role}`) and resolves it to a ledger
+  entry, comparing that reviewer's host and model family against the
+  implementer's delegation entry:
+  - **Different host or different model family** → grounded; the review is
+    isolated and no advisory fires.
+  - **Same host and same model family** → a **finding** (`warning:`, exit 1):
+    the review is not isolated even though `fresh_context` was self-attested.
+  - **Absent, unresolvable, or unattributable** (no `isolation_evidence`, the
+    named entry is missing, or the implementer identity cannot be matched in the
+    ledger) → a non-blocking `note:`: independence is self-attested only.
+  Repos without a `.quality-loop/delegations.jsonl` never reach this check, so a
+  missing ledger is silent — the grounding is opt-in, and only a positively
+  proven same-family collision is ever a hard failure.
 
 ## Helper integrity
 
