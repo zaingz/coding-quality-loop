@@ -260,6 +260,21 @@
       },
       "additionalProperties": false
     },
+    "delegation": {
+      "type": "object",
+      "description": "Governs the orchestrator's delegation ledger (.quality-loop/delegations.jsonl). Optional; absent = defaults.",
+      "properties": {
+        "brief_char_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Advisory ceiling (chars) on a delegation brief. Oversized briefs emit a non-blocking note in verify-gates and control-report; they never fail a gate. Default 4000."
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
     "model_routing": {
       "type": "object",
       "description": "Per-model-class routing applied by setup-models. Optional v2.3 block; absent = no routing configured.",

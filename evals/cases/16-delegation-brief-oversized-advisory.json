@@ -1,0 +1,28 @@
+{
+  "name": "delegation-brief-oversized-advisory",
+  "description": "A clean low-risk record ships, but its delegation ledger carries a hand-off brief far over the 4000-char advisory ceiling (brief_chars honored over the truncated brief_summary). verify-gates emits a non-blocking note and still exits 0 — an oversized brief is a context-bloat signal, never a gate failure.",
+  "record": {
+    "task_id": "t-16",
+    "goal": "Clarify the install step in README",
+    "task_class": "tiny",
+    "risk_tier": "low",
+    "acceptance_criteria": ["README install step reads correctly; no behavior change"],
+    "verification_plan": ["proofread rendered markdown"],
+    "minimality_decision": {"rung": "edit-in-place", "reason": "single-file copy edit"},
+    "plan": ["edit README"],
+    "commands_run": [{"cmd": "markdownlint README.md", "class": "lint", "result": "pass", "evidence": "0 issues"}],
+    "open_risks": [],
+    "review_findings": [],
+    "implementer": "agent-a",
+    "status": "done"
+  },
+  "delegations": [
+    {"ts": "2026-07-16T10:00:00Z", "task_id": "t-16", "role": "reviewer", "host": "codex", "model": "gpt-5", "brief_summary": "review the slice diff (full brief truncated)", "brief_chars": 6200, "expected_agent_name": "reviewer"}
+  ],
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 0,
+    "advisories_include": ["advisory limit 4000"],
+    "findings_exclude": ["advisory limit", "brief"]
+  }
+}

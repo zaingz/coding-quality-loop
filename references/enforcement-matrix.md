@@ -39,6 +39,18 @@ tag.
   workflow runs the check on every build but only enforces the tag leg on
   main/release events. A missing tag (fresh/shallow clone) is always a warning.
 
+## Delegation ledger advisories
+
+When `.quality-loop/delegations.jsonl` is present (most repos have none, so these
+no-op), two ledger-grounded checks run. Both are read by `verify-gates`; a
+malformed or half-flushed ledger is skipped, never crashing a gate.
+
+- **Brief size** is **advisory only**. Each ledger entry's brief size
+  (`brief_chars` if logged, else `len(brief_summary)`) is compared to
+  `delegation.brief_char_limit` (config, default 4000). Over the ceiling emits a
+  non-blocking `note:` in `verify-gates` and `control-report`; it never fails a
+  gate. An oversized hand-off brief signals context bloat, not a rule violation.
+
 ## Helper integrity
 
 The helper itself is a file in the workspace, and a live eval (webapp,

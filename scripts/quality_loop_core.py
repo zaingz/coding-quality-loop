@@ -373,3 +373,45 @@ def require_str_or_null(errors: list[str], value: Any, label: str) -> bool:
         return True
     errors.append(f"{label} must be a string or null")
     return False
+
+
+# ---------------------------------------------------------------------------
+# Delegation ledger: brief-size advisory
+# ---------------------------------------------------------------------------
+# An oversized delegation brief is a soft signal (context bloat, unfocused
+# hand-off), never a hard failure: the char ceiling is advisory. Both
+# verify-gates and control-report read the same default and per-entry sizing so
+# the two surfaces cannot drift.
+BRIEF_CHAR_LIMIT_DEFAULT = 4000
+
+
+def brief_char_limit(config: Any) -> int:
+    """Advisory delegation-brief char ceiling from ``config.delegation.brief_char_limit``.
+
+    Falls back to :data:`BRIEF_CHAR_LIMIT_DEFAULT` when unset or malformed. Never
+    raises — a bad config downgrades to the default, it does not break a gate.
+    """
+    if isinstance(config, dict):
+        section = config.get("delegation")
+        if isinstance(section, dict):
+            val = section.get("brief_char_limit")
+            if isinstance(val, int) and not isinstance(val, bool) and val > 0:
+                return val
+    return BRIEF_CHAR_LIMIT_DEFAULT
+
+
+def brief_entry_chars(entry: Any) -> int:
+    """Recorded brief size for a delegation entry.
+
+    Prefers an explicit non-negative ``brief_chars`` (the orchestrator can log
+    the true brief length even when only a truncated ``brief_summary`` is kept);
+    else falls back to ``len(brief_summary)``. Unknown shapes score 0.
+    """
+    if isinstance(entry, dict):
+        chars = entry.get("brief_chars")
+        if isinstance(chars, int) and not isinstance(chars, bool) and chars >= 0:
+            return chars
+        summary = entry.get("brief_summary")
+        if isinstance(summary, str):
+            return len(summary)
+    return 0

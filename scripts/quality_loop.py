@@ -49,8 +49,11 @@ from quality_loop_core import (  # noqa: E402
     TERMINAL_STATUSES,
     TEST_PATH_MARKERS,
     TEST_WEAKENING_PATTERNS,
+    BRIEF_CHAR_LIMIT_DEFAULT,
     _nonempty,
     atomic_write_text,
+    brief_char_limit,
+    brief_entry_chars,
     git_capture,
     has_evidence,
     load_json,
@@ -845,6 +848,67 @@ def _risk_tier_findings(
     return findings
 
 
+def _read_delegation_ledger(base_dir: Path) -> list[dict[str, Any]]:
+    """Load ``.quality-loop/delegations.jsonl`` near ``base_dir`` (best-effort).
+
+    The ledger is written by hand/orchestrator; a half-flushed or malformed line
+    must never break a gate, so unreadable files yield [] and bad lines are
+    skipped. Absent ledger (most repos) yields [] and every ledger-grounded
+    check no-ops.
+    """
+    ledger = base_dir / ".quality-loop" / "delegations.jsonl"
+    if not ledger.is_file() and base_dir.name == ".quality-loop":
+        ledger = base_dir / "delegations.jsonl"
+    entries: list[dict[str, Any]] = []
+    try:
+        raw_text = ledger.read_text(encoding="utf-8")
+    except OSError:
+        return entries
+    for raw in raw_text.splitlines():
+        if not raw.strip():
+            continue
+        try:
+            obj = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(obj, dict):
+            entries.append(obj)
+    return entries
+
+
+def _nearest_config(base_dir: Path) -> dict[str, Any]:
+    """Read the nearest ``quality-loop.config.json`` walking up from ``base_dir``.
+
+    Bounded walk (repo root is normally one level up from ``.quality-loop/``).
+    Returns {} on absence or any read/parse error — config only tunes advisory
+    thresholds here, so a broken config falls back to defaults, never a crash.
+    """
+    start = base_dir.resolve()
+    for directory in [start, *list(start.parents)[:6]]:
+        candidate = directory / "quality-loop.config.json"
+        if candidate.is_file():
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                return {}
+            return data if isinstance(data, dict) else {}
+    return {}
+
+
+def _brief_size_advisories(delegations: list[dict[str, Any]], limit: int) -> list[str]:
+    """Advisory notes for delegation briefs exceeding ``limit`` chars (never blocking)."""
+    notes: list[str] = []
+    for entry in delegations:
+        chars = brief_entry_chars(entry)
+        if chars > limit:
+            who = entry.get("task_id") or entry.get("role") or "?"
+            notes.append(
+                f"delegation brief for {who!r} is {chars} chars (advisory limit {limit}); "
+                f"a tighter brief keeps the sub-agent's context focused"
+            )
+    return notes
+
+
 def verify_gates(args: argparse.Namespace) -> int:
     record_path = Path(args.record)
     base_dir = record_path.resolve().parent
@@ -1007,6 +1071,14 @@ def verify_gates(args: argparse.Namespace) -> int:
 
     if blocked:
         findings.append(f"{len(blocked)} verification command(s) blocked; ensure rationale is recorded")
+
+    # Ledger-grounded advisories (delegation ledger, when present). Brief size is
+    # purely advisory: an oversized hand-off brief signals context bloat but
+    # never blocks a ship. Absent ledger (most repos) no-ops.
+    delegations = _read_delegation_ledger(base_dir)
+    if delegations:
+        limit = brief_char_limit(_nearest_config(base_dir))
+        soft_warnings.extend(_brief_size_advisories(delegations, limit))
 
     for note in soft_warnings:
         print(f"note: {note}")
