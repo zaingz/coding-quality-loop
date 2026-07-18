@@ -12,7 +12,7 @@ integration point, not a shipped dependency.
 |---|---|---|
 | Understand before editing | `verify-gates` (repo_map gate) + `--against-diff` (scope integrity) | context-map quality is advisory |
 | Write down "done" first | `verify-gates` (validation_contract required for non-trivial) | contract substance is advisory |
-| Prefer existing code | `verify-gates` (minimality_decision required) | rung choice is advisory |
+| Prefer existing code | `verify-gates` (minimality_decision required) | rung choice is advisory; `diff-audit` complexity delta flags added branching |
 | Implementer cannot be the final validator | `verify-gates` (reviewer != implementer string-compare) + `check-config` (model heterogeneity on medium+) + `verify-gates` (isolation_evidence grounded in ledger on medium+) | fresh_context absent a ledger is self-attested |
 | No success claim without evidence | `verify-gates` (evidence handle required) + `run-evidence` (re-execution) + `--against-diff` (phantom completion) | evidence substance beyond re-execution is advisory |
 | Don't game the tests | `--against-diff` (bugfix-test co-presence) + `run-evidence --red-green` + `diff-audit` (test-weakening) | test coverage of the contract is advisory |
@@ -66,6 +66,24 @@ malformed or half-flushed ledger is skipped, never crashing a gate.
   Repos without a `.quality-loop/delegations.jsonl` never reach this check, so a
   missing ledger is silent — the grounding is opt-in, and only a positively
   proven same-family collision is ever a hard failure.
+
+## Complexity-delta advisory (`diff-audit`)
+
+`diff-audit` computes per-function cyclomatic complexity with the stdlib `ast`
+module for each changed Python file, comparing the base revision
+(`git show <base>:<path>`, or `HEAD:` when `--staged`) against the working
+tree. A function whose complexity rises by `diff_audit.complexity_delta` (config,
+default 5) or more emits an `advisory` line naming the function and its
+`old -> new (+delta)` score. This is **advisory only** — it never moves the
+`diff-audit` exit code, which stays keyed to blocking findings (secrets,
+test-weakening).
+
+The scan is best-effort and scoped to added branching in existing code: a file
+that will not parse or cannot be read at either revision is skipped, a brand-new
+function has no baseline (so new modules are silent), and a function that got
+simpler or held steady is never reported. It surfaces the "prefer existing code"
+rule's blind spot — a change that keeps the diff small while quietly deepening a
+hot path.
 
 ## Helper integrity
 

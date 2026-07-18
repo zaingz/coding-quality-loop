@@ -650,6 +650,47 @@ def is_migration_path(path: str) -> bool:
     return any(left == "db" and right == "migrate" for left, right in zip(parts, parts[1:]))
 
 
+def _blob_at(ref_spec: str) -> str | None:
+    """Content of a git blob at ``<ref>:<path>``, or None when it does not exist.
+
+    Used to fetch the pre-change revision of a file for the complexity-delta
+    scan. A path that is absent at the base (a brand-new file) or an unresolved
+    base ref returns None, and the caller simply skips it — no baseline, no
+    delta.
+    """
+    rc, out, _ = git_capture(["show", ref_spec])
+    return out if rc == 0 else None
+
+
+def _complexity_delta_advisories(
+    files: list[str], base_label: str, staged: bool, threshold: int
+) -> list[str]:
+    """Advisory notes for Python functions whose cyclomatic complexity rose.
+
+    Best-effort and Python-only: a file that cannot be read at either revision,
+    or that will not parse, is skipped rather than flagged. New files have no
+    baseline, so only *added* branching in existing functions surfaces.
+    """
+    notes: list[str] = []
+    for f in files:
+        if not f.endswith(".py"):
+            continue
+        if staged:
+            before = _blob_at(f"HEAD:{f}")
+            after = _blob_at(f":{f}")
+        else:
+            before = _blob_at(f"{base_label}:{f}")
+            try:
+                after = Path(f).read_text(errors="replace")
+            except OSError:
+                after = None
+        if before is None or after is None:
+            continue
+        for msg in qlcore.complexity_delta_findings(before, after, threshold):
+            notes.append(f"complexity delta in {f} — {msg}")
+    return notes
+
+
 def diff_audit(args: argparse.Namespace) -> int:
     # Findings split by severity. blocking = a real correctness/safety problem
     # that must stop a commit (leaked secret, silently weakened test). advisory =
@@ -759,6 +800,9 @@ def diff_audit(args: argparse.Namespace) -> int:
             f"{marker_count} intentional shortcut marker(s) (cql:) in diff — "
             "confirm each names a ceiling and an upgrade path"
         )
+
+    threshold = qlcore.complexity_delta_threshold(_nearest_config(Path.cwd()))
+    advisory.extend(_complexity_delta_advisories(files, base_label, staged, threshold))
 
     result = {
         "base": base_label,
@@ -1723,9 +1767,31 @@ def _eval_version_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str
     return mismatches
 
 
+def _eval_complexity_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """Assert the complexity-delta advisory against explicit before/after sources."""
+    spec = case.get("complexity", {})
+    threshold = spec.get("threshold", qlcore.COMPLEXITY_DELTA_DEFAULT)
+    findings = qlcore.complexity_delta_findings(
+        spec.get("before", ""), spec.get("after", ""), threshold
+    )
+    mismatches: list[str] = []
+    for needle in expect.get("findings_include", []):
+        if not any(needle in f for f in findings):
+            mismatches.append(f"expected a finding containing {needle!r}; got {findings}")
+    for needle in expect.get("findings_exclude", []):
+        if any(needle in f for f in findings):
+            mismatches.append(f"unexpected finding containing {needle!r}; got {findings}")
+    if "finding_count" in expect and expect["finding_count"] != len(findings):
+        mismatches.append(
+            f"finding_count: expected {expect['finding_count']}, got {len(findings)} ({findings})"
+        )
+    return mismatches
+
+
 _EVAL_CASE_HANDLERS = {
     "record_gates": _eval_record_case,
     "version": _eval_version_case,
+    "complexity": _eval_complexity_case,
 }
 
 
