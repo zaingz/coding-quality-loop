@@ -1,8 +1,8 @@
 {
-  "name": "isolation-evidence-same-host-and-family",
-  "description": "A medium record claims independent review, but its isolation_evidence resolves to a reviewer delegation on the SAME host and SAME model family as the implementer (claude-code/opus for both). Isolation is not real: verify-gates emits a finding and the record does not ship.",
+  "name": "isolation-evidence-no-ledger-silent",
+  "description": "A clean medium record with NO delegation ledger at all (no delegations key -> no .quality-loop/delegations.jsonl). The isolation check is opt-in and gated behind ledger presence, so a ledger-less repo is completely unaffected: no self-attested advisory, no finding, ships exit 0. This pins the ledger-less path the enforcement matrix promises.",
   "record": {
-    "task_id": "t-19",
+    "task_id": "t-23",
     "goal": "Ship a multi-feature library (tokenizer, parser, ranker, serializer) behind one query entry point",
     "task_class": "medium",
     "risk_tier": "medium",
@@ -24,17 +24,13 @@
     "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
     "security_review": null,
     "completion_record": {"goal": "Search library", "acceptance_criteria": ["ranked snippets"], "evidence": ["pytest -> passed", "review: approve"]},
-    "isolation_evidence": {"task_id": "t-19", "role": "reviewer"},
     "security_sensitive": false,
     "status": "done"
   },
-  "delegations": [
-    {"ts": "2026-07-19T09:00:00Z", "task_id": "t-19", "role": "implementer", "host": "claude-code", "model": "claude-opus-4-8", "expected_agent_name": "implementer"},
-    {"ts": "2026-07-19T10:00:00Z", "task_id": "t-19", "role": "reviewer", "host": "claude-code", "model": "claude-opus-4-8", "expected_agent_name": "reviewer"}
-  ],
   "expect": {
     "risk_floor": "low",
-    "gates_exit": 1,
-    "findings_include": ["does not ground the review as isolated"]
+    "gates_exit": 0,
+    "advisories_exclude": ["self-attested"],
+    "findings_exclude": ["does not ground the review as isolated"]
   }
 }

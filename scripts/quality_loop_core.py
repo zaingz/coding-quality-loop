@@ -437,19 +437,30 @@ _COMPLEXITY_NODES = (
 )
 
 
+_NESTED_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
 def _function_complexity(node: ast.AST) -> int:
-    """Cyclomatic complexity of a single function body (base 1 + decision points)."""
+    """Cyclomatic complexity of a single function body (base 1 + decision points).
+
+    Descent stops at nested function/lambda scopes: their branches belong to
+    their own score (functions are scored under their own qualname), so they must
+    not inflate the enclosing function's complexity. ``ast.walk`` cannot prune, so
+    the traversal is an explicit stack over direct children.
+    """
     complexity = 1
-    for child in ast.walk(node):
-        if child is node:
-            continue
-        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # Nested functions are scored under their own qualname, not folded in.
-            continue
+    stack = list(ast.iter_child_nodes(node))
+    while stack:
+        child = stack.pop()
         if isinstance(child, ast.BoolOp):
             complexity += len(child.values) - 1
         elif isinstance(child, _COMPLEXITY_NODES):
             complexity += 1
+        if isinstance(child, _NESTED_SCOPE_NODES):
+            # A nested scope is a boundary: count it (a nested def is not itself a
+            # decision node, so nothing is added above) but do not descend.
+            continue
+        stack.extend(ast.iter_child_nodes(child))
     return complexity
 
 

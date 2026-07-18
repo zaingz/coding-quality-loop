@@ -1030,8 +1030,8 @@ def _isolation_evidence_findings(
     if not host_differs and fam_rev is not None and fam_impl is not None and fam_rev == fam_impl:
         return (
             [],
-            ["isolation_evidence resolves to the same host and model family as the implementer; "
-             "the independent review is not isolated"],
+            ["isolation_evidence resolves to a ledger entry whose recorded host and model "
+             "family match the implementer's; the ledger does not ground the review as isolated"],
         )
     return (["isolation_evidence present but does not demonstrate a different host or model "
              "than the implementer; independence unconfirmed"], [])
@@ -1200,18 +1200,22 @@ def verify_gates(args: argparse.Namespace) -> int:
     if blocked:
         findings.append(f"{len(blocked)} verification command(s) blocked; ensure rationale is recorded")
 
-    # Ledger-grounded checks (delegation ledger). Brief size is purely advisory:
-    # an oversized hand-off brief signals context bloat but never blocks. The
-    # isolation check grounds review independence in the ledger — a repo without
-    # a ledger (or without isolation_evidence) is only advised, never hard-failed;
-    # only positively-refuted independence (same host + model family) blocks.
+    # Ledger-grounded checks (delegation ledger). Both are opt-in: a repo without
+    # a ledger is completely unaffected (no advisory, no finding). Brief size is
+    # purely advisory — an oversized hand-off brief signals context bloat but never
+    # blocks. The isolation check grounds review independence in the ledger: with a
+    # ledger present, a medium+ record lacking isolation_evidence is advised (self-
+    # attested), and only positively-refuted independence (same host + model
+    # family) blocks.
     delegations = _read_delegation_ledger(base_dir)
     if delegations:
         limit = brief_char_limit(_nearest_config(base_dir))
         soft_warnings.extend(_brief_size_advisories(delegations, limit))
-    iso_advisories, iso_findings = _isolation_evidence_findings(record, delegations, non_trivial)
-    soft_warnings.extend(iso_advisories)
-    findings.extend(iso_findings)
+        iso_advisories, iso_findings = _isolation_evidence_findings(
+            record, delegations, non_trivial
+        )
+        soft_warnings.extend(iso_advisories)
+        findings.extend(iso_findings)
 
     for note in soft_warnings:
         print(f"note: {note}")

@@ -52,20 +52,25 @@ malformed or half-flushed ledger is skipped, never crashing a gate.
   gate. An oversized hand-off brief signals context bloat, not a rule violation.
 
 - **Isolation evidence** grounds review independence when the ledger can prove
-  it. On medium+ records, `verify-gates` reads the optional
-  `isolation_evidence` field (`{task_id, role}`) and resolves it to a ledger
-  entry, comparing that reviewer's host and model family against the
-  implementer's delegation entry:
+  it. The check runs **only when a `.quality-loop/delegations.jsonl` ledger is
+  present**; a repo without a ledger is completely unaffected — no advisory, no
+  finding. When a ledger exists, on medium+ records `verify-gates` reads the
+  optional `isolation_evidence` field (`{task_id, role}`), resolves it to a
+  ledger entry, and compares that entry's **recorded** host and model family
+  against the implementer's delegation entry:
   - **Different host or different model family** → grounded; the review is
     isolated and no advisory fires.
   - **Same host and same model family** → a **finding** (`warning:`, exit 1):
-    the review is not isolated even though `fresh_context` was self-attested.
+    the recorded reviewer identity matches the implementer's, so the ledger does
+    not ground the review as isolated even though `fresh_context` was
+    self-attested.
   - **Absent, unresolvable, or unattributable** (no `isolation_evidence`, the
     named entry is missing, or the implementer identity cannot be matched in the
     ledger) → a non-blocking `note:`: independence is self-attested only.
-  Repos without a `.quality-loop/delegations.jsonl` never reach this check, so a
-  missing ledger is silent — the grounding is opt-in, and only a positively
-  proven same-family collision is ever a hard failure.
+  The grounding is opt-in on the presence of a ledger, and only a positively
+  proven same-family collision is ever a hard failure. The check reads the host
+  and model *fields* logged in the ledger — it verifies recorded identity, not
+  the runtime isolation of the reviewer process.
 
 ## Complexity-delta advisory (`diff-audit`)
 

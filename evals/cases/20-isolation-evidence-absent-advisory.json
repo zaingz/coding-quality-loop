@@ -35,6 +35,6 @@
     "risk_floor": "low",
     "gates_exit": 0,
     "advisories_include": ["self-attested"],
-    "findings_exclude": ["not isolated"]
+    "findings_exclude": ["does not ground the review as isolated"]
   }
 }
