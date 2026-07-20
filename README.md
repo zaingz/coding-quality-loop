@@ -198,7 +198,7 @@ python3 evals/run_trigger_evals.py                                              
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 11. bench fixture smoke
 ```
 
-Current result: **19/19 static** + **50/50 behavioral** + **32/32 memory** + **33/33 reality** + **29/29 routing** + **30/30 hook** = **193 gate cases** across the six core suites, plus **35 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). A separate **10-case trigger smoke** fixture runs locally (step 10 above): its default grader is keyword-overlap and structurally cannot fail, so it is excluded from the gate count — a real activation check needs `--judge-command` with an LLM judge.
+Current result: **20/20 static** + **54/54 behavioral** + **32/32 memory** + **38/38 reality** + **29/29 routing** + **40/40 hook** = **213 gate cases** across the six core suites, plus **35 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). A separate **10-case trigger smoke** fixture runs locally (step 10 above): its default grader is keyword-overlap and structurally cannot fail, so it is excluded from the gate count — a real activation check needs `--judge-command` with an LLM judge.
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -513,7 +513,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all suites green: 19 static + 50 behavioral + 32 memory + 33 reality + 29 routing + 30 hook = 193 gate cases, plus 35 add-on cases for the control plane and the 10-case trigger smoke fixture).
+     and the full eval suite (all suites green: 20 static + 54 behavioral + 32 memory + 38 reality + 29 routing + 40 hook = 213 gate cases, plus 35 add-on cases for the control plane and the 10-case trigger smoke fixture).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules

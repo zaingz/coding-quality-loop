@@ -1,0 +1,35 @@
+{
+  "name": "medium-object-ac-empty-criterion-blocked",
+  "description": "At medium+ risk an object acceptance criterion carrying only a proving_command (no non-empty criterion) proves nothing in particular: the AC-coverage gate blocks it and names the missing criterion field. Everything else about the record is compliant, so the only finding is the AC one.",
+  "record": {
+    "task_id": "t-20",
+    "goal": "Add bounded exponential backoff to the HTTP client retry path",
+    "task_class": "medium",
+    "risk_tier": "medium",
+    "acceptance_criteria": [{"proving_command": "pytest tests/test_client.py"}],
+    "verification_plan": ["unit tests for the backoff schedule"],
+    "minimality_decision": {"rung": "reuse", "reason": "extend the existing retry helper"},
+    "plan": ["add backoff to client"],
+    "commands_run": [{"cmd": "pytest tests/test_client.py", "class": "unit", "result": "pass", "evidence": "18 passed"}],
+    "open_risks": [],
+    "review_findings": ["fresh-context review: approved"],
+    "repo_map": {
+      "entry_points": ["client/http.py:retry"],
+      "likely_files": ["client/http.py"],
+      "callers_checked": ["svc/a.py:call"],
+      "tests": ["tests/test_client.py"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {"goal": "Bounded backoff", "acceptance_criteria": ["backoff is capped"], "evidence": ["pytest tests/test_client.py -> pass"]},
+    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "ran_checks": true, "findings": []},
+    "security_review": null,
+    "completion_record": {"goal": "Bounded backoff", "acceptance_criteria": ["backoff is capped"], "evidence": ["pytest -> 18 passed", "fresh-context review: approve"]},
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 1,
+    "findings_include": ["has a proving_command but no non-empty criterion"]
+  }
+}

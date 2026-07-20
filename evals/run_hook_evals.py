@@ -163,6 +163,93 @@ def case_pretool_allows_quoted_or_other_command(tmp: Path) -> tuple[bool, str]:
     return ok, "; ".join(details)
 
 
+def case_pretool_blocks_wrapper_forms(tmp: Path) -> tuple[bool, str]:
+    # Wrapper tokens must not launder a destructive command: shells (-c bodies),
+    # path/backslash prefixes, and env/command/nice/xargs pass-throughs are all
+    # still the same rm/git running — while quoted read-only mentions stay allowed.
+    repo = make_repo(tmp)
+    details = []
+    ok = True
+    denied_cmds = [
+        'bash -c "rm -rf /x"',
+        "sh -c 'rm -rf x'",
+        "/bin/rm -fr x",
+        "env rm -rf x",
+        "\\rm -rf x",
+        "find . -name '*.pyc' | xargs rm -rf",
+        "command rm -rf x",
+        "nice rm -rf x",
+    ]
+    for cmd in denied_cmds:
+        code, out, _ = _bash(repo, cmd)
+        good = code == 0 and deny_json(out)
+        ok = ok and good
+        details.append(f"{cmd!r}: denied={deny_json(out)}")
+    for cmd in ('grep -rn "git reset --hard" docs/', 'echo "never rm -rf"'):
+        code, out, _ = _bash(repo, cmd)
+        good = code == 0 and out.strip() == ""
+        ok = ok and good
+        details.append(f"{cmd!r}: allowed={out.strip() == ''}")
+    return ok, "; ".join(details)
+
+
+def case_pretool_allows_force_with_lease(tmp: Path) -> tuple[bool, str]:
+    # --force-with-lease is the SAFE force form and must not be denied by the
+    # --force pattern; plain --force and -f stay denied.
+    repo = make_repo(tmp)
+    details = []
+    code_a, out_a, _ = _bash(repo, "git push --force-with-lease origin main")
+    allowed = code_a == 0 and out_a.strip() == ""
+    details.append(f"--force-with-lease allowed={allowed}")
+    ok = allowed
+    for cmd in ("git push --force origin main", "git push -f origin main"):
+        code, out, _ = _bash(repo, cmd)
+        good = code == 0 and deny_json(out)
+        ok = ok and good
+        details.append(f"{cmd!r}: denied={deny_json(out)}")
+    return ok, "; ".join(details)
+
+
+def case_pretool_scan_crash_allows_with_warning(tmp: Path) -> tuple[bool, str]:
+    # A crashed scanner (e.g. a syntax error in quality_loop.py) exits 1 just
+    # like a real findings run. Without the structured findings JSON on stdout
+    # the guard must allow with a truthful warning, never fabricate a secret block.
+    repo = make_repo(tmp, with_scripts=True)
+    (repo / "scripts" / "quality_loop.py").write_text("def broken(:\n    pass\n")
+    payload = {"cwd": str(repo), "tool_name": "Write", "tool_input": {"content": 'api_key = "ghp_' + "A" * 36 + '"'}}
+    code, out, err = run_script(PRE, payload, repo)
+    ok = code == 0 and out.strip() == "" and "without a structured" in err
+    return ok, f"exit={code}; out={out.strip()!r}; err={err.strip()[:200]!r}"
+
+
+def case_pretool_protects_hook_wiring_and_manifest(tmp: Path) -> tuple[bool, str]:
+    # Hook wiring files and the install manifest are the same protection class
+    # as the gate scripts: unwiring hooks or rewriting the uninstall inventory
+    # defeats the gates without touching them.
+    repo = make_repo(tmp)
+    details = []
+    ok = True
+    for target in (".claude/settings.json", ".codex/hooks.json", ".quality-loop/install-manifest.json"):
+        code, out, _ = run_script(PRE, {"cwd": str(repo), "tool_name": "Edit", "tool_input": {"file_path": target, "new_string": "{}"}}, repo)
+        good = code == 0 and deny_json(out) and "tamper-evidence" in out
+        ok = ok and good
+        details.append(f"{target}: denied={deny_json(out)}")
+    return ok, "; ".join(details)
+
+
+def case_pretool_apply_patch_body_targets_protected(tmp: Path) -> tuple[bool, str]:
+    # apply_patch payloads carry targets in the patch text, not a single path
+    # key: a protected path in the body is denied; a normal target is allowed.
+    repo = make_repo(tmp)
+    bad = "*** Begin Patch\n*** Update File: hosts/claude-code/stop_gate.py\n+x = 1\n*** End Patch\n"
+    code_b, out_b, _ = run_script(PRE, {"cwd": str(repo), "tool_name": "apply_patch", "tool_input": {"input": bad}}, repo)
+    denied = code_b == 0 and deny_json(out_b)
+    good = "*** Begin Patch\n*** Update File: src/app.py\n+x = 1\n*** End Patch\n"
+    code_g, out_g, _ = run_script(PRE, {"cwd": str(repo), "tool_name": "apply_patch", "tool_input": {"input": good}}, repo)
+    allowed = code_g == 0 and out_g.strip() == ""
+    return denied and allowed, f"protected_denied={denied}; normal_allowed={allowed}"
+
+
 def case_pretool_blocks_record_deletion(tmp: Path) -> tuple[bool, str]:
     # protect_harness (default ON): deleting the record or .quality-loop erases
     # the audit trail, so rm against either is denied even without -rf.
@@ -390,6 +477,48 @@ def case_stop_gate_blocks_deleted_record_with_config(tmp: Path) -> tuple[bool, s
     return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:200]!r}"
 
 
+def case_stop_gate_allows_manifest_only_install(tmp: Path) -> tuple[bool, str]:
+    # Every fresh v6 install writes .quality-loop/install-manifest.json. That
+    # alone is NOT loop state: a record-less stop right after install must be
+    # allowed, or the gate bricks every freshly installed repo.
+    repo = make_repo(tmp)
+    (repo / ".quality-loop").mkdir()
+    (repo / ".quality-loop" / "install-manifest.json").write_text(json.dumps({
+        "version": 1, "host": "claude-code", "files": [], "hook_groups": [],
+    }))
+    code, out, err = _stop(repo)
+    return code == 0 and out.strip() == "", f"exit={code}; out={out.strip()[:200]!r}; err={err.strip()!r}"
+
+
+def case_stop_gate_blocks_tombstoned_record_deletion(tmp: Path) -> tuple[bool, str]:
+    # A git-tracked record deleted from the tree leaves a tombstone: even with
+    # no config file, the deletion must not lift the gate.
+    repo = make_repo(tmp)
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    (qdir / "agent-record.json").write_text(json.dumps(done_record()))
+    git(repo, "add", ".quality-loop/agent-record.json")
+    git(repo, "commit", "-m", "record")
+    (qdir / "agent-record.json").unlink()
+    code, out, err = _stop(repo)
+    ok = code == 0 and _decision(out) == "block" and "init-record" in out
+    return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:200]!r}"
+
+
+def case_settings_stop_timeout_covers_verify(tmp: Path) -> tuple[bool, str]:
+    # Terminal Stop runs the full verify umbrella, which re-executes recorded
+    # evidence at up to 120s per command (QUALITY_LOOP_TIMEOUT-overridable). A
+    # 30s outer hook timeout killed honest slow suites mid-verify, so the Stop
+    # hook must carry a generous terminal-status budget (>= 600s). Tradeoff: a
+    # genuinely hung suite can hold the stop for that long — acceptable, since
+    # the alternative silently kills truthful evidence re-execution.
+    settings = json.loads((ROOT / "hosts" / "claude-code" / "settings.json").read_text(encoding="utf-8"))
+    stop_hooks = [h for entry in settings["hooks"]["Stop"] for h in entry["hooks"]]
+    timeouts = [h.get("timeout") for h in stop_hooks]
+    ok = bool(timeouts) and all(isinstance(t, int) and t >= 600 for t in timeouts)
+    return ok, f"stop_timeouts={timeouts} (need >= 600 to cover 120s/command evidence re-execution)"
+
+
 def case_stop_gate_terminal_runs_verify_umbrella(tmp: Path) -> tuple[bool, str]:
     # At package/done the child must be the `verify` umbrella, with --base only
     # when QUALITY_LOOP_BASE is set (otherwise the script auto-resolves it).
@@ -470,6 +599,55 @@ def case_installer_idempotent_claude_codex(tmp: Path) -> tuple[bool, str]:
     return ok, f"codes={[code1, code2, code3]}; out={(out1 + out2 + out3).strip()[:220]!r}; err={(err1 + err2 + err3).strip()!r}"
 
 
+def case_uninstall_skips_symlink_traversal(tmp: Path) -> tuple[bool, str]:
+    # Security fix: a manifest entry whose directory component is a committed
+    # symlink pointing outside the target must be SKIPPED, never unlinked.
+    target = tmp / "target"
+    victim = tmp / "victim"
+    victim.mkdir(parents=True)
+    outside = victim / "p2.txt"
+    outside.write_text("precious\n")
+    (target / ".quality-loop").mkdir(parents=True)
+    (target / "linkdir").symlink_to(Path("..") / "victim")
+    (target / ".quality-loop" / "install-manifest.json").write_text(json.dumps({
+        "version": 1, "host": "claude-code", "files": ["linkdir/p2.txt"], "hook_groups": [],
+    }))
+    code, out, err = run_cli(str(INSTALL), "--target", str(target), "--uninstall", cwd=ROOT)
+    ok = (
+        code == 0
+        and outside.is_file()
+        and "skipped linkdir/p2.txt" in out
+        and "removed linkdir/p2.txt" not in out
+    )
+    return ok, f"exit={code}; victim_survives={outside.is_file()}; out={out.strip()[:220]!r}; err={err.strip()!r}"
+
+
+def case_installer_ships_prompts_and_routing_default(tmp: Path) -> tuple[bool, str]:
+    # render-prompt reads assets/prompts/<role>.md next to scripts/, and
+    # SKILL.md references assets/routing/ — both must land on a DEFAULT install
+    # (no --with-control-plane). --host all must not install demoted cursor/pi.
+    repo = make_repo(tmp)
+    code1, out1, err1 = run_cli(str(INSTALL), "--target", str(repo), "--host", "all", cwd=ROOT)
+    record = repo / "rec.json"
+    record.write_text(json.dumps(done_record()))
+    code2, out2, err2 = run_cli(
+        str(repo / "scripts" / "quality_loop.py"),
+        "render-prompt", "--role", "reviewer", "--record", str(record),
+        cwd=repo,
+    )
+    ok = (
+        code1 == 0
+        and (repo / "assets" / "prompts" / "reviewer.md").is_file()
+        and (repo / "assets" / "routing" / "README.md").is_file()
+        and not (repo / "assets" / "control-plane").exists()
+        and not (repo / ".cursor").exists()
+        and not (repo / ".pi").exists()
+        and code2 == 0
+        and "Quality Loop Reviewer" in out2
+    )
+    return ok, f"codes={[code1, code2]}; err={(err1 + err2).strip()[:220]!r}"
+
+
 CASES = [
     ("PreToolUse blocks destructive Bash", case_pretool_blocks_destructive),
     ("PreToolUse blocks secret Write content", case_pretool_blocks_secret_write),
@@ -477,6 +655,11 @@ CASES = [
     ("PreToolUse allows safe Write", case_pretool_allows_safe_write),
     ("PreToolUse blocks rm with reordered/long recursive+force flags", case_pretool_blocks_flag_order_variants),
     ("PreToolUse allows quoted mentions and cross-command force flags", case_pretool_allows_quoted_or_other_command),
+    ("PreToolUse blocks wrapper-invoked destructive forms (bash -c, /bin/rm, env, xargs)", case_pretool_blocks_wrapper_forms),
+    ("PreToolUse allows git push --force-with-lease but denies --force/-f", case_pretool_allows_force_with_lease),
+    ("PreToolUse scanner crash (exit 1, no findings JSON) allows with warning", case_pretool_scan_crash_allows_with_warning),
+    ("PreToolUse protects hook wiring files and the install manifest", case_pretool_protects_hook_wiring_and_manifest),
+    ("PreToolUse apply_patch body targeting a protected path is denied", case_pretool_apply_patch_body_targets_protected),
     ("PreToolUse blocks deletion of the record and .quality-loop", case_pretool_blocks_record_deletion),
     ("PreToolUse protect_harness blocks gate/hook/record edits by default", case_pretool_protect_harness_blocks_gate_edit),
     ("PreToolUse protect_harness=false allows gate-script edit", case_pretool_protect_harness_off_allows_gate_edit),
@@ -487,6 +670,9 @@ CASES = [
     ("Stop gate blocks phantom done", case_stop_gate_blocks_phantom_done),
     ("Stop gate allows a repo with no record and no loop artifacts", case_stop_gate_allows_no_record_no_loop),
     ("Stop gate blocks a deleted record while loop config exists", case_stop_gate_blocks_deleted_record_with_config),
+    ("Stop gate allows a fresh install with only the install manifest", case_stop_gate_allows_manifest_only_install),
+    ("Stop gate blocks a git-tombstoned record deletion without config", case_stop_gate_blocks_tombstoned_record_deletion),
+    ("Stop hook timeout covers the terminal verify umbrella budget", case_settings_stop_timeout_covers_verify),
     ("Stop gate runs the verify umbrella at terminal statuses", case_stop_gate_terminal_runs_verify_umbrella),
     ("Stop gate names QUALITY_LOOP_TIMEOUT on timeout-looking failures", case_stop_gate_timeout_failure_names_override),
     ("Stop gate names the cause and remedies on runner exit 2", case_stop_gate_terminal_exit2_names_cause),
@@ -501,6 +687,8 @@ CASES = [
     ("SessionStart emits memory and record context", case_sessionstart_context),
     ("SessionStart includes brief output when scripts present", case_sessionstart_brief),
     ("installer is idempotent for Claude/Codex wiring", case_installer_idempotent_claude_codex),
+    ("uninstall skips manifest paths that traverse a symlink outside the target", case_uninstall_skips_symlink_traversal),
+    ("default install ships prompts+routing; render-prompt works; all skips cursor/pi", case_installer_ships_prompts_and_routing_default),
 ]
 
 

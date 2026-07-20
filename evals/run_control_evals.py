@@ -799,7 +799,9 @@ def case_tool_target_redaction(tmp: Path) -> tuple[bool, str]:
 def case_delegation_direct_session_id(tmp: Path) -> tuple[bool, str]:
     """v6: a ledger row carrying session_id joins directly by id — the fuzzy
     heuristic is skipped even when agent_name and window disagree — and an
-    explicit id that is not indexed stays unmatched, never guessed against."""
+    explicit id that is not indexed stays unmatched, never guessed against.
+    Direct joins are one-to-one too: a second row carrying the SAME session_id
+    is flagged duplicate_session_id and left unmatched (no double-counting)."""
     repo = make_repo(tmp)
     proj = claude_dir(tmp, repo)
     write_transcript(proj, "workersess", [
@@ -814,20 +816,31 @@ def case_delegation_direct_session_id(tmp: Path) -> tuple[bool, str]:
     # (unindexed) id must not be second-guessed by the heuristic.
     ghost = json.loads(_deleg_line("t-d", "reviewer", "impl-agent", "2026-01-05T10:00:00Z"))
     ghost["session_id"] = "ghost-session"
+    # Duplicate row: the SAME explicit session_id as the direct row. Only the
+    # first (ledger order) may attach; this one is flagged, not double-counted.
+    dup = json.loads(_deleg_line("t-d", "validator", "totally-other-agent", "2020-01-02T00:00:00Z"))
+    dup["session_id"] = "workersess"
     (qdir / "delegations.jsonl").write_text(
-        json.dumps(direct) + "\n" + json.dumps(ghost) + "\n", encoding="utf-8")
+        json.dumps(direct) + "\n" + json.dumps(ghost) + "\n" + json.dumps(dup) + "\n",
+        encoding="utf-8")
     ctl.index_all(repo)
     conn = ctl.open_db(repo)
     joined = ctl.delegations_with_sessions(conn)
     conn.close()
     d_direct = next(d for d in joined if d["role"] == "implementer")
     d_ghost = next(d for d in joined if d["role"] == "reviewer")
+    d_dup = next(d for d in joined if d["role"] == "validator")
+    attached = sum(1 for d in joined if d["session"] is not None)
     ok = (not d_direct["unmatched"] and d_direct["session"]["id"] == "workersess"
           and d_direct["session"]["tokens"]["input_tokens"] == 100
           and d_ghost["unmatched"] and d_ghost["session"] is None
-          and not d_ghost["unjoinable"])
+          and not d_ghost["unjoinable"]
+          and d_dup["unmatched"] and d_dup["session"] is None
+          and d_dup["duplicate_session_id"] and not d_direct["duplicate_session_id"]
+          and attached == 1)
     return ok, (f"direct={d_direct['session']['id'] if d_direct['session'] else None}; "
-                f"ghost_unmatched={d_ghost['unmatched']}; ghost_session={d_ghost['session']}")
+                f"ghost_unmatched={d_ghost['unmatched']}; ghost_session={d_ghost['session']}; "
+                f"dup_flagged={d_dup['duplicate_session_id']}; attached={attached}")
 
 
 def case_delegation_unjoinable_ts(tmp: Path) -> tuple[bool, str]:
@@ -1317,7 +1330,7 @@ CASES = [
     ("loop metrics compute exact KPIs; empty DB serves 200 zeros", case_loop_metrics),
     ("control-report emits markdown + json; unknown task exits 2", case_control_report_cli),
     ("tool-call targets redact secrets before storage; benign intact", case_tool_target_redaction),
-    ("delegation with session_id joins directly; unindexed id never guessed", case_delegation_direct_session_id),
+    ("delegation with session_id joins directly; unindexed never guessed; duplicate id flagged", case_delegation_direct_session_id),
     ("unparseable delegation ts is counted unjoinable, never a dist-0 match", case_delegation_unjoinable_ts),
     ("fallback delegation join is one-to-one; nearest wins, no double count", case_delegation_one_to_one),
     ("droid wrapper runs become droid_run events, not 0-token model calls", case_droid_runs_are_events),

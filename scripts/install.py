@@ -135,19 +135,28 @@ def install_runtime(target: Path, dry_run: bool) -> list[str]:
     example_cfg = ROOT / "assets" / "quality-loop.config.example.json"
     if example_cfg.is_file():
         copy_file(example_cfg, target / "assets" / "quality-loop.config.example.json", dry_run)
-    report = ["Runtime: copied stdlib Quality Loop scripts, host hook shims, and the example config"]
+    # render-prompt resolves assets/prompts/<role>.md as a sibling of scripts/;
+    # ship the prompt cards with every runtime install so it works end to end.
+    for src in sorted((ROOT / "assets" / "prompts").glob("*.md")):
+        copy_file(src, target / "assets" / "prompts" / src.name, dry_run)
+    # Pre-validated routing variants (the intelligence<->cost knob) + dated menu.
+    # Core routing, NOT part of the control-plane opt-in: SKILL.md and
+    # setup-models reference assets/routing/ on a default install.
+    for src in sorted((ROOT / "assets" / "routing").glob("*")):
+        if src.is_file():
+            copy_file(src, target / "assets" / "routing" / src.name, dry_run)
+    report = [
+        "Runtime: copied stdlib Quality Loop scripts, host hook shims, the example config, "
+        "render-prompt cards (assets/prompts/), and routing variants (assets/routing/)"
+    ]
     if _WITH_CONTROL_PLANE:
-        # Pre-validated routing variants (the intelligence<->cost knob) + dated menu.
-        for src in sorted((ROOT / "assets" / "routing").glob("*")):
-            if src.is_file():
-                copy_file(src, target / "assets" / "routing" / src.name, dry_run)
         # Control-plane dashboard: control-serve looks for it next to scripts/.
         for src in sorted((ROOT / "assets" / "control-plane").glob("*")):
             if src.is_file():
                 copy_file(src, target / "assets" / "control-plane" / src.name, dry_run)
         report.append(
             "Control plane: opted in — copied quality_loop_control.py, the control_plane.py "
-            "hook shim, routing variants, and the dashboard"
+            "hook shim, and the dashboard"
         )
     return report
 
@@ -278,8 +287,10 @@ def install_skill_bundle(dest_skill_dir: Path, dry_run: bool) -> None:
         copy_file(src_skill, dest_skill_dir / "SKILL.md", dry_run)
     # references/ — progressive-disclosure deep dives (loaded on demand).
     _copy_tree(ROOT / "references", dest_skill_dir / "references", dry_run)
-    # assets/ — templates the skill references (validation contract, plans, etc.).
-    skip = () if _WITH_CONTROL_PLANE else ("control-plane", "routing")
+    # assets/ — templates the skill references (validation contract, plans,
+    # routing variants, etc.). Only the control-plane dashboard is opt-in;
+    # routing is core (SKILL.md references assets/routing/ on every install).
+    skip = () if _WITH_CONTROL_PLANE else ("control-plane",)
     _copy_tree(ROOT / "assets", dest_skill_dir / "assets", dry_run, skip_dirs=skip)
 
 
@@ -396,6 +407,17 @@ def _rel_inside_target(rel: str) -> bool:
     return not p.is_absolute() and ".." not in p.parts
 
 
+def _resolves_inside_target(target: Path, rel: str) -> bool:
+    """True only when target/rel, after resolving symlinks in EVERY component,
+    still lands inside the target root. A lexically-safe manifest entry like
+    'linkdir/file.txt' escapes when 'linkdir' is a symlink to '../victim';
+    uninstall must never unlink/move/write through such a path."""
+    try:
+        return (target / rel).resolve().is_relative_to(target.resolve())
+    except OSError:
+        return False
+
+
 def _existing_backup(path: Path) -> Path | None:
     """Return the backup this installer (or install-git-hooks.py) would have
     written for ``path``, if it exists on disk."""
@@ -477,15 +499,24 @@ def uninstall(target: Path, dry_run: bool) -> tuple[int, list[str]]:
         )
         return 1, report
 
-    files = sorted({
+    listed = sorted({
         f for f in (manifest.get("files") or [])
         if isinstance(f, str) and _rel_inside_target(f)
     })
-    groups = [
+    files = [f for f in listed if _resolves_inside_target(target, f)]
+    lexical_groups = [
         g for g in (manifest.get("hook_groups") or [])
         if isinstance(g, dict) and isinstance(g.get("file"), str)
         and isinstance(g.get("key"), str) and _rel_inside_target(g["file"])
     ]
+    groups = [g for g in lexical_groups if _resolves_inside_target(target, g["file"])]
+    for rel in sorted(set(
+        [f for f in listed if f not in files]
+        + [g["file"] for g in lexical_groups if g not in groups]
+    )):
+        report.append(
+            f"skipped {rel} (resolves outside the install target through a symlink; not touched)"
+        )
     handled: set[str] = set()
     removed_paths: list[Path] = []
     incoming = _incoming_hook_groups()
@@ -573,6 +604,12 @@ def uninstall(target: Path, dry_run: bool) -> tuple[int, list[str]]:
     # 3) Drop the manifest itself and prune now-empty directories.
     if dry_run:
         report.append(f"would remove {MANIFEST_REL}")
+    elif not _resolves_inside_target(target, MANIFEST_REL):
+        report.append(
+            f"skipped {MANIFEST_REL} (resolves outside the install target through a symlink; not touched)"
+        )
+        for path in removed_paths:
+            _prune_empty_dirs(target, path)
     else:
         manifest_path.unlink()
         removed_paths.append(manifest_path)
@@ -645,7 +682,12 @@ def main() -> int:
         "git": install_git,
         "github": install_github,
     }
-    selected = installers if args.host == "all" else {args.host: installers[args.host]}
+    # cursor/pi are demoted to advisory rules recipes (see README): an explicit
+    # --host cursor/pi still copies them, but "all" wires only runtime hosts.
+    if args.host == "all":
+        selected = {h: fn for h, fn in installers.items() if h not in ("cursor", "pi")}
+    else:
+        selected = {args.host: installers[args.host]}
     report: list[str] = []
     if args.with_control_plane and not control_plane_available:
         report.append(

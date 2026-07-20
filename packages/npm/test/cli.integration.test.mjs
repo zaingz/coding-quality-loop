@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -121,6 +121,33 @@ test(
     assert.equal(status.stdout.trim(), "", `expected clean tree after remove, got:\n${status.stdout}`);
   },
 );
+
+test("check rejects an empty {} manifest as unhealthy", async () => {
+  const target = await mkdtemp(join(tmpdir(), "cql-check-shape-"));
+  await mkdir(join(target, ".quality-loop"), { recursive: true });
+  await writeFile(join(target, ".quality-loop", "install-manifest.json"), "{}\n");
+  const r = spawnSync(process.execPath, [CLI, "check", "--target", target], { encoding: "utf8" });
+  assert.notEqual(r.status, 0, `expected non-zero exit, stdout:\n${stripAnsi(r.stdout)}`);
+  const out = stripAnsi(r.stdout);
+  assert.match(out, /manifest records no host/);
+  assert.match(out, /manifest lists no installed files/);
+  assert.match(out, /cql init/);
+  assert.doesNotMatch(out, /Install looks healthy/);
+});
+
+test("check flags unsafe (absolute or ..) manifest paths", async () => {
+  const target = await mkdtemp(join(tmpdir(), "cql-check-unsafe-"));
+  await mkdir(join(target, ".quality-loop"), { recursive: true });
+  await writeFile(
+    join(target, ".quality-loop", "install-manifest.json"),
+    JSON.stringify({ version: 1, host: "claude-code", files: ["../outside.txt", "/etc/passwd"], hook_groups: [] }),
+  );
+  const r = spawnSync(process.execPath, [CLI, "check", "--target", target], { encoding: "utf8" });
+  assert.notEqual(r.status, 0);
+  const out = stripAnsi(r.stdout);
+  assert.match(out, /unsafe path/);
+  assert.doesNotMatch(out, /Install looks healthy/);
+});
 
 test("check without a manifest explains and suggests init", async () => {
   const target = await mkdtemp(join(tmpdir(), "cql-check-empty-"));

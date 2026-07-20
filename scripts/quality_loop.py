@@ -637,14 +637,16 @@ def _is_scaffolding_path(path: str) -> bool:
 _EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 
-def _resolve_base(base: str) -> tuple[str, str | None]:
+def _resolve_base(base: str, allow_head_fallback: bool = True) -> tuple[str, str | None]:
     """Resolve a git base ref, falling back through common defaults.
 
     Returns (resolved_ref, hint). ``hint`` is a human-readable note when the
     requested base was unresolvable and a fallback was chosen, else None. A
     fresh or detached checkout often lacks ``origin/main``; rather than surface
     git's raw ``fatal: Needed a single revision`` (exit 128), pick a sane
-    fallback and tell the caller what happened.
+    fallback and tell the caller what happened. ``allow_head_fallback=False``
+    (the auto-base path) skips the HEAD rung: falling back to HEAD would empty
+    the diff for committed work, recreating commit-first evasion.
     """
     def _resolves(ref: str) -> bool:
         # Route through the core git wrapper (Side B centralized all git
@@ -655,15 +657,20 @@ def _resolve_base(base: str) -> tuple[str, str | None]:
     if _resolves(base):
         return base, None
     for cand in ("origin/main", "origin/master", "main", "master", "HEAD"):
+        if cand == "HEAD" and not allow_head_fallback:
+            continue
         if cand != base and _resolves(cand):
             return cand, (
                 f"base {base!r} did not resolve; using {cand!r}. "
                 "Pass --base <ref> explicitly on a fresh/detached checkout."
             )
-    return _EMPTY_TREE_SHA, (
-        f"base {base!r} did not resolve and no fallback ref exists; "
+    tail = (
         "diffing against the empty tree (all tracked files treated as new)."
+        if allow_head_fallback
+        else "diffing against the empty tree so committed work stays visible "
+        "(pass --base HEAD explicitly to compare against the last commit only)."
     )
+    return _EMPTY_TREE_SHA, f"base {base!r} did not resolve and no fallback base ref exists; {tail}"
 
 
 def _resolve_default_base() -> tuple[str, str | None]:
@@ -672,10 +679,11 @@ def _resolve_default_base() -> tuple[str, str | None]:
     Walks the ``_resolve_base`` ladder seeded with ``origin/main``, then prefers
     ``git merge-base <candidate> HEAD`` so committed-but-unpushed work stays
     visible to the diff-grounded gates — a bare ``HEAD`` default let an agent
-    hide its entire diff (scope, secrets, risk floor) by committing first. An
-    explicit ``--base`` always wins over this default.
+    hide its entire diff (scope, secrets, risk floor) by committing first. The
+    ladder never falls back to HEAD here (empty tree instead) for the same
+    reason. An explicit ``--base`` always wins over this default.
     """
-    resolved, hint = _resolve_base("origin/main")
+    resolved, hint = _resolve_base("origin/main", allow_head_fallback=False)
     if resolved == _EMPTY_TREE_SHA:
         return resolved, hint
     code, out, _ = qlcore.git_capture(["merge-base", resolved, "HEAD"])
@@ -1031,6 +1039,20 @@ def collect_gate_findings(
         findings.extend(
             review_findings(record.get("independent_review"), "independent_review", implementer)
         )
+        # make-ran-checks-real: an approving review that never says it executed
+        # the checks is flagged as advisory (WARN, not fail) so "I read the
+        # evidence" cannot silently stand in for "I ran the checks".
+        _ind_review = record.get("independent_review")
+        if (
+            isinstance(_ind_review, dict)
+            and str(_ind_review.get("verdict", "")).lower() in APPROVING_VERDICTS
+            and _ind_review.get("ran_checks") is not True
+        ):
+            soft_warnings.append(
+                "independent_review approves without ran_checks: true — the reviewer "
+                "did not confirm executing the recorded checks; have the reviewer run "
+                "them and set ran_checks"
+            )
         # UNDERSTAND gate: the first Hard Rule (map the change before editing) is
         # only real if it is checked. By implementation, the context map must
         # locate the change and corroborate it with callers or tests.
@@ -1349,6 +1371,27 @@ _is_placeholder_model = qlroute.is_placeholder_model
 
 
 
+def _control_plane_shape_errors(control: Any) -> list[str]:
+    """Minimal core shape check for config.control_plane.
+
+    Runs when the opt-in control-plane add-on is absent so a malformed block
+    (enabled or not) cannot pass just because the add-on's full validator is
+    not installed — gates and config validation never depend on the add-on.
+    """
+    if not isinstance(control, dict):
+        return ["control_plane must be an object"]
+    errors: list[str] = []
+    if "enabled" in control and not isinstance(control["enabled"], bool):
+        errors.append("control_plane.enabled must be a boolean")
+    port = control.get("port")
+    if port is not None and (isinstance(port, bool) or not isinstance(port, int)):
+        errors.append("control_plane.port must be an integer")
+    days = control.get("retention_days")
+    if days is not None and (isinstance(days, bool) or not isinstance(days, int)):
+        errors.append("control_plane.retention_days must be an integer")
+    return errors
+
+
 def check_config(args: argparse.Namespace) -> int:
     config = load_json(Path(args.config))
     errors: list[str] = []
@@ -1413,6 +1456,9 @@ def check_config(args: argparse.Namespace) -> int:
     control = config.get("control_plane")
     if control is not None:
         if qlctl is None:
+            # Core shape floor: config validation must never depend on the
+            # opt-in add-on (whose validator is a superset of this check).
+            errors.extend(_control_plane_shape_errors(control))
             # A disabled block is inert documentation; only an enabled one
             # needs the add-on actually installed.
             if isinstance(control, dict) and control.get("enabled"):
@@ -1430,11 +1476,12 @@ def check_config(args: argparse.Namespace) -> int:
 
     errors.extend(_reviewer_heterogeneity(profiles, steps, routing))
 
-    if routing is not None:
-        # Loud degradation: say whether heterogeneity was verified, skipped
-        # (and why), or conflicted — a silent skip is indistinguishable from a
-        # pass and decays the gate as model names churn.
-        print(qlroute.heterogeneity_status(config)["line"])
+    # Loud degradation: say whether heterogeneity was verified, skipped (and
+    # why), or conflicted — a silent skip is indistinguishable from a pass and
+    # decays the gate as model names churn. Always emitted, including the
+    # no-model_routing SKIPPED case, so a passing config without routing is
+    # visibly unverified rather than silently status-free.
+    print(qlroute.heterogeneity_status(config)["line"])
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
@@ -1527,6 +1574,11 @@ def cmd_brief(args: argparse.Namespace) -> int:
     lessons_text = "\n".join(
         qlmem.render_line(l, global_=g, mark_provenance=True) for l, g in pairs
     ) or "none"
+    if len(lessons_text) > budget:
+        # recall_pool always admits the first (highest-scoring) lesson even
+        # when it alone exceeds the budget; cap the rendered digest so brief
+        # (text and --json alike) never emits an over-budget lesson body.
+        lessons_text = lessons_text[:budget].rstrip()
     outcome_notes = qlmem.outcome_lines(project_lessons)
 
     sections: list[str] = []
@@ -1688,6 +1740,15 @@ def _check_ac_coverage(
     for idx, ac in enumerate(criteria):
         proving = ac.get("proving_command") if isinstance(ac, dict) else None
         if isinstance(proving, str) and proving.strip():
+            # A proving_command with no criterion proves nothing in particular:
+            # at medium+ each object AC must also state WHAT the command proves.
+            criterion = ac.get("criterion") if isinstance(ac, dict) else None
+            if non_trivial and not (isinstance(criterion, str) and criterion.strip()):
+                findings.append(
+                    f"acceptance_criteria[{idx}] has a proving_command but no non-empty "
+                    "criterion; at medium/high risk each criterion object must state "
+                    "what the command proves"
+                )
             proving_counts[proving] = proving_counts.get(proving, 0) + 1
             if proving not in pass_cmds:
                 findings.append(
@@ -1982,6 +2043,22 @@ def verify(args: argparse.Namespace) -> int:
     return overall
 
 
+def _cmd_attest_review(args: argparse.Namespace) -> int:
+    """Resolve the attest base the same way verify does before delegating.
+
+    Without an explicit ``--base``, attestation must hash against the same
+    auto-resolved merge-base that ``verify``/``verify-gates`` recompute for the
+    freshness check — otherwise a committed branch attested against HEAD (empty
+    diff) would read as permanently stale. An explicit ref still wins.
+    """
+    if getattr(args, "base", None) is None:
+        base, hint = _resolve_default_base()
+        if hint:
+            print(hint, file=sys.stderr)
+        args.base = base
+    return qlreal.cmd_attest_review(args)
+
+
 _RENDER_PROMPT_ROLES = ("reviewer", "security-reviewer")
 _PLACEHOLDER_RE = re.compile(r"\{[a-z_]+\}")
 
@@ -2011,9 +2088,15 @@ def render_prompt(args: argparse.Namespace) -> int:
         base, _hint = _resolve_base(requested_base)
     else:
         base, _hint = _resolve_default_base()
-    code, diff, err = git_capture(["diff", base])
-    if code != 0:
-        diff = f"(could not read git diff vs {base}: {redact(err.strip())})"
+    try:
+        # The same canonical diff attest-review hashes: tracked changes plus
+        # untracked file content, minus .quality-loop/ scaffolding — the
+        # reviewer must see exactly what the attestation will pin.
+        diff = qlreal.diff_patch(base, cwd=Path.cwd(), exclude_record_dir=True)
+    except SystemExit:
+        code, diff, err = git_capture(["diff", base])
+        if code != 0:
+            diff = f"(could not read git diff vs {base}: {redact(err.strip())})"
 
     contract = {
         key: record.get(key)
@@ -2042,13 +2125,17 @@ def render_prompt(args: argparse.Namespace) -> int:
         )
     evidence_table = redact("\n".join(rows)) if len(rows) > 2 else "(no commands recorded)"
 
-    rendered = template
-    for key, value in (
-        ("contract", json.dumps(contract, indent=2)),
-        ("diff", diff),
-        ("evidence", evidence_table),
-    ):
-        rendered = rendered.replace("{" + key + "}", value)
+    values = {
+        "contract": json.dumps(contract, indent=2),
+        "diff": diff,
+        "evidence": evidence_table,
+    }
+    # Single pass over the TEMPLATE only: substituted values are never
+    # reprocessed, so a literal {evidence}/{diff}/{contract} token inside the
+    # diff or evidence survives intact instead of being recursively expanded.
+    rendered = re.sub(
+        r"\{(contract|diff|evidence)\}", lambda m: values[m.group(1)], template
+    )
 
     print(rendered)
     leftover = sorted(set(_PLACEHOLDER_RE.findall(template)) - {"{contract}", "{diff}", "{evidence}"})
@@ -2142,9 +2229,9 @@ def main() -> int:
 
     p_attest = sub.add_parser("attest-review", help="Embed a recomputed diff sha256 into a review object")
     p_attest.add_argument("review", help="Path to a review JSON object to attest")
-    p_attest.add_argument("--base", default="HEAD", help="Git base ref for the diff hash (default HEAD)")
+    p_attest.add_argument("--base", default=None, help="Git base ref for the diff hash (default: auto-resolved merge-base, matching verify — an explicit ref, including HEAD, is honored)")
     p_attest.add_argument("--output", help="Write the attested review here instead of stdout")
-    p_attest.set_defaults(func=qlreal.cmd_attest_review)
+    p_attest.set_defaults(func=_cmd_attest_review)
 
     p_evidence = sub.add_parser("run-evidence", help="Re-execute recorded pass commands against the real environment")
     p_evidence.add_argument("record")

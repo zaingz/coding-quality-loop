@@ -6,8 +6,10 @@ self-reported statuses ``package``/``done``, so an agent that finished real work
 but never advanced its status could stop entirely ungated.
 
 Decision table (evaluated top to bottom):
-  - no record, no loop artifacts                -> allow (repo may not use the loop)
-  - no record BUT config/.quality-loop present  -> BLOCK (record deleted mid-loop)
+  - no record, no real loop state               -> allow (repo may not use the loop;
+                                                   a bare install manifest never blocks)
+  - no record BUT real loop state present       -> BLOCK (record deleted mid-loop)
+    (config, runs/, progress.md, memory/, or a git tombstone of the record)
   - stop_hook_active                            -> allow (never re-block our own stop)
   - record unreadable                           -> BLOCK (corruption must not lift the gate)
   - escalated + non-empty escalation_reason     -> allow (explicit, auditable pause)
@@ -84,6 +86,32 @@ def _record(path: Path) -> dict[str, Any] | None:
     except (ValueError, OSError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def _loop_was_active(root: Path) -> bool:
+    """True only on REAL loop state: config, run artifacts, or a git tombstone
+    of a deleted record. The bare .quality-loop/ directory is NOT a signal —
+    every fresh v6 install writes .quality-loop/install-manifest.json, so the
+    directory's existence would block every record-less stop after a normal
+    install, before any task ever ran."""
+    qdir = root / ".quality-loop"
+    if (root / "quality-loop.config.json").is_file() or (qdir / "config.json").is_file():
+        return True
+    if any((qdir / name).exists() for name in ("runs", "progress.md", "memory")):
+        return True
+    # Deletion tombstone: git still sees a tracked record deleted from the tree.
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain", "--",
+             ".quality-loop/agent-record.json", "agent-record.json"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return False
+    return proc.returncode == 0 and any("D" in line[:2] for line in proc.stdout.splitlines())
 
 
 def _tree_is_dirty(root: Path) -> bool:
@@ -164,12 +192,13 @@ def main() -> int:
     root = _root(data)
     record = _record_path(root)
     if record is None:
-        # A repo that never ran the loop may stop freely. But if loop artifacts
-        # exist without a record, the record was deleted mid-loop — deletion
-        # must not lift the gate.
-        if (root / "quality-loop.config.json").is_file() or (root / ".quality-loop").exists():
+        # A repo that never ran the loop may stop freely. But if real loop
+        # state exists without a record, the record was deleted mid-loop —
+        # deletion must not lift the gate. (A fresh install's manifest alone
+        # is NOT loop state: see _loop_was_active.)
+        if _loop_was_active(root):
             return _block(
-                "Quality Loop is configured here (quality-loop.config.json or .quality-loop/ exists) "
+                "Quality Loop was active here (config or loop state exists) "
                 "but no agent record was found — the record may have been deleted mid-loop. Restore it "
                 "(e.g. git checkout -- .quality-loop/agent-record.json) or recreate it with "
                 "python3 scripts/quality_loop.py init-record --goal \"<goal>\" before stopping."

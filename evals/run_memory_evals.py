@@ -574,16 +574,16 @@ def case_recall_scoring_floor(tmp: Path) -> tuple[bool, str]:
          "risk_tier": "low", "scope_globs": ["svc/**"], "keywords": ["webhook", "throttle"]}, "2026-06-27"))
     lessons = mem.load_lessons(mem_dir)
     stoplisted = mem.recall(lessons, "fix failing tests", ["src/app.py"], "low", 1500)
-    one_token = mem.recall(lessons, "debug the webhook problem", ["src/app.py"], "low", 1500)
+    single_overlap = mem.recall(lessons, "debug the webhook problem", ["src/app.py"], "low", 1500)
     two_tokens = mem.recall(lessons, "debug the webhook throttle", ["src/app.py"], "low", 1500)
     path_only = mem.recall(lessons, "unrelated wording entirely", ["ci/pipeline.yml"], "low", 1500)
     ok = (
-        stoplisted == [] and one_token == []
+        stoplisted == [] and single_overlap == []
         and len(two_tokens) == 1 and "webhook sender" in two_tokens[0]["lesson"]
         and len(path_only) == 1 and "integration tests" in path_only[0]["lesson"]
     )
     return ok, (
-        f"stoplisted={len(stoplisted)}; one_token={len(one_token)}; "
+        f"stoplisted={len(stoplisted)}; single_overlap={len(single_overlap)}; "
         f"two_tokens={len(two_tokens)}; path_only={len(path_only)}"
     )
 

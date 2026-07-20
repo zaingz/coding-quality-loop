@@ -165,10 +165,37 @@ export async function checkInstall(target) {
     }
     return { findings: [manifestRel], foundHosts: [] };
   }
+  // Shape validation: an empty or wrong-shaped manifest ({}, missing host,
+  // empty files, traversing paths) must FAIL the check, not read as healthy.
+  const SUPPORTED_HOSTS = new Set(["claude-code", "codex", "cursor", "droid", "pi", "git", "github"]);
   const hosts = String(manifest.host ?? "").split(",").filter(Boolean);
-  const files = (Array.isArray(manifest.files) ? manifest.files : []).filter(
+  const allFiles = (Array.isArray(manifest.files) ? manifest.files : []).filter(
     (f) => typeof f === "string",
   );
+  const isUnsafe = (f) =>
+    f.startsWith("/") || /^[A-Za-z]:[\\/]/.test(f) || f.split(/[\\/]+/).includes("..");
+  const files = allFiles.filter((f) => !isUnsafe(f));
+  const shapeProblems = [];
+  if (manifest.version !== 1) {
+    shapeProblems.push(`manifest version is ${JSON.stringify(manifest.version ?? null)} (expected 1)`);
+  }
+  if (hosts.length === 0) {
+    shapeProblems.push("manifest records no host");
+  }
+  for (const h of hosts) {
+    if (!SUPPORTED_HOSTS.has(h)) shapeProblems.push(`manifest records unsupported host: ${h}`);
+  }
+  if (files.length === 0) {
+    shapeProblems.push("manifest lists no installed files");
+  }
+  for (const f of allFiles) {
+    if (isUnsafe(f)) shapeProblems.push(`manifest lists an unsafe path (absolute or ..): ${f}`);
+  }
+  if (shapeProblems.length > 0) {
+    for (const p of shapeProblems) warn(p);
+    info("the manifest is not a valid install record — run `cql init` to reinstall and regenerate it.");
+    findings.push(...shapeProblems);
+  }
   let present = 0;
   for (const rel of files) {
     if (await pathExists(join(target, rel))) {

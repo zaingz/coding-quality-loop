@@ -47,11 +47,13 @@ _HIGH_TIER_FILE_NAMES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
     "Pipfile.lock", "go.sum", "Cargo.lock", "Gemfile.lock",
 }
-# Word-boundary matched with a suffix wildcard so "fix"/"fixed"/"fixes" and
-# "bugfix" count but "debugging" does not trigger via the "bug" substring.
-_BUGFIX_GOAL_KEYWORDS = ("bug", "fix", "broken", "crash", "regression", "defect")
+# Explicit inflections, word-boundary matched: "fix"/"fixed"/"fixes"/"fixing"
+# and "bugfix" count, but "fixture"/"prefix" do not (the old greedy \w* suffix
+# classified "add a test fixture" as a bugfix) and "debugging" does not trigger
+# via the "bug" substring.
 _BUGFIX_GOAL_PATTERNS = [
-    re.compile(r"\b" + re.escape(w) + r"\w*\b") for w in _BUGFIX_GOAL_KEYWORDS
+    re.compile(r"\b(?:fix(?:ed|es|ing)?|bugfix(?:es)?)\b"),
+    re.compile(r"\b(?:bugs?|broken|crash(?:e[sd]|ing)?|regressions?|defects?)\b"),
 ]
 _WAIVER_KEYS = ("test_waiver", "no_test_waiver", "bugfix_test_waiver")
 
@@ -86,6 +88,42 @@ def changed_files(base: str = "HEAD", cwd: Path | None = None) -> list[str]:
     return files
 
 
+def _is_scaffolding_untracked(path: str) -> bool:
+    """Loop scaffolding (the record, .quality-loop/, caches) is process output,
+    not the change under review — mirrors diff-audit's untracked sweep."""
+    norm = path.replace("\\", "/")
+    if norm.startswith(".quality-loop/") or "/.quality-loop/" in norm:
+        return True
+    if "__pycache__/" in norm or norm.endswith(".pyc"):
+        return True
+    return norm.split("/")[-1] == "agent-record.json"
+
+
+def _untracked_pseudo_diff(cwd: Path) -> str:
+    """Deterministic diff-shaped view of untracked (non-ignored) files.
+
+    ``git diff <base>`` is blind to untracked files, so a brand-new source file
+    would be invisible to the reviewer render and the attestation hash — a
+    reviewer could approve without seeing it, and it could change afterwards
+    without staling the review. Appending the content in a stable pseudo-diff
+    closes that hole for render and hash alike.
+    """
+    code, out, _ = _git(["ls-files", "--others", "--exclude-standard"], cwd)
+    if code != 0:
+        return ""
+    chunks: list[str] = []
+    for f in sorted(p.strip() for p in out.splitlines() if p.strip()):
+        if _is_scaffolding_untracked(f):
+            continue
+        try:
+            content = (cwd / f).read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            content = f"(unreadable untracked file: {exc.__class__.__name__})\n"
+        body = "".join("+" + line + "\n" for line in content.splitlines())
+        chunks.append(f"diff --untracked a/{f} b/{f}\n--- /dev/null\n+++ b/{f}\n{body}")
+    return "".join(chunks)
+
+
 def diff_patch(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir: bool = False) -> str:
     cwd = cwd or Path.cwd()
     args = ["diff", base]
@@ -94,7 +132,7 @@ def diff_patch(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir: 
         # record itself) legitimately change after a review is attested; they
         # must not invalidate the attestation.
         args += ["--", ".", ":(exclude).quality-loop"]
-    return _git_or_fail(args, cwd)
+    return _git_or_fail(args, cwd) + _untracked_pseudo_diff(cwd)
 
 
 def diff_sha256(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir: bool = False) -> str:
@@ -218,7 +256,14 @@ def verify_gates_against_diff(
     # must not trip scope integrity or mask phantom completion as real work.
     files = [f for f in files if not f.startswith(".quality-loop/")]
     status = record.get("status")
-    non_trivial = risk in {"medium", "high"} or bool(record.get("security_sensitive"))
+    # Same non-trivial definition as the engine's collect_gate_findings: a
+    # task_class=medium/mission record must not skip scope integrity, review
+    # freshness, or the medium+ promotions by self-declaring risk_tier=low.
+    non_trivial = (
+        record.get("task_class") in {"medium", "mission"}
+        or risk in {"medium", "high"}
+        or bool(record.get("security_sensitive"))
+    )
 
     # 1. Phantom completion: package/done ∧ empty diff → fail.
     if status in {"package", "done"} and not files:

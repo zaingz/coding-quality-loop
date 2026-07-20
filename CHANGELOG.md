@@ -8,7 +8,7 @@ existing promises mechanically true, fix first contact, shrink to what gates
 actually read, and pre-register the measurement that decides the rest. Net
 effect: the enforced local path re-executes evidence, the installer can
 uninstall itself, the medium paper trail halved, the control plane became an
-opt-in add-on, and the eval floor grew to **193 gate cases** across the six
+opt-in add-on, and the eval floor grew to **213 gate cases** across the six
 core suites plus **35 add-on cases** for the control plane.
 
 **Breaking changes:**

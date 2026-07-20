@@ -107,16 +107,32 @@ Two ways to fill them:
 2. **Manual:** the host CLI's own end-of-run usage summary (`claude` and
    `codex` both print one; do not invent flags) plus wall-clock timing.
 
-The runner rejects any live run that omits the three required keys or reports
-zero tokens or zero duration (a run that consumed nothing was not
-instrumented):
+Every live run row MUST also record its provenance as machine-checked string
+fields (the "record for every cell" list below, made concrete):
+
+- `host` — host CLI + version (e.g. `"claude-code 3.1.0"`).
+- `model` — exact model id the arm ran on.
+- `skill_version` — CQL release under test (arm names are version-neutral; §1).
+- `prompt_file` — the committed prompt/spec file that drove the cell.
+
+The validator rejects any malformed or under-instrumented results document:
 
 ```bash
 python3 bench/runner.py --validate bench/results/<results>.json
 ```
 
-Fixture runs carry explicit zero placeholders and are exempt (they set
-`mode: "fixture"`); a run with no `mode` is treated as live (fail-closed).
+It fails a document with no top-level `mode` or a missing/empty `runs` list
+(zero runs is not an instrumented result), any run whose `mode` is
+inconsistent with the document's (rows cannot self-label `mode: "fixture"`
+inside a live file to dodge cost enforcement — the fixture exemption belongs
+only to documents declared `mode: "fixture"`), any live run that omits the
+provenance fields above or the three required cost keys, and any live run
+reporting zero tokens or zero duration (a run that consumed nothing was not
+instrumented).
+
+Fixture documents carry explicit zero placeholders and are exempt from the
+live cost/provenance requirements; a run with no `mode` inside a live
+document is treated as live (fail-closed).
 
 Record for every cell: host + version, model, seed, prompt file, artifacts
 location, and null results. Commit sanitized results only; keep raw workspaces

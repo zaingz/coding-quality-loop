@@ -1576,7 +1576,10 @@ def delegations_with_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     ``unjoinable`` (never a distance-0 match against everything), and the
     join is ONE-TO-ONE — each session is claimed by at most one delegation
     (globally nearest pair first; the next-nearest goes unmatched instead of
-    double-counting the session's tokens).
+    double-counting the session's tokens). One-to-one holds for explicit ids
+    too: when two ledger rows carry the SAME session_id, the first (ledger
+    order) claims the session and every later duplicate is flagged
+    ``duplicate_session_id`` and left unmatched instead of double-counting.
     """
     items: list[dict[str, Any]] = []
     claimed: set[str] = set()  # session ids already taken (direct or assigned)
@@ -1591,10 +1594,18 @@ def delegations_with_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             "session_id": detail.get("session_id"),
             "ts": detail.get("ts") or art["ts"], "title": art["title"],
             "session": None, "unmatched": True, "unjoinable": False,
+            "duplicate_session_id": False,
         }
         items.append(item)
         sid = detail.get("session_id")
         if isinstance(sid, str) and sid:
+            if sid in claimed:
+                # A session already claimed by an earlier ledger row must not
+                # attach again — direct joins are one-to-one like the
+                # heuristic, or two rows naming one session double-count its
+                # tokens. Flagged, never guessed against by the heuristic.
+                item["duplicate_session_id"] = True
+                continue
             row = conn.execute(_SESSION_JOIN_COLS + " WHERE id=?", (sid,)).fetchone()
             if row is not None:
                 item["session"] = _session_with_tokens(conn, row)
@@ -1948,7 +1959,9 @@ class _Handler(BaseHTTPRequestHandler):
             elif path == "/api/delegations":
                 rows = delegations_with_sessions(conn)
                 self._json(200, {"delegations": rows,
-                                 "unjoinable": sum(1 for r in rows if r.get("unjoinable"))})
+                                 "unjoinable": sum(1 for r in rows if r.get("unjoinable")),
+                                 "duplicate_session_id": sum(
+                                     1 for r in rows if r.get("duplicate_session_id"))})
             elif path == "/api/task":
                 task_id = query.get("task_id", "")
                 if not task_id:

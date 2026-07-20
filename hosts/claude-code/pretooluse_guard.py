@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -13,14 +14,23 @@ from hooklib import deny_pretool, json_input, load_json, project_root
 # Every pattern is anchored to a command position (start of string/line or right
 # after ; & | $( or a backtick) so quoted or read-only mentions — e.g.
 # grep -rn "git reset --hard" docs/ or echo "never rm -rf" — do not match.
-_CMD = r"(?:^|[;&|\n]|\$\(|`)\s*(?:sudo\s+)?"
+# Wrapper tokens are transparent: the destructive command still runs, so
+# `env rm -rf`, `xargs rm -rf`, `command rm -rf`, `nice rm -rf`, VAR=1
+# prefixes, and a path/backslash prefix on the binary (`/bin/rm`, `\rm`) all
+# stay anchored to the command position.
+_WRAPPER = r"(?:(?:\S*/)?(?:sudo|env|command|nice|nohup|time|xargs)\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+_CMD = r"(?:^|[;&|\n]|\$\(|`)\s*" + _WRAPPER + r"(?:\\|\S*/)?"
 # Rest of the same command segment: never crosses into the next command.
 _SEG = r"[^;&|\n]*"
 # Flag tokens (short flags combined or separate, plus long forms), matched
 # order-insensitively via segment-scoped lookaheads. Long options are excluded
 # from the short-flag branch because their second dash is not a letter.
+# --force must not match the SAFE --force-with-lease prefix, hence (?!-).
 _RECURSIVE_FLAG = r"[ \t]-(?:[a-zA-Z]*r|-recursive\b)"
-_FORCE_FLAG = r"[ \t]-(?:[a-zA-Z]*f|-force\b)"
+_FORCE_FLAG = r"[ \t]-(?:[a-zA-Z]*f|-force\b(?!-))"
+# `sh -c "..."` / `bash -lc '...'` payloads run as commands: the quoted body is
+# scanned too, so a shell wrapper string cannot smuggle a destructive command.
+_SHELL_C = re.compile(r"\b(?:ba|da|z)?sh\s+(?:-\S+\s+)*-\w*c\s+(?:\"([^\"]*)\"|'([^']*)')")
 
 DESTRUCTIVE = [
     # rm with BOTH a recursive and a force flag, in any order (-rf, -fr, -r -f,
@@ -47,7 +57,22 @@ HARNESS_RECORD_FILES = {
     "agent-record.json",
     "quality-loop.config.json",
     ".quality-loop/config.json",
+    # Hook wiring + install inventory: same protection class as the gate
+    # scripts — unwiring the hooks or rewriting the uninstall manifest defeats
+    # the gates without touching them.
+    ".claude/settings.json",
+    ".codex/hooks.json",
+    ".quality-loop/install-manifest.json",
 }
+
+
+def _command_texts(command: str) -> list[str]:
+    """The command plus the payload of any sh|bash -c quoted string, so a
+    wrapper cannot smuggle a destructive command inside a -c argument."""
+    texts = [command]
+    for m in _SHELL_C.finditer(command):
+        texts.append(m.group(1) or m.group(2) or "")
+    return texts
 
 
 def _config(root: Path) -> dict:
@@ -88,6 +113,20 @@ def _protected_target(root: Path, tool_input: dict) -> str | None:
     return None
 
 
+def _patch_protected_target(tool_input: dict) -> str | None:
+    """Best-effort apply_patch coverage: raw patch bodies carry their file
+    targets in the patch text (e.g. `*** Update File: <path>`), not in a single
+    path key, so a protected path referenced anywhere in the body is denied."""
+    text = "\n".join(v for v in tool_input.values() if isinstance(v, str))
+    if not text:
+        return None
+    for name in sorted(HARNESS_RECORD_FILES):
+        if name in text:
+            return name
+    match = re.search(r"\b(?:scripts/quality_loop[\w.-]*\.py|hosts/claude-code/[\w.-]+\.py)", text)
+    return match.group(0) if match else None
+
+
 def _scan_text(root: Path, tool_input: dict) -> str | None:
     """Deny reason when scan-text found secret-like content; None otherwise.
 
@@ -121,6 +160,22 @@ def _scan_text(root: Path, tool_input: dict) -> str | None:
     if proc.returncode == 0:
         return None
     if proc.returncode == 1:
+        # Exit 1 alone is not proof of findings: a crashed runtime (e.g. a
+        # syntax error in quality_loop.py) also exits 1. Deny only when the
+        # structured scan-text result on stdout carries non-empty findings;
+        # a crash without that marker allows with a truthful warning.
+        try:
+            result = json.loads(proc.stdout or "")
+        except json.JSONDecodeError:
+            result = None
+        findings = result.get("findings") if isinstance(result, dict) else None
+        if not (isinstance(findings, list) and findings):
+            print(
+                "quality-loop: secret scan skipped — scan-text exited 1 without a structured "
+                f"findings result (broken runtime?): {(proc.stderr or proc.stdout).strip()[:300]}",
+                file=sys.stderr,
+            )
+            return None
         detail = (proc.stdout + proc.stderr).strip()[:1500]
         return (
             "secret-like text blocked by Quality Loop scan-text; remove the secret "
@@ -163,17 +218,20 @@ def main() -> int:
     cfg = _config(root)
     protect = cfg.get("protect_harness") is not False  # default ON
     if tool == "Bash":
-        command = str(tool_input.get("command", ""))
-        if any(p.search(command) for p in DESTRUCTIVE):
+        texts = _command_texts(str(tool_input.get("command", "")))
+        if any(p.search(t) for p in DESTRUCTIVE for t in texts):
             return deny_pretool("destructive Bash command blocked by Quality Loop pretooluse_guard")
-        if protect and any(p.search(command) for p in RECORD_DESTRUCTIVE):
+        if protect and any(p.search(t) for p in RECORD_DESTRUCTIVE for t in texts):
             return deny_pretool(
                 "destructive Bash command blocked: it would delete the Quality Loop record or "
                 ".quality-loop state, erasing the loop's tamper-evident audit trail. If the loop "
                 "should leave this repo, ask the user to remove it deliberately."
             )
     if tool in EDIT_TOOLS:
-        if protect and (target := _protected_target(root, tool_input)):
+        target = _protected_target(root, tool_input) if protect else None
+        if protect and target is None and tool == "apply_patch":
+            target = _patch_protected_target(tool_input)
+        if target:
             return deny_pretool(
                 f"edit blocked: {target} is Quality Loop harness/record — tamper-evidence depends "
                 "on the agent under review not modifying its own gates, record, or config. If this "

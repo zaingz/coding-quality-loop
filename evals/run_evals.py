@@ -52,10 +52,10 @@ SCRIPT = ROOT / "scripts" / "quality_loop.py"
 # phrased "<n> add-on cases" in docs.
 #
 # BUMP THESE whenever a suite's case count changes. Current breakdown:
-#   19 static + 50 behavioral + 32 memory + 33 reality + 29 routing + 30 hook
-#   = 193 core; control add-on = 35
+#   20 static + 54 behavioral + 32 memory + 38 reality + 29 routing + 40 hook
+#   = 213 core; control add-on = 35
 # (behavioral is this file: len(CASES); run each suite to confirm.)
-CANONICAL_GATE_CASES = 193
+CANONICAL_GATE_CASES = 213
 CONTROL_ADDON_CASES = 35
 
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -1005,10 +1005,49 @@ def case_bench_validate_requires_cost_fields(tmp: Path) -> tuple[bool, str]:
         encoding="utf-8",
     )
     bad_code, bad_out = run("--validate", str(bad_live))
-    live_fails = bad_code == 1 and "MISSING-COST" in bad_out
+    live_fails = bad_code == 1 and "MISSING-COST" in bad_out and "MISSING-PROVENANCE" in bad_out
 
-    ok = fixture_ok and live_fails
-    return ok, f"fixture_validates={fixture_ok}; live_missing_cost_fails={live_fails}"
+    # v6 validator hardening (codex review): an empty-runs document fails
+    # instead of passing as "0 runs"; a live document whose rows self-label
+    # mode=fixture to dodge cost enforcement fails on mode consistency; a
+    # fully instrumented live row passes; the COMMITTED fixture smoke passes.
+    empty = tmp / "empty-runs.json"
+    empty.write_text(json.dumps({"mode": "live", "runs": []}), encoding="utf-8")
+    empty_code, empty_out = run("--validate", str(empty))
+    empty_fails = empty_code == 1 and "empty 'runs'" in empty_out
+
+    dodge = tmp / "live-fixture-dodge.json"
+    dodge.write_text(
+        json.dumps({"mode": "live", "runs": [
+            {"task_id": "webapp", "arm": "full", "seed": 0, "mode": "fixture",
+             "host": "claude-code 3.1.0", "model": "m", "skill_version": "6.0.0",
+             "prompt_file": "SPEC.md",
+             "tokens_in": 0, "tokens_out": 0, "duration_sec": 0.0}]}),
+        encoding="utf-8",
+    )
+    dodge_code, dodge_out = run("--validate", str(dodge))
+    dodge_fails = dodge_code == 1 and "MODE-MISMATCH" in dodge_out
+
+    good_live = tmp / "live-good.json"
+    good_live.write_text(
+        json.dumps({"mode": "live", "runs": [
+            {"task_id": "webapp", "arm": "full", "seed": 0, "mode": "live",
+             "host": "claude-code 3.1.0", "model": "m", "skill_version": "6.0.0",
+             "prompt_file": "SPEC.md",
+             "tokens_in": 1200, "tokens_out": 400, "duration_sec": 33.5}]}),
+        encoding="utf-8",
+    )
+    good_code, good_out = run("--validate", str(good_live))
+    good_live_ok = good_code == 0 and "OK:" in good_out
+
+    committed = ROOT / "bench" / "results" / "fixture-smoke-2026-07-20.json"
+    com_code, com_out = run("--validate", str(committed))
+    committed_ok = com_code == 0 and "OK:" in com_out
+
+    ok = fixture_ok and live_fails and empty_fails and dodge_fails and good_live_ok and committed_ok
+    return ok, (f"fixture_validates={fixture_ok}; live_missing_cost_fails={live_fails}; "
+                f"empty_runs_fails={empty_fails}; fixture_dodge_fails={dodge_fails}; "
+                f"instrumented_live_passes={good_live_ok}; committed_fixture_passes={committed_ok}")
 
 
 def case_models_used_shape(tmp: Path) -> tuple[bool, str]:
@@ -1320,6 +1359,128 @@ def case_paper_trail_is_four_artifacts(tmp: Path) -> tuple[bool, str]:
     return ok, ("4-artifact trail intact" if ok else f"problems={problems}")
 
 
+def case_ran_checks_warns_not_fails(tmp: Path) -> tuple[bool, str]:
+    """make-ran-checks-real: at medium+ an APPROVING independent_review without
+    ran_checks: true draws an advisory note (never blocking); the same review
+    with ran_checks: true stays silent."""
+    without = passing_medium()  # its independent_review omits ran_checks
+    code_w, out_w = verify_gates(tmp, without)
+    warned = code_w == 0 and "ran_checks" in out_w and "note:" in out_w and "error:" not in out_w
+
+    with_flag = passing_medium(
+        independent_review={
+            "reviewer": "agent-b",
+            "verdict": "approve",
+            "fresh_context": True,
+            "patched": False,
+            "findings": [],
+            "ran_checks": True,
+        },
+    )
+    code_f, out_f = verify_gates(tmp, with_flag)
+    silent = code_f == 0 and "ran_checks" not in out_f
+
+    ok = warned and silent
+    return ok, f"without(exit={code_w},warned={warned}); with(exit={code_f},silent={silent})"
+
+
+def case_brief_caps_over_budget_lesson(tmp: Path) -> tuple[bool, str]:
+    """recall_pool always admits the first (highest-scoring) lesson even when
+    it alone exceeds the recall budget; brief must cap the rendered digest in
+    both text and --json output instead of emitting the full lesson body."""
+    qdir = tmp / ".quality-loop"
+    (qdir / "memory").mkdir(parents=True)
+    (qdir / "agent-record.json").write_text(json.dumps({
+        "task_id": "t-b", "goal": "billing rounding overflow cleanup", "status": "review",
+        "risk_tier": "medium", "open_risks": [], "review_findings": [], "task_class": "medium",
+    }), encoding="utf-8")
+    lesson = {
+        "id": "l1", "created": "2026-01-01", "source_task_id": "t0", "kind": "gotcha",
+        "risk_tier": "medium", "scope_globs": [], "keywords": ["billing", "rounding", "overflow"],
+        "lesson": "billing rounding overflow " + ("padword " * 400) + "ZZZENDMARKER",
+        "hits": 0,
+    }
+    (qdir / "memory" / "lessons.jsonl").write_text(json.dumps(lesson) + "\n", encoding="utf-8")
+
+    code_t, out_t, _ = run_cli("brief", "--cwd", str(tmp), "--budget", "200")
+    text_capped = code_t == 0 and "ZZZENDMARKER" not in out_t and "recalled)" in out_t
+
+    code_j, out_j, _ = run_cli("brief", "--cwd", str(tmp), "--budget", "200", "--json")
+    try:
+        data = json.loads(out_j)
+        json_capped = (
+            code_j == 0
+            and data.get("lessons_recalled", 0) >= 1
+            and "ZZZENDMARKER" not in data.get("lessons_digest", "")
+            and len(data.get("lessons_digest", "")) <= 200
+        )
+    except json.JSONDecodeError:
+        json_capped = False
+
+    ok = text_capped and json_capped
+    return ok, f"text(exit={code_t},capped={text_capped}); json(exit={code_j},capped={json_capped})"
+
+
+EXAMPLE_CONFIG = ROOT / "assets" / "quality-loop.config.example.json"
+
+
+def case_check_config_core_control_plane_shape(tmp: Path) -> tuple[bool, str]:
+    """Config validation must not depend on the opt-in control-plane add-on:
+    with quality_loop_control.py absent, a malformed control_plane block (even
+    a disabled one) still fails the core shape check, and a valid disabled
+    block still passes."""
+    partial = tmp / "partial"
+    partial.mkdir()
+    src = ROOT / "scripts"
+    for name in (
+        "quality_loop.py", "quality_loop_core.py", "quality_loop_memory.py",
+        "quality_loop_reality.py", "quality_loop_routing.py",
+    ):
+        (partial / name).write_text((src / name).read_text(encoding="utf-8"), encoding="utf-8")
+    base = json.loads(EXAMPLE_CONFIG.read_text(encoding="utf-8"))
+
+    def check(control) -> tuple[int, str]:
+        cfg = dict(base)
+        if control is not None:
+            cfg["control_plane"] = control
+        cfg_path = tmp / "config.json"
+        cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(partial / "quality_loop.py"), "check-config", str(cfg_path)],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(tmp), check=False,
+        )
+        return proc.returncode, proc.stdout + proc.stderr
+
+    code_p, out_p = check({"enabled": False, "port": "8080"})
+    bad_port_fails = code_p == 1 and "control_plane.port must be an integer" in out_p
+
+    code_n, out_n = check("on")
+    non_dict_fails = code_n == 1 and "control_plane must be an object" in out_n
+
+    code_v, out_v = check(None)  # the example's own valid disabled block
+    valid_passes = code_v == 0 and "config ok" in out_v
+
+    ok = bad_port_fails and non_dict_fails and valid_passes
+    return ok, (
+        f"bad_port(exit={code_p},flagged={bad_port_fails}); "
+        f"non_dict(exit={code_n},flagged={non_dict_fails}); valid(exit={code_v})"
+    )
+
+
+def case_check_config_always_prints_heterogeneity(tmp: Path) -> tuple[bool, str]:
+    """check-config always emits a heterogeneity_status line — including the
+    no-model_routing SKIPPED case — so a passing config without routing is
+    visibly unverified rather than silently status-free."""
+    cfg = json.loads(EXAMPLE_CONFIG.read_text(encoding="utf-8"))
+    cfg.pop("model_routing", None)
+    cfg_path = tmp / "config.json"
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    code, out, err = run_cli("check-config", str(cfg_path))
+    skipped_line = "reviewer heterogeneity: SKIPPED" in out and "model_routing not configured" in out
+    ok = code == 0 and skipped_line and "config ok" in out
+    return ok, f"exit={code}; skipped_line={skipped_line}; out={out.strip()[:160]!r}"
+
+
 CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
     ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
@@ -1359,7 +1520,7 @@ CASES = [
     ("verify --require-terminal blocks an unclosed loop (implement + dirty diff)", case_require_terminal_blocks_unclosed_loop),
     ("verify --require-terminal is a no-op at done status", case_require_terminal_noop_when_done),
     ("public docs state the canonical gate-case count (numbers-consistency lint)", case_doc_counts_match_canonical),
-    ("bench --validate requires cost fields on live runs (exempts fixtures)", case_bench_validate_requires_cost_fields),
+    ("bench --validate enforces doc mode + runs + live cost/provenance (fixture docs exempt)", case_bench_validate_requires_cost_fields),
     ("optional models_used entries validate shape, attempts, and costs", case_models_used_shape),
     ("escalations entries require verified_failure trigger and differing models", case_escalations_shape),
     ("escalation must cite a recorded failing command (self-report is not evidence)", case_escalation_requires_failing_evidence),
@@ -1371,6 +1532,10 @@ CASES = [
     ("blocking verify-gates findings print as error:, not warning:", case_blocking_findings_print_as_error),
     ("reviewer contract (verdict enum + ran_checks) agrees across prompt/agents/schema", case_reviewer_contract_surfaces_agree),
     ("paper trail is four artifacts (contract/plan/record/progress)", case_paper_trail_is_four_artifacts),
+    ("approving review without ran_checks draws a note at medium+ (never blocking)", case_ran_checks_warns_not_fails),
+    ("brief caps an over-budget recalled lesson in text and --json output", case_brief_caps_over_budget_lesson),
+    ("control_plane shape is validated in core even without the add-on installed", case_check_config_core_control_plane_shape),
+    ("check-config prints heterogeneity_status even without model_routing (SKIPPED)", case_check_config_always_prints_heterogeneity),
 ]
 
 

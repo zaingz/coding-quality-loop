@@ -889,6 +889,134 @@ def case_bugfix_keywords_word_boundary(tmp: Path) -> tuple[bool, str]:
     return ok, f"debugging(exit={code_d},clean={debugging_clean}); fix(exit={code_f},flagged={fix_flagged})"
 
 
+def case_task_class_medium_low_risk_scope_integrity(tmp: Path) -> tuple[bool, str]:
+    """Reality classifier parity: a task_class=medium record must not skip the
+    medium+ diff-grounded gates by self-declaring risk_tier=low — an unmapped
+    changed file still fires scope integrity (same non-trivial definition as
+    the engine's collect_gate_findings)."""
+    repo = make_repo(tmp)
+    other = repo / "src" / "other"
+    other.mkdir(parents=True)
+    (other / "surprise.py").write_text("x = 1\n")
+    record = passing_record(repo, risk_tier="low", task_class="medium")
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    combined = (out + err).lower()
+    ok = code == 1 and "scope integrity" in combined and "surprise.py" in combined
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_bugfix_fixture_not_bugfix(tmp: Path) -> tuple[bool, str]:
+    """Bugfix inflections: 'add a test fixture' must NOT trigger bugfix-test
+    co-presence (the old greedy \\w* suffix matched 'fixture'); an explicit
+    'fix the rounding' goal still fires."""
+    def run_goal(name: str, goal: str) -> tuple[int, str]:
+        sub = tmp / name
+        sub.mkdir()
+        repo = make_repo(sub)
+        (repo / "loader.py").write_text("DATA = []\n")
+        record = passing_record(
+            repo,
+            goal=goal,
+            completion_record=_completion(files=["loader.py"]),
+            plan=["edit loader.py"],
+        )
+        path = write_record(repo, record)
+        code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+        return code, out + err
+
+    code_x, out_x = run_goal("fixture", "add a test fixture for the invoice loader")
+    fixture_clean = "bugfix-test" not in out_x.lower()
+
+    code_f, out_f = run_goal("fix", "fix the rounding in the invoice loader")
+    fix_flagged = code_f == 1 and "bugfix-test" in out_f.lower()
+
+    ok = fixture_clean and fix_flagged
+    return ok, f"fixture(exit={code_x},clean={fixture_clean}); fix(exit={code_f},flagged={fix_flagged})"
+
+
+def case_auto_base_never_falls_back_to_head(tmp: Path) -> tuple[bool, str]:
+    """Auto-base (commit-first evasion, closing the last rung): when no
+    origin/main|origin/master|main|master ref exists, the AUTO default must
+    diff against the empty tree — a HEAD fallback would empty the diff for
+    committed work and hide it from the diff-grounded gates."""
+    repo = make_repo(tmp)
+    _git(repo, "branch", "-m", "trunk")  # no main/master anywhere
+    auth = repo / "src" / "auth"
+    auth.mkdir(parents=True)
+    (auth / "login.py").write_text("def login(): pass\n")
+    _git(repo, "add", "src/auth/login.py")
+    _git(repo, "commit", "-m", "add login")
+    record = passing_record(
+        repo,
+        goal="rename a local helper for clarity",
+        risk_tier="low",
+        task_class="small",
+        status="done",
+        commands_run=[{"cmd": "read", "class": "lint", "result": "pass", "evidence": "looks good"}],
+        validation_contract=None,
+        independent_review=None,
+        completion_record=None,
+        repo_map={"entry_points": [], "likely_files": [], "callers_checked": [], "tests": []},
+        plan=[],
+        review_findings=[],
+    )
+    path = write_record(repo, record)
+    # Deliberately NO --base: the auto default must still see the committed diff.
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", cwd=str(repo))
+    combined = (out + err).lower()
+    floor_fired = "diff-derived risk floor" in combined
+    no_phantom = "phantom completion" not in combined
+    ok = code == 1 and floor_fired and no_phantom
+    return ok, f"exit={code}; floor={floor_fired}; no_phantom={no_phantom}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_attest_covers_untracked_content(tmp: Path) -> tuple[bool, str]:
+    """Canonical diff covers untracked files: a new (never git-added) source
+    file changed AFTER attestation must stale the review — with a tracked-only
+    hash the reviewer could approve without the file pinning anything."""
+    repo = make_repo(tmp)
+    (repo / "newmod.py").write_text("def feature():\n    return 1\n")  # untracked
+    review = {"reviewer": "agent-b", "verdict": "approve", "fresh_context": True, "patched": False}
+    review_path = repo / "review.json"
+    review_path.write_text(json.dumps(review))
+    code_a, out_a, err_a = run_cli("attest-review", str(review_path), "--base", "HEAD", cwd=str(repo))
+    try:
+        attested = json.loads(out_a)
+    except json.JSONDecodeError:
+        return False, f"attest output not JSON (exit={code_a}): {(out_a + err_a)[:120]!r}"
+    # The untracked file changes after the review was attested.
+    (repo / "newmod.py").write_text("def feature():\n    return 2  # changed\n")
+    record = passing_record(
+        repo,
+        independent_review=dict(attested),
+        completion_record=_completion(files=["newmod.py", "review.json"]),
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    combined = (out + err).lower()
+    ok = code == 1 and "review freshness" in combined and "stale" in combined
+    return ok, f"attest_exit={code_a}; verify_exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_render_prompt_literal_token_survives(tmp: Path) -> tuple[bool, str]:
+    """render-prompt substitutes template tokens in ONE pass: a literal
+    '{evidence}' inside the diff must survive untouched, not be recursively
+    replaced by the evidence table."""
+    repo = make_repo(tmp)
+    (repo / "README.md").write_text("# test\nmarker {evidence} stays literal\n")
+    record = passing_record(repo)
+    path = write_record(repo, record)
+    code, out, err = run_cli(
+        "render-prompt", "--role", "reviewer", "--record", str(path), "--base", "HEAD",
+        cwd=str(repo),
+    )
+    literal_survives = "marker {evidence} stays literal" in out
+    evidence_table = "| cmd | class | result | evidence |" in out
+    ok = code == 0 and literal_survives and evidence_table
+    return ok, f"exit={code}; literal_survives={literal_survives}; evidence_table={evidence_table}"
+
+
 def case_render_prompt_substitutes(tmp: Path) -> tuple[bool, str]:
     """render-prompt (2.2): the rendered reviewer prompt carries the real
     contract, diff, and evidence — no {contract}/{diff}/{evidence} placeholder
@@ -946,6 +1074,11 @@ CASES = [
     ("mapped file whitelists its own directory only, not the subtree", case_mapped_file_does_not_whitelist_subtree),
     ("bugfix keywords are word-boundary matched ('debugging' clean, 'fix' fires)", case_bugfix_keywords_word_boundary),
     ("render-prompt substitutes {contract}/{diff}/{evidence} for the reviewer role", case_render_prompt_substitutes),
+    ("task_class=medium with risk_tier=low still fires scope integrity (classifier parity)", case_task_class_medium_low_risk_scope_integrity),
+    ("'add a test fixture' is not a bugfix; 'fix the rounding' is (explicit inflections)", case_bugfix_fixture_not_bugfix),
+    ("auto base never falls back to HEAD (empty tree keeps committed work visible)", case_auto_base_never_falls_back_to_head),
+    ("untracked file content is pinned by attestation (edit after attest goes stale)", case_attest_covers_untracked_content),
+    ("render-prompt keeps a literal {evidence} token in the diff intact (single pass)", case_render_prompt_literal_token_survives),
 ]
 
 

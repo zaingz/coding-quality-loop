@@ -29,6 +29,11 @@ ARMS = ["baseline", "full", "no-review", "light"]
 REQUIRED_COST_FIELDS = ("tokens_in", "tokens_out", "duration_sec")
 COST_FIELDS = ("cost_usd",) + REQUIRED_COST_FIELDS
 
+# Provenance every live (non-fixture) run row must record so a committed
+# results file is attributable to an exact cell (bench/PROTOCOL.md §5):
+# which host CLI + version, which model, which skill version, which prompt.
+REQUIRED_LIVE_PROVENANCE = ("host", "model", "skill_version", "prompt_file")
+
 
 def load_tasks(path: Path) -> list[dict[str, Any]]:
     return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(path.glob("*.json"))]
@@ -105,11 +110,56 @@ def validate_cost_fields(runs: list[dict[str, Any]]) -> list[str]:
     return problems
 
 
-def load_runs(path: Path) -> list[dict[str, Any]]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if isinstance(data, dict):
-        return data.get("runs", [])
-    return data
+def validate_results_doc(data: Any) -> tuple[int, list[str]]:
+    """Validate a whole results document, not just its cost fields.
+
+    Contract (bench/PROTOCOL.md §5): the document is a JSON object with a
+    top-level ``mode`` and a non-empty ``runs`` list; every run's ``mode``
+    must be consistent with the document's — a live results file cannot dodge
+    cost enforcement by self-labeling rows ``fixture`` (the fixture exemption
+    belongs to documents declared ``mode: "fixture"``, like the committed
+    smoke file, whose rows are synthetic by construction). Live runs must
+    additionally carry the ``REQUIRED_LIVE_PROVENANCE`` fields. Returns
+    ``(run_count, problems)``; never raises on malformed shapes.
+    """
+    if not isinstance(data, dict):
+        return 0, ["MALFORMED: results file must be a JSON object with top-level 'mode' and 'runs'"]
+    problems: list[str] = []
+    mode = data.get("mode")
+    if not isinstance(mode, str) or not mode:
+        problems.append("MALFORMED: missing top-level 'mode' ('fixture' for synthetic smoke files; e.g. 'live' otherwise)")
+        mode = ""
+    runs = data.get("runs")
+    if not isinstance(runs, list) or not runs:
+        problems.append("MALFORMED: missing or empty 'runs' — zero runs is not an instrumented result")
+        return 0, problems
+    doc_is_fixture = mode == "fixture"
+    rows: list[dict[str, Any]] = []
+    for i, run in enumerate(runs):
+        if not isinstance(run, dict):
+            problems.append(f"MALFORMED runs[{i}]: not an object")
+            continue
+        rows.append(run)
+        label = f"{run.get('task_id', '?')}:{run.get('arm', '?')}:seed{run.get('seed', '?')}"
+        row_mode = run.get("mode")
+        if doc_is_fixture and row_mode != "fixture":
+            problems.append(f"MODE-MISMATCH {label}: run mode {row_mode!r} inside a mode='fixture' document")
+        elif not doc_is_fixture and row_mode == "fixture":
+            problems.append(
+                f"MODE-MISMATCH {label}: run self-labels 'fixture' inside a mode={mode or '?'!r} "
+                "document — the fixture cost exemption applies only to documents declared mode='fixture'"
+            )
+        if not doc_is_fixture:
+            missing = [
+                f for f in REQUIRED_LIVE_PROVENANCE
+                if not (isinstance(run.get(f), str) and run.get(f).strip())
+            ]
+            if missing:
+                problems.append(
+                    f"MISSING-PROVENANCE {label}: live run must record non-empty {missing} (bench/PROTOCOL.md §5)"
+                )
+    problems.extend(validate_cost_fields(rows))
+    return len(runs), problems
 
 
 def main() -> int:
@@ -122,30 +172,36 @@ def main() -> int:
     parser.add_argument(
         "--validate",
         metavar="RESULTS.json",
-        help="Validate an existing results file for per-arm cost fields "
-        "(tokens_in/tokens_out/duration_sec required; cost_usd optional) and "
-        "exit non-zero on any live run that omits them or reports zero "
-        "tokens/duration. Fixture runs are exempt; a run with no `mode` is "
-        "treated as live (fail-closed).",
+        help="Validate an existing results document: top-level mode + non-empty "
+        "runs required; run modes must be consistent with the document mode "
+        "(no self-labeled fixture rows inside a live file); live runs must "
+        "carry provenance (host/model/skill_version/prompt_file) and the cost "
+        "trio (tokens_in/tokens_out/duration_sec; cost_usd optional), with "
+        "zero tokens/duration rejected. Only mode='fixture' documents are "
+        "exempt from live cost/provenance; a run with no `mode` in a live "
+        "document is treated as live (fail-closed).",
     )
     args = parser.parse_args()
 
     if args.validate:
-        runs = load_runs(Path(args.validate))
-        if not runs:
-            # A results file with no runs key (or an empty list) must not read
-            # as instrumented: "OK: 0 run(s)" would be a silent pass.
-            print(f"FAIL: no runs found in {args.validate} (missing or empty 'runs').")
+        path = Path(args.validate)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"FAIL: cannot read results file {path}: {exc}")
             return 1
-        problems = validate_cost_fields(runs)
+        count, problems = validate_results_doc(data)
         if problems:
-            print(f"FAIL: {len(problems)} run(s) missing required cost instrumentation:")
+            print(f"FAIL: {len(problems)} problem(s) in {path}:")
             for problem in problems:
                 print(f"  {problem}")
             return 1
+        doc_is_fixture = data.get("mode") == "fixture"
         print(
-            f"OK: {len(runs)} run(s) carry required cost fields "
-            f"{list(REQUIRED_COST_FIELDS)} (cost_usd optional; fixture runs exempt)."
+            f"OK: {count} run(s), document mode {data.get('mode')!r}, run modes consistent, "
+            f"cost fields {list(REQUIRED_COST_FIELDS)} present"
+            + ("" if doc_is_fixture else f", live provenance {list(REQUIRED_LIVE_PROVENANCE)} present")
+            + "."
         )
         return 0
 
