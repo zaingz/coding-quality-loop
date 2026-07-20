@@ -12,7 +12,7 @@
 
 | Project | Bet | Best when |
 |---|---|---|
-| [**Coding Quality Loop**](https://github.com/zaingz/coding-quality-loop) | Executable gates + candor. One dependency-free package where the non-negotiables are checked by a script you can read. | You want the same skill to drop into Claude Code, Codex, Cursor, Pi, and Droid, and you care that "tests pass" means someone can prove it. |
+| [**Coding Quality Loop**](https://github.com/zaingz/coding-quality-loop) | Executable gates + candor. One dependency-free package where the non-negotiables are checked by a script you can read. | You want the same skill to drop into Claude Code, Codex, and Droid (advisory rules for Cursor and Pi), and you care that "tests pass" means someone can prove it. |
 | [**superpowers**](https://github.com/obra/superpowers) | Subagent-driven TDD with a two-stage review flow. | You are all-in on Claude Code and want the deepest subagent choreography. |
 | [**addyosmani/agent-skills**](https://github.com/addyosmani/agent-skills) | Broad, 24-skill SDLC suite covering the whole software lifecycle. | You want a **library** of skills (planning, testing, release, ops) rather than one focused loop. |
 | [**ponytail**](https://github.com/DietrichGebert/ponytail) | A tight minimality ladder — "always take the smaller rung". | You want the simplest possible right-size gate and nothing else. |
@@ -30,8 +30,8 @@
 | **Project memory** (distilled lessons across sessions) | ✅ | ❌ | ◐ | ❌ |
 | **Diff-grounded reality layer** (record vs `git diff`) | ✅ | ❌ | ❌ | ❌ |
 | **Zero runtime dependencies** (stdlib-only helper) | ✅ | ❌ | ◐ | ✅ |
-| **Portable across hosts** (Claude, Codex, Cursor, Pi, Droid, standalone) | ✅ | Claude-first | Claude-first | Claude-first |
-| **Offline eval suite** (proves the gates actually fire) | ✅ (171 gate cases across 7 suites) | ◐ | ❌ | ❌ |
+| **Portable across hosts** (Claude Code, Codex, Droid, standalone; advisory rules for Cursor/Pi) | ✅ | Claude-first | Claude-first | Claude-first |
+| **Offline eval suite** (proves the gates actually fire) | ✅ (193 gate cases across 6 core suites, plus 35 add-on cases for the opt-in control plane) | ◐ | ❌ | ❌ |
 | **Public benchmark harness** with trap tasks | ✅ (`bench/`) | ❌ | ❌ | ❌ |
 
 Legend: ✅ first-class · ◐ partial or advisory · ❌ not a goal
@@ -65,7 +65,7 @@ the whole product.
 ## Which one should you pick?
 
 - **Want the loop for one task, one team, one host?** Any of these can work.
-- **Want a portable skill that runs the same way in Claude Code, Codex, Cursor, Pi, and Droid, and you want the gates to be checkable?** Coding Quality Loop.
+- **Want a portable skill that runs the same way in Claude Code, Codex, and Droid, and you want the gates to be checkable?** Coding Quality Loop.
 - **Deep Claude Code shop that wants richer subagent choreography?** Superpowers.
 - **Want a broad SDLC skill library rather than a single focused loop?** addyosmani/agent-skills.
 - **Want just the minimality discipline and nothing else?** ponytail.

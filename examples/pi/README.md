@@ -1,9 +1,11 @@
 # Coding Quality Loop (Pi)
 
-> **Maintenance mode — outside the v5 routed loop.** The first-class v5 loop routes
-> **Claude Code (implementer) + Codex (independent reviewer)**. Pi remains a supported
-> install target: the skill, gates, and `setup-models --host pi` still work, and this
-> example is kept current, but Pi is not part of the two-vendor routed kernel.
+> **Advisory rules only, no runtime — outside the routed loop.** The first-class loop
+> routes **Claude Code (implementer) + Codex (independent reviewer)**. Pi loads the
+> skill text and `setup-models --host pi` still prints per-role `/model` commands, but
+> none of the hook runtime (PreToolUse guard, Stop gate, SessionStart brief) runs in
+> Pi, and the npm installer no longer offers Pi as an install target. Gates fire only
+> if you run `python3 scripts/quality_loop.py …` yourself.
 
 Pi loads skills as directories containing `SKILL.md` plus optional scripts/references/assets,
 with progressive disclosure (metadata first, full instructions when relevant). Pi discovers

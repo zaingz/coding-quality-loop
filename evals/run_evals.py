@@ -43,17 +43,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "quality_loop.py"
 
-# Canonical count of offline GATE cases. This is the single source of truth the
-# count-consistency lint (case_doc_counts_match_canonical) asserts every public
-# doc agrees with. It EXCLUDES the trigger smoke fixture, whose default grader is
-# reverse-engineered from its own prompts and cannot fail (see
-# evals/run_trigger_evals.py, evals/README.md).
+# Canonical count of offline CORE gate cases. This is the single source of truth
+# the count-consistency lint (case_doc_counts_match_canonical) asserts every
+# public doc agrees with. It EXCLUDES the trigger smoke fixture, whose default
+# grader is reverse-engineered from its own prompts and cannot fail (see
+# evals/run_trigger_evals.py, evals/README.md), and the opt-in control-plane
+# add-on suite, which is tracked separately as CONTROL_ADDON_CASES and must be
+# phrased "<n> add-on cases" in docs.
 #
-# BUMP THIS whenever a gate suite's case count changes. Current breakdown:
-#   11 static + 44 behavioral + 26 memory + 23 reality + 24 routing + 16 hook
-#   + 27 control = 171
-# (behavioral is this file: len(CASES); run it to confirm the number.)
-CANONICAL_GATE_CASES = 171
+# BUMP THESE whenever a suite's case count changes. Current breakdown:
+#   19 static + 50 behavioral + 32 memory + 33 reality + 29 routing + 30 hook
+#   = 193 core; control add-on = 35
+# (behavioral is this file: len(CASES); run each suite to confirm.)
+CANONICAL_GATE_CASES = 193
+CONTROL_ADDON_CASES = 35
 
 sys.path.insert(0, str(ROOT / "scripts"))
 import quality_loop  # noqa: E402  (SECRET_PATTERNS reused by the untracked-secret case)
@@ -906,14 +909,19 @@ def case_require_terminal_noop_when_done(tmp: Path) -> tuple[bool, str]:
 
 
 def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
-    # Numbers-consistency lint (critical review R2): every public doc that states an
-    # offline gate-case count must state CANONICAL_GATE_CASES. Guards against the
-    # 116->121 drift the review flagged. The trigger smoke fixture is counted
-    # separately and always as "10-case ..." (hyphen + singular), which this pattern
-    # deliberately does not match.
+    # Numbers-consistency lint (critical review R2 + improvement plan 2.5): every
+    # public doc that states an offline gate-case count must state
+    # CANONICAL_GATE_CASES (core suites), and every "<n> add-on cases" mention
+    # must state CONTROL_ADDON_CASES (the opt-in control-plane suite). Guards
+    # against the 116->121 drift the review flagged. Two deliberate exemptions:
+    # the trigger smoke fixture is always "10-case ..." (hyphen + singular,
+    # which the pattern does not match), and any LINE annotated "as of vX.Y" is
+    # historical by declaration — the lint must never rewrite history again
+    # (it once overwrote ROADMAP's v3.0-era count with the then-current one).
     docs = [
         ROOT / "README.md",
         ROOT / "ROADMAP.md",
+        ROOT / "CONTRIBUTING.md",
         ROOT / "docs" / "README.md",
         ROOT / "docs" / "comparison.md",
         ROOT / "docs" / "launch-kit.md",
@@ -921,26 +929,42 @@ def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
         ROOT / "evals" / "README.md",
     ]
     # CHANGELOG holds historical counts by design; only its TOP entry must be
-    # current. Dated snapshot docs (docs/critical-review-*, docs/spec-*) are
-    # deliberately excluded: they describe the tree they audited.
+    # current. Dated snapshot docs (docs/critical-review-*, docs/spec-*,
+    # docs/improvement-plan-*) are deliberately excluded: they describe the
+    # tree they audited.
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     top_entry = re.split(r"\n## ", changelog)[1] if "\n## " in changelog else changelog
     # Matches the headline phrasings only: "<n> cases", "<n> gate cases",
     # "<n> eval cases", "<n> offline cases", "<n> offline gate/eval cases".
     pattern = re.compile(r"(\d+)\s+(?:offline\s+)?(?:gate\s+|eval\s+)?cases\b", re.IGNORECASE)
+    # The add-on suite's own phrasing ("<n> add-on cases"), invisible to the
+    # core pattern above and vice versa.
+    addon_pattern = re.compile(r"(\d+)(?:-case)?\s+add-on\s+(?:gate\s+|eval\s+)?cases?\b", re.IGNORECASE)
+    historical = re.compile(r"\bas of v\d", re.IGNORECASE)
     mismatches = []
+
+    def check_text(text: str, rel: str, allow_trigger: bool) -> None:
+        for line in text.splitlines():
+            if historical.search(line):
+                continue  # "as of vX.Y" marks a historical count; exempt
+            for m in addon_pattern.finditer(line):
+                if int(m.group(1)) != CONTROL_ADDON_CASES:
+                    mismatches.append(f"{rel}: {m.group(0)!r} != {CONTROL_ADDON_CASES} (add-on)")
+            stripped = addon_pattern.sub("", line)
+            for m in pattern.finditer(stripped):
+                n = int(m.group(1))
+                if allow_trigger and n == 10:
+                    continue
+                if n != CANONICAL_GATE_CASES:
+                    mismatches.append(f"{rel}: {m.group(0)!r} != {CANONICAL_GATE_CASES}")
+
     for doc in docs:
-        rel = doc.relative_to(ROOT)
+        rel = str(doc.relative_to(ROOT))
         if not doc.exists():
             mismatches.append(f"{rel}: MISSING")
             continue
-        for m in pattern.finditer(doc.read_text(encoding="utf-8")):
-            n = int(m.group(1))
-            if n != CANONICAL_GATE_CASES:
-                mismatches.append(f"{rel}: {m.group(0)!r} != {CANONICAL_GATE_CASES}")
-    for m in pattern.finditer(top_entry):
-        if int(m.group(1)) not in (CANONICAL_GATE_CASES, 10):
-            mismatches.append(f"CHANGELOG.md (top entry): says {m.group(1)}")
+        check_text(doc.read_text(encoding="utf-8"), rel, allow_trigger=False)
+    check_text(top_entry, "CHANGELOG.md (top entry)", allow_trigger=True)
 
     ok = not mismatches
     return ok, ("all docs match canonical" if ok else f"mismatches={mismatches}")

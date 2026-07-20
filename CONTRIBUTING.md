@@ -17,7 +17,7 @@ the repo stays trustable.
 
 - [ ] The change matches an existing issue, or a new one you filed first.
 - [ ] Your PR body includes a **task contract** (goal, acceptance criteria, constraints,
-      risk tier). The [PR summary template](assets/pr-summary-template.md) is a good
+      risk tier). The [contract template](assets/contract.md) is a good
       starting point.
 - [ ] The diff is the **smallest safe rung**. If you rewrote something, say why in the PR
       body.
@@ -29,18 +29,26 @@ the repo stays trustable.
       python3 -m py_compile scripts/*.py evals/*.py
       python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
       python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
-      python3 evals/run_evals.py            # static + behavioral gate cases
+      python3 evals/run_evals.py            # behavioral gate cases (includes the doc-count lint)
       python3 evals/run_memory_evals.py
       python3 evals/run_reality_evals.py
       python3 evals/run_routing_evals.py
       python3 evals/run_hook_evals.py
-      python3 evals/run_control_evals.py
-      python3 evals/run_trigger_evals.py    # trigger smoke fixture (excluded from the 164 count; its default grader cannot fail)
+      python3 evals/run_control_evals.py    # control-plane add-on suite (in-repo checkout)
+      python3 evals/run_trigger_evals.py    # trigger smoke fixture (excluded from the headline count; its default grader cannot fail)
       ```
 
-      The seven gate suites total **164 offline gate cases** (11 static + 44 behavioral +
-      26 memory + 23 reality + 24 routing + 16 hook + 20 control). The trigger smoke
-      fixture is run separately and is **not** part of that count.
+      The six core gate suites total **193 offline gate cases** (19 static + 50 behavioral +
+      32 memory + 33 reality + 29 routing + 30 hook). The opt-in control plane adds
+      **35 add-on cases** (`run_control_evals.py`), counted separately because the
+      add-on is not installed by default. The trigger smoke fixture is run separately
+      and is **not** part of either count. The canonical numbers live in
+      `evals/run_evals.py` (`CANONICAL_GATE_CASES` / `CONTROL_ADDON_CASES`); a lint
+      fails if any public doc — this one included — contradicts them.
+
+- [ ] If your change touches `bench/`, follow the pre-registered protocol in
+      [`bench/PROTOCOL.md`](bench/PROTOCOL.md) — decision rules are committed before
+      data, and `python3 bench/runner.py --validate` must pass on any results file.
 
 - [ ] The GitHub Actions [`evals.yml`](.github/workflows/evals.yml) run is green.
 - [ ] If your change touches docs, you regenerated any affected images or diagrams and

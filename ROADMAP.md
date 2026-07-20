@@ -4,9 +4,42 @@
 > commitment; the loop's non-negotiable is that we ship the smallest correct change,
 > and that includes the roadmap itself.
 
-Last updated: 2026-07-13.
+Last updated: 2026-07-20.
 
-## Now — landed in v5.0.0
+## Now — landed in v6.0.0 (the trust-chain release)
+
+Executed against [`docs/improvement-plan-2026-07-20.md`](docs/improvement-plan-2026-07-20.md)
+(waves 1–3 plus 4.1/4.2); see `CHANGELOG.md` §6.0.0 for the full item list.
+
+- ✅ **Trust chain (wave 1).** The Stop gate runs the full `verify` umbrella
+  (evidence re-execution + AC coverage) at terminal statuses; `--base` defaults
+  to the origin/main merge-base so commit-first evasion died; medium+ acceptance
+  criteria must carry a `proving_command` matched to a pass-labeled recorded
+  command; `blocked` rows are satisfiable with a reason; a net test-shrinkage
+  gate blocks deleted/gutted tests at medium+; `protect_harness` makes gate-script
+  and record edits tamper-evident; hook failures are truthful (a missing runtime
+  is no longer reported as a secret found).
+- ✅ **Funnel (wave 2).** Install manifest + real uninstall (`cql remove` /
+  `install.py --uninstall`; init → remove leaves `git status` clean); `cql check`
+  verifies the manifest; Codex installs ship `AGENTS.md`; one canonical config
+  file (root `quality-loop.config.json`); `render-prompt` substitutes
+  `{contract}/{diff}/{evidence}` so cross-CLI reviewers stop receiving raw
+  placeholders; `docs/quickstart.md` is the single onboarding doc; cursor/pi
+  demoted to advisory rules recipes.
+- ✅ **Shrink (wave 3).** Medium paper trail 8–9 → 4 artifacts (eval-pinned);
+  SKILL.md at 89 lines with zero vendor model ids; one 4-value reviewer verdict
+  enum + `ran_checks`; control plane demoted to an opt-in add-on
+  (`--with-control-plane`, out of the npm tarball and the headline case count)
+  and dieted (session_id joins replace the fuzzy time-window join, droid runs
+  are events, drift canaries); memory recall is read-only with one ranked pool,
+  provenance, staleness flags, and `--outcome` feedback.
+- ✅ **Measurement scaffolding (4.1/4.2).** One pre-registered
+  [`bench/PROTOCOL.md`](bench/PROTOCOL.md) (version-neutral arms, committed
+  decision rules) replacing three drifting bench docs; CI validates cost fields
+  on every committed results file; `control-report --arm-costs` bridges indexed
+  sessions to the bench cost schema.
+
+## Landed in v5.0.0
 
 - ✅ **Orchestrator layer (the token-diet release).** The main session owns every
   decision — task class, context map, contract, right-size rung, plan, routing,
@@ -73,12 +106,12 @@ Last updated: 2026-07-13.
   validator resolve to the same model on medium+.
 - ✅ **Smart Friend pattern.** Optional role for implementer-to-stronger-model
   consultation on defined triggers.
-- ✅ **Ablation eval program.** `bench/ablation-protocol.md` defines the
-  protocol (3 tasks × 2-3 families × 3 seeds × 4 arms). Headline metric excludes
-  artifact dimensions.
+- ✅ **Ablation eval program.** `bench/ablation-protocol.md` (since merged into
+  `bench/PROTOCOL.md`) defined the protocol (3 tasks × 2-3 families × 3 seeds ×
+  4 arms). Headline metric excludes artifact dimensions.
 - ✅ **40% surface reduction.** Archived legacy adapters, local orchestration,
   v2.4 ceremony surfaces, and stats reporting. Scripts 4,600 → 3,300 lines.
-  171 gate cases across 7 suites (plus a 10-case trigger smoke fixture).
+  121 gate cases (as of v3.1) across 7 suites, plus a 10-case trigger smoke fixture.
 
 ## Landed earlier — v2.4
 
@@ -87,7 +120,14 @@ Last updated: 2026-07-13.
 - ✅ Reality layer (`verify-gates --against-diff`) with diff-grounded gates.
 - ✅ Project memory (files backend, budget-capped recall, secret redaction).
 
-## Next — v3.1 (target: Q4 2026)
+## Next
+
+**The next milestone is Wave 4.3: run the live ablation — or retract.** The
+protocol is pre-registered in [`bench/PROTOCOL.md`](bench/PROTOCOL.md) (arms,
+tasks, judging, cost capture, and decision rules committed before the data
+exists; a completed run forces the stated outcome). Everything the project still
+argues about in prose — which gates earn their tokens, the R5 per-model process
+depth, the small-task tax — is decided by that run. Capped at ~36 runs.
 
 ### Hardening from the webapp live eval (2026-07-07) — landed
 
@@ -105,18 +145,22 @@ never created, attested review going stale, ImportError on partial installs):
 - ✅ Calibration: product-floor for user-facing tasks (process artifacts alone
   lifted Codex totals while code quality fell); reviewer scores product fitness.
 - ✅ `hosts/codex/README.md` documents sandbox limits; `bench/live-run-recipe.md`
-  captures the proven isolation + blind-judging mechanics.
+  (since merged into `bench/PROTOCOL.md`) captured the proven isolation +
+  blind-judging mechanics.
+- ✅ **Cost/duration per cell** (landed in v6.0.0): `bench/runner.py --validate`
+  requires `tokens_in`/`tokens_out`/`duration_sec` on live runs and CI runs it on
+  every committed results file; `control-report --arm-costs` fills the fields
+  from indexed sessions.
 
 Still open from the same findings:
 
 - **Native-path live test.** One live run per host with the installed skill and
   trusted hooks (the 2026-07-07 run used drop-in delivery for isolation).
-- **Cost/duration per cell** reported alongside lift in ablation results
-  (ceremony overhead was 3-6x wall time in the webapp run).
 
-- **Live ablation results.** Run the `bench/` ablation protocol with real models
-  and commit results (use `bench/live-run-recipe.md` for the mechanics). Apply
-  the pruning rule: cut components with no code-quality lift across ≥2 families.
+- **Live ablation results (Wave 4.3 — the milestone).** Run the pre-registered
+  [`bench/PROTOCOL.md`](bench/PROTOCOL.md) with real models and commit results.
+  Apply the pruning rule: cut components with no code-quality lift across ≥2
+  families — and celebrate the deletions in the changelog.
 - **Skills Hub publish.** Validate frontmatter and publish to
   [agentskills.io](https://agentskills.io) so `gh skill install` works without a
   manual copy.
@@ -131,7 +175,8 @@ Still open from the same findings:
   Claude largest lifts) replicates at n≥3 seeds with cost capture. Deliberately
   deferred from v3.2: config before evidence would be calibration theater.
   v4.2.0 shipped the evidence base (`models_used`/`escalations` per-role model,
-  attempts, and cost capture in records); the config still waits on replication.
+  attempts, and cost capture in records); the decision rule is now pre-registered
+  in `bench/PROTOCOL.md` — Wave 4.3's run forces the outcome either way.
 
 ## Later — exploring, no ETA
 
@@ -168,8 +213,11 @@ Still open from the same findings:
   a runtime: it validates recorded escalations against failing-check evidence;
   it never triggers them. Rung ordering is a calibration claim that needs R5's
   evidence first.
-- **A cost report subcommand.** The stats surface was archived in v3.0 for a
-  reason; `jq` over completion records is the report format. The v4.3.0
-  control plane renders token spend in a local UI, but it is an index over
-  evidence with no gate consumers and no shipped prices — the deliberate line
-  is: dashboards may visualize, only records and gates decide.
+- **A cost report engine in the gate path.** The stats surface was archived in
+  v3.0 for a reason, and for the core loop `jq` over completion records remains
+  the report format. The opt-in control-plane add-on *does* now ship
+  `control-report` as its sanctioned local audit/report surface (per-task audit
+  bundles and `--arm-costs` for the bench cost bridge) — superseding the v3.0
+  "no report subcommand" stance for the add-on only. The deliberate line is
+  unchanged: it is an index over evidence with no gate consumers and no shipped
+  prices — dashboards and reports may visualize, only records and gates decide.

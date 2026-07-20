@@ -23,9 +23,11 @@ Requires: Python 3.10+, `matplotlib`, `Pillow`. No other dependencies.
 
 ## Source-of-truth invariants
 
-- `evidence_dashboard.py` — 171 offline gate cases and the 7-suite breakdown are
-  the same numbers `README.md` publishes and `evals/` pins (the trigger smoke
-  fixture is excluded). Per-agent lift values come from
+- `evidence_dashboard.py` — the gate-case count and suite breakdown must be
+  the same numbers `README.md` publishes and `evals/run_evals.py` pins
+  (`CANONICAL_GATE_CASES` / `CONTROL_ADDON_CASES`; the trigger smoke fixture is
+  excluded). The committed PNG was rendered with 171 gate cases as of v5.1.0 and
+  needs a re-render for the current counts. Per-agent lift values come from
   `examples/sudoku-agent-eval-2026-07-01/README.md` and
   `examples/webapp-agent-eval-2026-07-07/README.md`. Every number in the
   chart is traceable to a repo file.
@@ -41,7 +43,8 @@ Requires: Python 3.10+, `matplotlib`, `Pillow`. No other dependencies.
 If you change a source-of-truth number in the repo, update the generator
 and re-run it — the media should stay in sync with the record.
 
-> Regenerated 2026-07-13 for v5.1.0 (171 gate cases / 7 suites / 5 published
-> eval runs; two routed hosts — Claude Code + Codex). If you change a count,
-> re-run `python3 docs/images/src/evidence_dashboard.py` so the PNG stays in
-> sync — the numbers-consistency lint now covers this file.
+> Last regenerated 2026-07-13 (171 gate cases as of v5.1.0 / 7 suites / 5
+> published eval runs; two routed hosts — Claude Code + Codex). The v6.0.0
+> counts (193 core + a 35-case control add-on) are NOT yet rendered: re-run
+> `python3 docs/images/src/evidence_dashboard.py` (needs matplotlib) so the PNG
+> catches up — the numbers-consistency lint covers this file.

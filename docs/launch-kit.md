@@ -22,15 +22,15 @@ Use the [hero art](images/art/hero-art.png), [evidence dashboard](images/evidenc
 > change, evidence over confidence, an independent reviewer that isn't the implementer —
 > as a portable Agent Skill with executable gates.
 >
-> - Drops into Claude Code, Codex, Cursor, Pi, and Droid via copy-to-folder.
-> - Zero runtime dependencies; the gate CLI is stdlib-only Python you can read in one sitting.
-> - 171 offline gate cases across 7 suites pin the gates so they don't drift (plus a 10-case trigger smoke fixture).
+> - Drops into Claude Code, Codex, and Droid via copy-to-folder (advisory rules for Cursor and Pi).
+> - Zero runtime dependencies; the gate CLI is a handful of stdlib-only Python modules you can read.
+> - 193 offline gate cases across 6 core suites pin the gates so they don't drift (plus 35 add-on cases for the opt-in control plane and a 10-case trigger smoke fixture).
 > - Reality layer reads the actual `git diff` and catches phantom completions, stale
 >   review hashes, missing bugfix tests, and self-downgraded risk tiers.
 > - Optional project memory (files backend) so the agent stops relearning the
 >   same lesson every session.
 >
-> The README has a 60-second demo and a comparison to superpowers, addyosmani/agent-skills,
+> The README has a quickstart demo and a comparison to superpowers, addyosmani/agent-skills,
 > and ponytail. Feedback and PRs welcome.
 >
 > https://github.com/zaingz/coding-quality-loop
@@ -58,7 +58,7 @@ Use the [hero art](images/art/hero-art.png), [evidence dashboard](images/evidenc
 > - **Real proof, not "looks right to me".** Every acceptance criterion is paired with a
 >   check; the reality layer diff-audits the actual `git diff` against the record.
 > - **Reviewer ≠ implementer.** Freshness is checked; the diff hash is embedded.
-> - **Portable.** Drops into Claude Code, Codex, Cursor, Pi, and Droid via copy-to-folder.
+> - **Portable.** Drops into Claude Code, Codex, and Droid via copy-to-folder; advisory rules for Cursor and Pi.
 > - **Optional cross-session memory.** Distilled lessons, budget-capped recall, secret
 >   redaction at write.
 >
@@ -94,8 +94,8 @@ the `git diff`, and the recorded evidence — and refuses to let a task self-dow
 around auth, payments, migrations, or PII.
 
 **5/**
-Drops into Claude Code, Codex, Cursor, Pi, and Droid via copy-to-folder. Zero runtime
-dependencies. 171 offline gate cases across 7 suites, re-run on every push.
+Drops into Claude Code, Codex, and Droid via copy-to-folder. Zero runtime
+dependencies. 193 offline gate cases across 6 core suites, re-run on every push.
 
 **6/**
 Optional project memory: distilled lessons, budget-capped recall, secrets redacted at
@@ -103,7 +103,7 @@ write. Files backend, stdlib-only.
 
 **7/**
 Repo: https://github.com/zaingz/coding-quality-loop
-README has a 60-second demo, a comparison to superpowers / addyosmani/agent-skills /
+README has a quickstart demo, a comparison to superpowers / addyosmani/agent-skills /
 ponytail, and an honest table of what it enforces and what it doesn't.
 
 ---
@@ -114,9 +114,9 @@ ponytail, and an honest table of what it enforces and what it doesn't.
 
 > I've been shipping the same lesson to every coding agent I use: fix one thing, prove it,
 > let a second agent check the diff. I packaged that as an open-source Agent Skill —
-> stdlib-only, portable across Claude Code, Codex, Cursor, Pi, and Droid — with
-> executable gates that reject "looks right to me" instead of taking its word. 171
-> offline gate cases keep the gates from drifting. The repo has a 60-second demo, an
+> stdlib-only, portable across Claude Code, Codex, and Droid — with
+> executable gates that reject "looks right to me" instead of taking its word. 193
+> offline gate cases keep the gates from drifting. The repo has a quickstart demo, an
 > honest comparison to the other strong skills in this space, and an "enforced vs not
 > enforced" table so you can decide before you install:
 > https://github.com/zaingz/coding-quality-loop
@@ -133,15 +133,15 @@ ponytail, and an honest table of what it enforces and what it doesn't.
 
 > Coding Quality Loop is a portable Agent Skill that makes AI coding agents ship the
 > smallest correct change with verifiable evidence and an independent review — instead
-> of huge, self-attested diffs. Zero runtime deps. Works in every major agent host.
+> of huge, self-attested diffs. Zero runtime deps. Works in Claude Code, Codex, and Droid.
 
 **First comment (maker note):**
 
 > Hi everyone — I'm the author. I built this because my coding agents kept shipping
 > sprawling diffs and grading their own work. The loop is one Markdown skill plus a
-> stdlib-only Python gate CLI you can read in one sitting. It's not a benchmark and
+> stdlib-only Python gate CLI you can read. It's not a benchmark and
 > it's not a hosted service; it's the process I wanted my agent to follow, packaged so
-> it works the same in Claude Code, Codex, Cursor, Pi, and Droid. Honest feedback in
+> it works the same in Claude Code, Codex, and Droid. Honest feedback in
 > the comments would be more useful than upvotes.
 
 ---
@@ -151,8 +151,8 @@ ponytail, and an honest table of what it enforces and what it doesn't.
 > Coding Quality Loop is a portable Agent Skill that turns "please fix this bug" into a
 > repeatable workflow: task contract, smallest-safe rung, evidence, independent review,
 > and a durable lesson at the end. The non-negotiables are enforced by a stdlib-only
-> Python CLI so they don't drift the way prompts do. Drops into every major agent host
-> via copy-to-folder. Zero runtime dependencies.
+> Python CLI so they don't drift the way prompts do. Drops into Claude Code, Codex,
+> and Droid via copy-to-folder. Zero runtime dependencies.
 
 ---
 
@@ -160,7 +160,7 @@ ponytail, and an honest table of what it enforces and what it doesn't.
 
 - The eval badge in the README shows the current pass count.
 - The star history and version badges are up to date.
-- The 60-second demo in the README still runs on a clean checkout.
+- The quickstart demo in the README still runs on a clean checkout.
 - The "how it compares" section links to the current release of each alternative.
 
 If you catch drift between the docs and the code, the [`docs/`](.) index tells you what

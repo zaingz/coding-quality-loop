@@ -6,23 +6,25 @@ config is well-formed. They run fully offline — no models, no network, no exte
 ## Gate suites and the canonical count
 
 The offline **gate** suites — the ones that can fail on a real regression — total
-**171 gate cases across 7 suites**:
+**193 gate cases across 6 core suites**, plus **35 add-on cases** for the opt-in
+control plane:
 
 | Suite | Cases | Runner |
 |---|---:|---|
-| Static (intake classifier) | 11 | `quality_loop.py eval-cases evals/cases` |
-| Behavioral (record gates) | 44 | `evals/run_evals.py` |
-| Memory | 26 | `evals/run_memory_evals.py` |
-| Reality (record ↔ diff) | 23 | `evals/run_reality_evals.py` |
-| Routing | 24 | `evals/run_routing_evals.py` |
-| Hook (host shims) | 16 | `evals/run_hook_evals.py` |
-| Control plane (index, server, ingest) | 27 | `evals/run_control_evals.py` |
-| **Total gate cases** | **171** | re-run by `.github/workflows/evals.yml` |
+| Static (intake classifier) | 19 | `quality_loop.py eval-cases evals/cases` |
+| Behavioral (record gates) | 50 | `evals/run_evals.py` |
+| Memory | 32 | `evals/run_memory_evals.py` |
+| Reality (record ↔ diff) | 33 | `evals/run_reality_evals.py` |
+| Routing | 29 | `evals/run_routing_evals.py` |
+| Hook (host shims) | 30 | `evals/run_hook_evals.py` |
+| **Total core gate cases** | **193** | re-run by `.github/workflows/evals.yml` |
+| Control plane add-on (index, server, ingest) | 35 | `evals/run_control_evals.py` — counted separately: the add-on is installed only via `install.py --with-control-plane` and is not in the npm tarball |
 
-The canonical number lives in exactly one place — `CANONICAL_GATE_CASES` in
-[`run_evals.py`](run_evals.py) — and a behavioral case
+The canonical numbers live in exactly one place — `CANONICAL_GATE_CASES` and
+`CONTROL_ADDON_CASES` in [`run_evals.py`](run_evals.py) — and a behavioral case
 (`case_doc_counts_match_canonical`) fails if any public doc states a contradicting
-count. Bump the constant when a suite's case count changes.
+count (lines annotated "as of vX.Y" are exempt as declared-historical). Bump the
+constants when a suite's case count changes.
 
 The **10-case trigger smoke fixture** is deliberately **excluded** from this count
 (see [below](#trigger-smoke-fixture-opt-in-excluded-from-the-gate-count)).
@@ -96,7 +98,7 @@ python3 evals/run_hook_evals.py     # policy-hook enforcement
 keyword-overlap heuristic whose `coding` / `quiet` word lists were reverse-engineered from these
 exact 10 prompts. It therefore **structurally cannot fail** — passing it proves nothing about
 whether a changed `description` would actually activate. For that reason the fixture is
-**excluded from the 171-gate-case count** and the suite is **not wired into CI**.
+**excluded from the gate-case counts** and the suite is **not wired into CI**.
 
 A **real** activation check requires an LLM judge supplied via `--judge-command` (a command that
 reads `{"description", "prompt"}` on stdin and prints `true`/`false`). That is kept opt-in
@@ -124,6 +126,14 @@ python3 evals/run_trigger_evals.py --judge-command './judge-trigger.sh'  # real,
 | `09-retrospective-harness-update` | Repeated forgotten check | low | requires a durable `harness_update` |
 | `10-performance-sensitive-medium` | Independent review present | low | reviewer cannot be the implementer |
 | `11-under-fanned-monolith` | Pass command without evidence | low | a `pass` command with no evidence fails |
+| `12-medium-string-acs-blocked` | Medium task with bare string ACs | low | medium+ ACs need a `proving_command`; fails |
+| `13-low-string-acs-pass` | Low-risk task with string ACs | low | string ACs stay valid at low risk |
+| `14-blocked-with-reason-passes` | `blocked` command with a recorded reason | low | honest sandbox blocks pass |
+| `15-bare-blocked-fails` | `blocked` command without a reason | low | a bare `blocked` row fails |
+| `16-e2e-counts-as-executable` | e2e pass as the executable check | low | `e2e` counts as executable evidence |
+| `17-proving-path-no-floor` | Boundary-looking path in a `proving_command` | low | command paths do not feed the risk floor |
+| `18-tiny-boundary-risk-trumps-size` | Tiny diff touching authn | high | risk trumps size; boundary forces heavy gates |
+| `19-escalation-needs-failing-check` | Escalation citing no failing check | low | self-reported escalation is not evidence |
 
 ## Add a case
 
