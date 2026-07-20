@@ -1,5 +1,176 @@
 # Changelog
 
+## 6.1.0
+
+The field-truth release. A same-day second review round (50 fresh-context
+agents: 6 subsystem maps, 5 research sweeps over 2025–26 primary sources, 6
+adversarial critics, and two independent verification lenses per finding — 13
+of 16 majors dual-confirmed; plan:
+`docs/improvement-plan-v6.0.1-2026-07-20.md`) found that v6.0 made the trust
+chain honest in design but not yet true in the field: the gates failed exactly
+where a real repo differs from this one — record path, default branch, OS,
+language, team size, day one. v6.1.0 fixes those boundaries and unblocks the
+first real measurement. Suites: 20 static + 55 behavioral + 32 memory + 48
+reality + 30 routing + 49 hook = **234 core gate cases** (+35 control add-on).
+
+### One truth per thing
+
+- **One canonical record path.** `init-record` now defaults to
+  `.quality-loop/agent-record.json`. The documented root-path default
+  structurally failed review freshness: the attestation hash excludes only
+  `.quality-loop/`, so on the root path, writing the attested review into the
+  record changed the hashed diff and the freshness gate fired from that moment
+  on. Docs, action.yml, and templates all teach the one true path; the root
+  fallback remains readable for one deprecation release.
+- **The config version pin tells the truth.** `EXPECTED_CONFIG_VERSION` had
+  silently drifted (5.1.0 vs a 6.0.1 release) while its error message claimed
+  drift was impossible. Renamed to `CONFIG_SCHEMA_VERSION` (schema lineage,
+  which last changed in 5.1.0 — existing configs stay valid), the false
+  "share one version" parenthetical deleted, and an eval now pins constant ==
+  schema `const` == example config so a silent three-way drift cannot recur.
+- **One heterogeneity resolver.** The load-bearing cross-family check existed
+  three times (~278 lines) and the display path had already diverged from the
+  enforcing path (`brief` applied default-class fallbacks enforcement bails
+  on, so it could report "verified" for configs the gate never evaluated).
+  One resolver now feeds both; display shows SKIPPED where enforcement skips.
+- **Canonical lists de-drifted by deletion.** The shipped reviewer checklist
+  instructed a stale three-value spaced verdict list the schema rejects — now
+  the exact 4-value enum. Subagent files point at SKILL.md instead of carrying
+  mutated copies; philosophy's artifact list matches the four that ship; the
+  unchecked duplicate `validation_contract.acceptance_criteria` is gone (gates
+  read the top-level list only).
+
+### First contact
+
+- **A green hello-world.** Onboarding leads with the ~10-second green
+  walkthrough (`verify-gates examples/walkthrough/agent-record.json`, exit 0).
+  Both canonical demos used the goal "Fix checkout retry bug" — and "checkout"
+  is a payments boundary keyword, so the documented first touch of `verify`
+  was an 11-finding FAIL wall with no explanation. Demo goals are now
+  boundary-free and show expected output.
+- **Day-one base sanity.** In a repo with no `origin/*` (fresh `git init`,
+  develop/trunk defaults), the base ladder fell through to the empty tree:
+  the entire repository in every diff, scope-integrity walls, risk floors
+  firing on pre-existing files, and a ~110k-token reviewer prompt for a
+  one-line change. Now: a no-origin repo diffs against the best *local*
+  baseline — the merge-base with a local `main`/`master` when the branch has
+  diverged from it (so a feature branch's committed work stays visible), else
+  HEAD when nothing distinct resolves — with an advisory note, never the whole
+  repository. Commit-first evasion stays gated in CI, where `--require-terminal`
+  keeps the empty-tree anchor. Base precedence: `--base` > `QUALITY_LOOP_BASE`
+  > config `base` > auto ladder. Install-manifest paths count as scaffolding
+  (filtered to CQL's own shipped path shapes, so a doctored manifest cannot
+  exempt a consumer's source files), and every printed next-steps block starts
+  with the missing `git add -A && git commit` step.
+- **A teardown and a team story.** A committed terminal record used to block
+  every hook-installed clone at every Stop — after re-executing all committed
+  `commands_run` strings on the teammate's machine. A record byte-identical
+  to its content at the resolved base ref is now CLOSED: the Stop is allowed,
+  nothing re-executes. Closure requires an explicit base (`QUALITY_LOOP_BASE`
+  or the config `base` key) or an `origin/*` ref — never a local branch, so a
+  solo no-origin repo still runs the full gate (found by this release's own
+  fresh-context review).
+  PACKAGE's documented teardown: archive the record to
+  `docs/records/vX.Y.Z-agent-record.json` and remove the live file.
+  `action.yml` searches the canonical record path first and record-less PRs
+  get diff-audit + a loud warning instead of a hard fail (docs/dependabot PRs
+  have a green path); the action is now dogfooded in this repo's CI.
+- **The deterministic layer is finally dogfooded in-tree.** The repo had
+  `.claude/agents/` but no `.claude/settings.json` — the Stop gate and guard,
+  the product's centerpiece, had never once fired during CQL's own
+  development (every prior dogfood record was cleared without them). The
+  hooks are now committed and live in this repo. One honest carve-out:
+  `protect_harness` is `false` here only, because this repo's gate scripts
+  are the workpiece under edit; the always-on destructive-command layer
+  still applies and consumer installs keep the default.
+- **Windows actually gets gates.** The hook JSON shipped literal `python3` at
+  the launcher layer — the exact defect the v6.0.0 notes claimed fixed (the
+  fix had landed only inside the shims). `install.py` now writes the resolved
+  absolute interpreter at install time **only where `python3` is absent from
+  PATH** (the Windows/minimal-image case); where `python3` exists the portable
+  literal is kept, because hook settings are often committed and shared and a
+  machine-specific path would silently disable the gates on every other clone
+  (re-run install per machine if interpreters differ). npm-smoke executes the
+  wired Stop-hook command on all three OSes, so this class can never ship
+  silently again. Codex installs into non-git targets warn at install time.
+
+### Adaptability, honestly scoped
+
+- **The test lexicons cover more than this repo's languages.** Hard Rule 6's
+  weakening/shrinkage gates were silently inert in Go, Rust, Java, Ruby, and
+  C# (the Rust `assert_eq!` macro's `!` defeated the old regex; deleted Go
+  test funcs counted zero). One line per family fixed it; the
+  enforcement-matrix states exactly which languages are deterministic.
+- **Exactly three gate-config keys.** `base`, `tests.path_markers`,
+  `high_risk_paths` — additive extensions of the built-in constants, schema
+  documented as the complete deliberate gate-config surface. CQL's own
+  `evals/cases/` now counts as test paths, so case-pinned releases stop
+  shipping on a `bugfix_test_waiver` (deliberately not `evals/` wholesale —
+  the runners embed weakening-marker fixture strings to test the detector,
+  and marking them as tests made the gate flag its own fixtures; found by
+  dogfooding this release).
+- **Waivers cite evidence.** `bugfix_test_waiver` accepted any truthy value;
+  a waiver now disarms its gate only when it names a pass-labeled recorded
+  command (blocking at medium+).
+- **Allowlist hygiene.** A line in `.quality-loop/allowed-commands` consisting
+  only of `*`/`?` wildcards authorizes nothing and is warned about by line.
+- **The guard and the lifecycle stopped contradicting each other.** The
+  PreToolUse guard denied Write/Edit on the very record the lifecycle
+  requires mutating continuously (honest agents were funneled into Bash
+  heredocs — the documented tamper channel), and the Stop gate's printed
+  recovery command was itself matched by the guard's destructive-command
+  regex. The record is now deliberately unprotected (its integrity comes from
+  the freshness hash, verify recomputation, and CI — the deny message says
+  exactly this), and the remedy is `git restore --source=HEAD`.
+- **Claims sharpened to what is enforced.** README/SECURITY now state plainly:
+  the merge-base anti-evasion guarantee is CI-anchored (a local agent that
+  rewrites refs can move the base; no gate reads the reflog); truthful-but-
+  vacuous evidence rows still clear the local gate (≥3 ACs sharing one
+  proving command is warn-only); a terminal Stop auto-executes allowlisted
+  recorded commands via a shell. Two previously unowned SKILL.md imperatives
+  (pre-attestation right-size re-run, product floor) now have advisory rows
+  in the enforcement matrix. Reviewer-checklist rules from a single 2026-07-07
+  eval were removed; a lesson is promoted into a shipped checklist only after
+  recurring across ≥2 distinct tasks.
+
+### Measurement, unblocked
+
+- **The protocol was amended before any run could game it.** New
+  discriminating-power precondition (in the one live run, all four arms
+  passed the anchor task's entire objective battery — every reported lift was
+  judge noise); judges must be cross-family from the arm's own model; a
+  minimum-detectable-effect note (same-packet judge spread 0.25–3.75 is the
+  noise floor); §6.3 deletion requires an objective-metric null — judge-only
+  nulls downgrade to "unproven", never auto-delete.
+- **The §6.2 micro-task spec is committed** at
+  `bench/tasks/14-micro-bugfix.json` (verified: committed test red on the
+  buggy module, hidden cases wrong, reference fix turns all green). The
+  deliberate-omission design ("spec written by whoever executes the cell")
+  failed its purpose — §6.2 sat unrun for three releases. Six judge-free
+  token-only runs now stand between the project and its first measured
+  overhead figure.
+- **Theater deleted.** The 10-case trigger smoke fixture — whose own docstring
+  admitted its default grader "structurally cannot fail" — is gone. ~1.6 MB of
+  dated eval-run archives moved from `examples/` (which is host recipes again)
+  to `archive/eval-runs/`. The expired duplicate `_main` entry point noted for
+  deletion inside the control-plane module was folded; its docs no longer
+  claim the gate CLI lacks flags it registers.
+- **First outcome data aggregated from the repo's own history:**
+  `docs/review-yield-2026-07-20.md` computes per-release review yield and
+  post-ship escapes from `docs/records/*.json` + this changelog — including
+  the two strongest data points the repo owns (review rounds 1–4 missed two
+  majors a fifth xhigh pass caught; v6.0.0 was tagged failing its own
+  verify).
+
+### Residual limits (documented, unchanged)
+
+Tamper-evidence is still not immutability (Bash writes bypass the Edit-tool
+guard); `ran_checks` still warns rather than fails; reviewer identity is still
+a string comparison, not provenance; `run-evidence` is still not a sandbox
+(SECURITY.md's trust model stands). The §6.2 six-run cell and the Wave 4.3
+ablation remain the next milestones — the spec is now committed, so the only
+remaining input is an afternoon.
+
 ## 6.0.1
 
 Patch release closing two trust-chain holes a fifth review pass (Fable 5, xhigh)

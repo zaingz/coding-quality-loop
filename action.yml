@@ -2,9 +2,9 @@ name: "Coding Quality Loop"
 description: "Dependency-free outcome gates for coding agents. Runs the action's own pinned copy of the gate scripts (via GITHUB_ACTION_PATH), never the user checkout, so a locally softened gate script cannot defeat CI."
 inputs:
   record:
-    description: "Path to the agent record JSON."
+    description: "Path to the agent record JSON. Defaults to the canonical .quality-loop/agent-record.json; if that path is absent the action falls back to a root-level agent-record.json, matching the stop gate's search order."
     required: false
-    default: "agent-record.json"
+    default: ".quality-loop/agent-record.json"
   base:
     description: "Git base ref for diff checks. Set this to your merge target (e.g. origin/main) in PR workflows: on a committed checkout the default HEAD yields an empty diff, which makes --require-terminal and the diff-grounded gates a no-op."
     required: false
@@ -17,6 +17,10 @@ inputs:
     description: "Set to true to replay commands marked red_green at base and HEAD."
     required: false
     default: "false"
+  allow-missing-record:
+    description: "When true (default), a loop-configured checkout with no record for this PR runs diff-audit only — a green path for docs/dependabot PRs. Set false to HARD-FAIL a record-less PR once .quality-loop/ or quality-loop.config.json is present, closing the record-deletion bypass for feature work."
+    required: false
+    default: "true"
 runs:
   using: "composite"
   steps:
@@ -35,22 +39,44 @@ runs:
         QL_RECORD: ${{ inputs.record }}
         QL_BASE: ${{ inputs.base }}
         QL_RED_GREEN: ${{ inputs.red-green }}
+        QL_ALLOW_MISSING: ${{ inputs.allow-missing-record }}
       run: |
         if [ "$QL_BASE" = "HEAD" ]; then
           echo "::warning::quality-loop: base is HEAD — on a committed checkout the diff is empty, so --require-terminal and the diff-grounded gates cannot bite. Pass base: origin/<default-branch> (or the PR base) to anchor them."
         fi
-        if [ -f "$QL_RECORD" ]; then
-          cmd=(python3 "${GITHUB_ACTION_PATH}/scripts/quality_loop.py" verify "$QL_RECORD" --base "$QL_BASE" --require-terminal)
+        # Resolve the record with the same search order the stop gate uses: the
+        # explicitly requested path first, then .quality-loop/, then the root.
+        RECORD="$QL_RECORD"
+        if [ ! -f "$RECORD" ]; then
+          if [ -f ".quality-loop/agent-record.json" ]; then
+            RECORD=".quality-loop/agent-record.json"
+          elif [ -f "agent-record.json" ]; then
+            RECORD="agent-record.json"
+          fi
+        fi
+        if [ -f "$RECORD" ]; then
+          cmd=(python3 "${GITHUB_ACTION_PATH}/scripts/quality_loop.py" verify "$RECORD" --base "$QL_BASE" --require-terminal)
           if [ "$QL_RED_GREEN" = "true" ]; then
             cmd+=(--red-green)
           fi
           "${cmd[@]}"
         elif [ -d ".quality-loop" ] || [ -f "quality-loop.config.json" ]; then
-          # The checkout opted into the loop but ships no record: deleting the
-          # record must not demote CI to a diff-audit-only pass.
-          echo "::error::quality-loop config present but no record at $QL_RECORD — a repo that uses the loop cannot opt out per-PR by deleting its record."
-          exit 1
+          # The checkout opted into the loop but ships no record for this PR.
+          if [ "$QL_ALLOW_MISSING" = "false" ]; then
+            # Strict: a loop-configured repo must carry a record. This closes
+            # the record-deletion bypass (deleting the record to skip terminal
+            # status, AC coverage, evidence replay, and review freshness).
+            echo "::error::quality-loop config present but no record at $RECORD, and allow-missing-record is false. A record-less PR cannot pass in strict mode — commit an agent record or set allow-missing-record: true for docs/dependabot lanes."
+            exit 1
+          fi
+          # Soft (default): mixed teams need a green path for docs/dependabot
+          # PRs, so this is a diff-audit + a loud warning. This IS a bypass of
+          # the record gates by design — set allow-missing-record: false (or a
+          # required-record branch-protection check) to enforce records for
+          # feature work. Documented in SECURITY.md ("Missing-record CI bypass").
+          echo "::warning::quality-loop config present but no record at $RECORD — running diff-audit only (allow-missing-record is true). Record-less PRs (docs, dependabot) pass; set allow-missing-record: false to hard-fail them."
+          python3 "${GITHUB_ACTION_PATH}/scripts/quality_loop.py" diff-audit --base "$QL_BASE"
         else
-          echo "No record found at $QL_RECORD; running diff-audit only"
+          echo "No record found at $RECORD; running diff-audit only"
           python3 "${GITHUB_ACTION_PATH}/scripts/quality_loop.py" diff-audit --base "$QL_BASE"
         fi

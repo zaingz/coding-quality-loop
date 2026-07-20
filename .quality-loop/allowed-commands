@@ -4,7 +4,6 @@ python3 evals/run_hook_evals.py
 python3 evals/run_memory_evals.py
 python3 evals/run_reality_evals.py
 python3 evals/run_routing_evals.py
-python3 evals/run_trigger_evals.py
 python3 scripts/quality_loop.py eval-cases evals/cases
 python3 -m py_compile scripts/quality_loop.py scripts/quality_loop_core.py scripts/quality_loop_memory.py scripts/quality_loop_reality.py scripts/quality_loop_routing.py
 python3 bench/runner.py --mode fixture*
@@ -14,3 +13,7 @@ python3 -m py_compile scripts/quality_loop_control.py hosts/claude-code/control_
 python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
 node --test packages/npm/test/parseArgs.test.mjs packages/npm/test/detect.test.mjs packages/npm/test/cli.integration.test.mjs
 python3 bench/runner.py --validate bench/results/fixture-smoke-2026-07-20.json
+python3 scripts/quality_loop.py verify-gates examples/walkthrough/agent-record.json
+python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py
+node --check packages/npm/src/cli.mjs
+python3 scripts/quality_loop.py diff-audit

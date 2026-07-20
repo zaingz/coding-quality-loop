@@ -201,10 +201,13 @@ BOUNDARY_PATTERNS = {
 # Required content for shipping artifacts when supplied as an inline object. Each
 # tuple is an "at least one of these keys must be non-empty" group, so portable
 # field-name variants are accepted without forcing one rigid schema.
+# One truth per thing: acceptance criteria live ONLY in the record's top-level
+# acceptance_criteria list (which check-record and the AC-coverage gate read).
+# The validation_contract therefore requires goal + evidence, never a second
+# acceptance-criteria copy no gate would ever check.
 ARTIFACT_REQUIRED_FIELDS = {
     "validation_contract": (
         ("goal",),
-        ("acceptance_criteria", "done_when", "criteria"),
         ("evidence", "required_evidence", "checks", "proof"),
     ),
     "completion_record": (
@@ -627,17 +630,10 @@ def check_record(args: argparse.Namespace) -> int:
 
 
 # Scaffolding the loop writes into the working tree (the record, its sidecars,
-# the allowlist, byte-compiled helpers). It is process output, not "the change,"
-# so it must be excluded from the untracked-file sweep — the same reason the
-# attestation hash excludes .quality-loop/. Keeping "the diff" consistent
-# everywhere stops the audit from counting its own scaffolding as changed lines.
-def _is_scaffolding_path(path: str) -> bool:
-    norm = path.replace("\\", "/")
-    if norm.startswith(".quality-loop/") or "/.quality-loop/" in norm:
-        return True
-    if "__pycache__/" in norm or norm.endswith(".pyc"):
-        return True
-    return norm.split("/")[-1] == "agent-record.json"
+# the allowlist, byte-compiled helpers) is process output, not "the change" —
+# one shared predicate for the package lives in quality_loop_core
+# (is_scaffolding_path); install-manifest-listed paths join it for the
+# diff-size advisory and scope integrity only.
 
 
 # Empty tree object — diffing against it treats every tracked file as new, a
@@ -681,36 +677,64 @@ def _resolve_base(base: str, allow_head_fallback: bool = True) -> tuple[str, str
     return _EMPTY_TREE_SHA, f"base {base!r} did not resolve and no fallback base ref exists; {tail}"
 
 
-def _resolve_default_base() -> tuple[str, str | None]:
+# One-line advisory for the no-origin local default. Local commit-first
+# evasion is CI's job by doctrine: the CI anchor (verify --require-terminal)
+# keeps the empty-tree fallback and blocks loudly instead.
+_NO_ORIGIN_BASE_NOTE = (
+    "no origin baseline; diffing against HEAD — commit-first evasion is gated "
+    "in CI (pin a baseline with --base, QUALITY_LOOP_BASE, or the config \"base\" key)"
+)
+
+
+def _resolve_default_base(require_terminal: bool = False) -> tuple[str, str | None]:
     """Auto-resolve the default diff base for verify/verify-gates.
 
-    Walks the ``_resolve_base`` ladder seeded with ``origin/main``, then prefers
-    ``git merge-base <candidate> HEAD`` so committed-but-unpushed work stays
-    visible to the diff-grounded gates — a bare ``HEAD`` default let an agent
-    hide its entire diff (scope, secrets, risk floor) by committing first. The
-    ladder never falls back to HEAD here (empty tree instead) for the same
-    reason. An explicit ``--base`` always wins over this default.
+    Seed precedence: ``--base`` flag (handled by callers) > ``QUALITY_LOOP_BASE``
+    env > config ``base`` key > ``origin/main``. The seed walks the
+    ``_resolve_base`` ladder, then prefers ``git merge-base <candidate> HEAD``
+    so committed-but-unpushed work stays visible to the diff-grounded gates —
+    a bare ``HEAD`` default let an agent hide its entire diff (scope, secrets,
+    risk floor) by committing first.
+
+    Repos with NO origin baseline (a fresh ``git init``, or a local-only
+    main/master whose merge-base IS HEAD) default to ``HEAD`` with a one-line
+    advisory: diffing the whole repository forever poisoned day one (60 scope
+    errors, ~110k-token reviewer prompts for a one-line change), and
+    commit-first evasion is the CI anchor's job. Only under
+    ``--require-terminal`` (CI) does the empty-tree fallback remain, as a loud
+    blocking finding rather than a note.
     """
-    resolved, hint = _resolve_base("origin/main", allow_head_fallback=False)
+    seed = os.environ.get("QUALITY_LOOP_BASE", "").strip() or qlcore.config_base(
+        qlcore.load_gate_config()
+    ) or "origin/main"
+    resolved, hint = _resolve_base(seed, allow_head_fallback=False)
+
+    def _head_sha() -> str | None:
+        code, out, _ = qlcore.git_capture(["rev-parse", "HEAD^{commit}"])
+        return out.strip() if code == 0 and out.strip() else None
+
     if resolved == _EMPTY_TREE_SHA:
+        if not require_terminal and _head_sha():
+            return "HEAD", _NO_ORIGIN_BASE_NOTE
         return resolved, hint
     code, out, _ = qlcore.git_capture(["merge-base", resolved, "HEAD"])
     base = out.strip() if code == 0 and out.strip() else resolved
-    # A local-only checkout (no remote) resolves the base to the current branch
-    # main/master, whose merge-base with HEAD IS HEAD's commit — that would empty
-    # the diff for committed work, recreating commit-first evasion. Fall to the
-    # empty tree so committed work stays visible. This only applies to the LOCAL
-    # fallback: when a real origin/* base resolves to HEAD, the empty diff is a
-    # genuine "nothing shipped" signal (phantom completion) and must be kept.
-    if resolved in ("main", "master"):
-        hc, head_sha, _ = qlcore.git_capture(["rev-parse", "HEAD^{commit}"])
+    # A local-only baseline (no origin/* rung resolved) whose merge-base with
+    # HEAD IS HEAD's commit has nothing to diff against. This only applies to
+    # non-origin refs: when a real origin/* base resolves to HEAD, the empty
+    # diff is a genuine "nothing shipped" signal (phantom completion) and must
+    # be kept.
+    if not resolved.startswith("origin/"):
+        head_sha = _head_sha()
         bc, base_sha, _ = qlcore.git_capture(["rev-parse", base + "^{commit}"])
-        if hc == 0 and bc == 0 and head_sha.strip() and head_sha.strip() == base_sha.strip():
-            return _EMPTY_TREE_SHA, (
-                "auto-base resolved to HEAD (local-only main/master with no distinct "
-                "base ref); diffing against the empty tree so committed work stays "
-                "visible (pass --base HEAD explicitly to compare against the last commit only)."
-            )
+        if head_sha and bc == 0 and head_sha == base_sha.strip():
+            if require_terminal:
+                return _EMPTY_TREE_SHA, (
+                    "auto-base resolved to HEAD (local-only ref with no distinct "
+                    "base); diffing against the empty tree so committed work stays "
+                    "visible under --require-terminal (the CI anchor)."
+                )
+            return "HEAD", _NO_ORIGIN_BASE_NOTE
     return base, hint
 
 
@@ -743,6 +767,13 @@ def diff_audit(args: argparse.Namespace) -> int:
     blocking: list[str] = []
     base_label: str
 
+    # Install-manifest-listed paths and config-taught test markers: the
+    # manifest makes CQL's own shipped files scaffolding for the sizing
+    # advisories (a fresh install must not read as a 59-file change), and
+    # tests.path_markers extends the test lexicons additively.
+    manifest = qlcore.install_manifest_paths()
+    gate_markers = qlcore.test_path_markers(qlcore.load_gate_config())
+
     staged = bool(getattr(args, "staged", False))
     if staged:
         diff = run_git(["diff", "--cached", "--numstat"])
@@ -765,10 +796,18 @@ def diff_audit(args: argparse.Namespace) -> int:
         untracked = [
             f.strip()
             for f in run_git(["ls-files", "--others", "--exclude-standard"]).splitlines()
-            if f.strip() and not _is_scaffolding_path(f.strip())
+            if f.strip() and not qlcore.is_scaffolding_path(f.strip(), manifest)
         ]
 
-    files = [line.strip() for line in name_only.splitlines() if line.strip()]
+    all_changed = [line.strip() for line in name_only.splitlines() if line.strip()]
+    scaffolding = [f for f in all_changed if qlcore.is_scaffolding_path(f, manifest)]
+    files = [f for f in all_changed if f not in scaffolding]
+    if scaffolding:
+        advisory.append(
+            "%d CQL scaffolding file(s) excluded from audit sizing "
+            "(.quality-loop/ or install-manifest-listed): %s"
+            % (len(scaffolding), ", ".join(scaffolding[:5]))
+        )
     added = 0
     deleted = 0
     binary = 0
@@ -778,6 +817,8 @@ def diff_audit(args: argparse.Namespace) -> int:
         if len(parts) < 3:
             continue
         a, d = parts[0], parts[1]
+        if qlcore.is_scaffolding_path(parts[2].strip(), manifest):
+            continue  # scaffolding never counts toward the size advisory
         if a == "-" or d == "-":
             binary += 1
             continue
@@ -829,7 +870,7 @@ def diff_audit(args: argparse.Namespace) -> int:
             blocking.append("possible secret added in diff")
             break
 
-    weakened = qlcore.test_weakening_hits(patch)
+    weakened = qlcore.test_weakening_hits(patch, gate_markers)
     if weakened:
         blocking.append(
             "possible test-weakening (added skip/xfail/.only) in test files: "
@@ -839,7 +880,7 @@ def diff_audit(args: argparse.Namespace) -> int:
     # Deleted/gutted tests (net declaration or assertion loss). Advisory here —
     # diff-audit does not know the risk tier; verify-gates --against-diff
     # promotes the same hits to blocking at medium+.
-    advisory.extend(qlcore.test_shrinkage_hits(patch))
+    advisory.extend(qlcore.test_shrinkage_hits(patch, gate_markers))
 
     marker_count = sum(1 for line in patch.splitlines() if _SHORTCUT_MARKER_RE.search(line))
     if marker_count:
@@ -1191,6 +1232,7 @@ def collect_gate_findings(
                 base=base,
                 cwd=Path.cwd(),
                 record_path=record_path,
+                warnings=soft_warnings,
             )
             findings.extend(diff_findings)
         except SystemExit as exc:
@@ -1214,10 +1256,13 @@ REQUIRED_STEPS = [
     "RETROSPECT",
 ]
 
-# Single source of truth for the config schema/version. check_config rejects a
-# config that does not declare this version so the skill, config, CHANGELOG, and
-# npm package cannot silently drift apart.
-EXPECTED_CONFIG_VERSION = "5.1.0"
+# Config SCHEMA lineage version — the version of the config's SHAPE, which
+# last changed in release 5.1.0. It deliberately does NOT track the package
+# release version (the schema did not change in 6.0.x, so it stays 5.1.0).
+# check_config rejects a config declaring any other value, and an eval pins
+# this constant against the shipped schema's `const` and the example config so
+# a silent three-way drift cannot recur.
+CONFIG_SCHEMA_VERSION = "5.1.0"
 
 # Step model-class floor (P3.18): the planner (PLAN) and orchestrator
 # (ORCHESTRATE) steps must route to the strongest reasoning class so "the right
@@ -1226,26 +1271,14 @@ EXPECTED_CONFIG_VERSION = "5.1.0"
 STRONG_REASONING_STEPS = {"PLAN", "ORCHESTRATE"}
 
 
-def _reviewer_heterogeneity(
-    profiles: dict[str, Any], steps: list[Any], routing: Any
-) -> list[str]:
-    """Return errors if the implementer and validator collapse to one model.
+def _profile_heterogeneity(profiles: Any) -> list[str]:
+    """Error when the implementer and fresh_reviewer PROFILES name one model.
 
-    medium+ tasks require an independent reviewer, which is meaningless if the
-    same model both writes and reviews the diff. Three checks: (1) the profile
-    ``model`` fields, (2) if model_routing is configured, the resolved model for
-    the implementer leg (``main_session`` or the default host's IMPLEMENT_SLICE
-    class) vs the reviewer leg (the ``quality-loop-reviewer`` agent entry or the
-    default host's REVIEW class) -- across hosts, and (3) the resolved model
-    FAMILIES (explicit ``family`` field or well-known-prefix match), because a
-    different id is not a different reviewer when both ids are the same model
-    behind aliases (``sonnet`` vs ``claude-sonnet-4-5``). Placeholder models and
-    unknown families are skipped so an unfilled config does not false-positive;
-    ``allow_same_family: true`` is the explicit escape hatch for same-family
-    (never same-model) setups.
+    The routing-resolved heterogeneity (main_session / agents / steps classes,
+    families, placeholders) lives in the single resolver
+    ``qlroute.resolve_heterogeneity``; this covers only the legacy per-profile
+    ``model`` fields, which resolve without model_routing.
     """
-    errors: list[str] = []
-
     impl_profile = profiles.get("implementer", {}) if isinstance(profiles, dict) else {}
     rev_profile = profiles.get("fresh_reviewer", {}) if isinstance(profiles, dict) else {}
     impl_model = impl_profile.get("model") if isinstance(impl_profile, dict) else None
@@ -1254,142 +1287,14 @@ def _reviewer_heterogeneity(
         isinstance(impl_model, str) and isinstance(rev_model, str)
         and impl_model and rev_model
         and impl_model.strip().lower() == rev_model.strip().lower()
-        and not _is_placeholder_model(impl_model)
+        and not qlroute.is_placeholder_model(impl_model)
     ):
-        errors.append(
+        return [
             f"reviewer heterogeneity: implementer and fresh_reviewer are both "
             f"routed to {impl_model!r}; medium+ tasks require a different model "
             f"for review (use a different model or model_class)"
-        )
-
-    if not isinstance(routing, dict):
-        return errors
-    topo = qlroute.resolve_routing({"model_routing": routing})
-    host_models = topo["host_models"]
-    default_host = topo["default_host"]
-
-    impl_class = None
-    rev_class = None
-    for step in (steps if isinstance(steps, list) else []):
-        if not isinstance(step, dict):
-            continue
-        if step.get("step") == "IMPLEMENT_SLICE":
-            impl_class = step.get("model_class")
-        elif step.get("step") == "REVIEW":
-            rev_class = step.get("model_class")
-
-    main_session = topo["main_session"]
-    if main_session:
-        impl_host = main_session.get("host")
-        impl_cls = main_session.get("class") or impl_class
-        impl_block = qlroute.class_block(host_models, impl_host, impl_cls)
-        impl_resolved = main_session.get("model") or impl_block.get("model")
-        # The block's declared family describes the block's model; it must not
-        # be applied to an explicit main_session.model override.
-        impl_declared_family = (
-            impl_block.get("family") if not main_session.get("model") else None
-        )
-    else:
-        impl_host = default_host
-        impl_cls = impl_class
-        impl_block = qlroute.class_block(host_models, impl_host, impl_cls)
-        impl_resolved = impl_block.get("model")
-        impl_declared_family = impl_block.get("family")
-
-    # The `quality-loop-reviewer` agents entry (string or object) is what
-    # setup-models actually writes into the reviewer's agent file, so it is the
-    # effective reviewer; the REVIEW step's model_class is doctrine. When both
-    # are concrete and resolve to different models the config disagrees with
-    # itself -- flag it rather than silently trusting either.
-    rev_agent_entry = topo["agents"].get("quality-loop-reviewer")
-    step_block = qlroute.class_block(host_models, default_host, rev_class)
-    step_resolved = step_block.get("model")
-    if rev_agent_entry and rev_agent_entry.get("class"):
-        rev_host = rev_agent_entry.get("host")
-        rev_cls = rev_agent_entry.get("class")
-        if (
-            rev_class and rev_cls != rev_class
-            and not _is_placeholder_model(step_resolved)
-        ):
-            entry_block = qlroute.class_block(host_models, rev_host, rev_cls)
-            entry_resolved = entry_block.get("model")
-            if (
-                not _is_placeholder_model(entry_resolved)
-                and entry_resolved.strip().lower() != step_resolved.strip().lower()
-            ):
-                errors.append(
-                    f"reviewer heterogeneity: steps.REVIEW model_class={rev_class!r} "
-                    f"resolves to {step_resolved!r} but model_routing.agents."
-                    f"quality-loop-reviewer ({rev_cls!r} on host {rev_host!r}) "
-                    f"resolves to {entry_resolved!r}; align them -- the agents "
-                    f"entry is what setup-models applies"
-                )
-    else:
-        rev_host = default_host
-        rev_cls = rev_class
-    rev_block = qlroute.class_block(host_models, rev_host, rev_cls)
-    rev_resolved = rev_block.get("model")
-
-    if not (impl_host and rev_host and impl_cls and rev_cls):
-        return errors
-
-    # An explicit distinct main_session.model breaks the "same class => same
-    # model" implication, so the same-class branch must not fire over it.
-    ms_model = (
-        main_session.get("model")
-        if main_session and isinstance(main_session.get("model"), str)
-        else None
-    )
-    if impl_host == rev_host and impl_cls == rev_cls:
-        distinct_override = (
-            ms_model and isinstance(rev_resolved, str) and rev_resolved.strip()
-            and ms_model.strip().lower() != rev_resolved.strip().lower()
-        )
-        if not distinct_override and not (
-            _is_placeholder_model(impl_resolved) or _is_placeholder_model(rev_resolved)
-        ):
-            errors.append(
-                f"reviewer heterogeneity: IMPLEMENT_SLICE and REVIEW both "
-                f"use model_class={impl_cls!r} on host {impl_host!r}; medium+ "
-                f"tasks require a different model for review (use a different "
-                f"model or model_class)"
-            )
-        if not distinct_override:
-            return errors
-
-    if _is_placeholder_model(impl_resolved) or _is_placeholder_model(rev_resolved):
-        return errors
-
-    # Case-insensitive: `GPT-5.6-SOL` vs `gpt-5.6-sol` is one model, not two.
-    if impl_resolved.strip().lower() == rev_resolved.strip().lower():
-        errors.append(
-            f"reviewer heterogeneity: implementer ({impl_resolved!r} on host "
-            f"{impl_host!r}) and fresh_reviewer ({rev_resolved!r} on host "
-            f"{rev_host!r}) resolve to the same model; use a different model "
-            f"for review"
-        )
-        return errors
-
-    impl_family = qlroute.model_family(impl_resolved, impl_declared_family, topo["families"])
-    rev_family = qlroute.model_family(rev_resolved, rev_block.get("family"), topo["families"])
-    if (
-        impl_family and rev_family and impl_family == rev_family
-        and not topo["allow_same_family"]
-    ):
-        errors.append(
-            f"reviewer heterogeneity: implementer ({impl_resolved!r} on host "
-            f"{impl_host!r}) and fresh_reviewer ({rev_resolved!r} on host "
-            f"{rev_host!r}) resolve to the same model family {impl_family!r}; "
-            f"harness diversity does not guarantee model heterogeneity -- use a "
-            f"different family for review, or set \"allow_same_family\": true "
-            f"to accept the risk explicitly"
-        )
-    return errors
-
-
-# One implementation for the package (family checks in the routing module need
-# it too); this preserves the module-local name for existing call sites.
-_is_placeholder_model = qlroute.is_placeholder_model
+        ]
+    return []
 
 
 
@@ -1434,10 +1339,12 @@ def check_config(args: argparse.Namespace) -> int:
             errors.append(f"missing required field: {key}")
 
     version = config.get("version")
-    if "version" in config and version != EXPECTED_CONFIG_VERSION:
+    if "version" in config and version != CONFIG_SCHEMA_VERSION:
         errors.append(
-            f"config version is {version!r}; expected {EXPECTED_CONFIG_VERSION!r} "
-            f"(the skill, config, CHANGELOG, and npm package share one version)"
+            f"config version is {version!r}; expected {CONFIG_SCHEMA_VERSION!r} "
+            f"(the config SCHEMA lineage version — the schema last changed in "
+            f"release {CONFIG_SCHEMA_VERSION}; it does not track the package "
+            f"release version)"
         )
 
     profiles = config.get("profiles", {})
@@ -1485,6 +1392,30 @@ def check_config(args: argparse.Namespace) -> int:
         if tier not in routing:
             errors.append(f"routing_defaults missing tier: {tier}")
 
+    # The three deliberate gate-config keys (base / tests.path_markers /
+    # high_risk_paths) — the COMPLETE gate-config surface; everything else
+    # about the gates is deliberately not configurable. They are read
+    # best-effort at gate time, so shape errors must be loud here.
+    base_key = config.get("base")
+    if base_key is not None and (not isinstance(base_key, str) or not base_key.strip()):
+        errors.append("base must be a non-empty git ref string (the default diff base)")
+    tests_key = config.get("tests")
+    if tests_key is not None:
+        if not isinstance(tests_key, dict):
+            errors.append('tests must be an object, e.g. {"path_markers": ["evals/"]}')
+        else:
+            pm = tests_key.get("path_markers")
+            if pm is not None and (
+                not isinstance(pm, list)
+                or not all(isinstance(m, str) and m.strip() for m in pm)
+            ):
+                errors.append("tests.path_markers must be an array of non-empty strings")
+    hrp = config.get("high_risk_paths")
+    if hrp is not None and (
+        not isinstance(hrp, list) or not all(isinstance(p, str) and p.strip() for p in hrp)
+    ):
+        errors.append("high_risk_paths must be an array of non-empty path strings")
+
     memory = config.get("memory")
     if memory is not None:
         errors.extend(qlmem.validate_memory_config(memory))
@@ -1510,14 +1441,19 @@ def check_config(args: argparse.Namespace) -> int:
     if routing is not None:
         errors.extend(qlroute.validate_model_routing(routing))
 
-    errors.extend(_reviewer_heterogeneity(profiles, steps, routing))
+    # One resolver for enforcement and display: check-config appends the
+    # resolver's errors and prints its status line, so the line can never
+    # disagree with what was enforced.
+    errors.extend(_profile_heterogeneity(profiles))
+    het = qlroute.resolve_heterogeneity(config)
+    errors.extend(het["errors"])
 
     # Loud degradation: say whether heterogeneity was verified, skipped (and
     # why), or conflicted — a silent skip is indistinguishable from a pass and
     # decays the gate as model names churn. Always emitted, including the
     # no-model_routing SKIPPED case, so a passing config without routing is
     # visibly unverified rather than silently status-free.
-    print(qlroute.heterogeneity_status(config)["line"])
+    print(het["line"])
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
@@ -1910,15 +1846,22 @@ def verify(args: argparse.Namespace) -> int:
     # gates. On a fresh/detached checkout a requested ref may not exist; rather
     # than let each section die with git's raw exit 128, fall back to a sane
     # ref and tell the caller how to pin it explicitly.
+    require_terminal = bool(getattr(args, "require_terminal", False))
     if requested_base:
         base, base_hint = _resolve_base(requested_base)
     else:
-        base, base_hint = _resolve_default_base()
+        base, base_hint = _resolve_default_base(require_terminal=require_terminal)
         requested_base = "auto"
     all_findings: list[str] = []
     all_warnings: list[str] = []
     if base_hint:
-        all_warnings.append(base_hint)
+        # Under --require-terminal (the CI anchor) an empty-tree fallback is a
+        # loud blocking finding, not a note: CI without a resolvable baseline
+        # is a misconfiguration the anchor must not paper over.
+        if require_terminal and base == _EMPTY_TREE_SHA:
+            all_findings.append(base_hint)
+        else:
+            all_warnings.append(base_hint)
     sections: list[tuple[str, int, str]] = []  # (name, exit_code, output)
 
     def _run_section(fn) -> tuple[int, str]:
@@ -2191,7 +2134,14 @@ def main() -> int:
     p_init.add_argument("--goal", required=True)
     p_init.add_argument("--risk-tier", choices=sorted(RISK_TIERS), default="medium")
     p_init.add_argument("--task-id")
-    p_init.add_argument("--output", default="agent-record.json")
+    p_init.add_argument(
+        "--output",
+        default=".quality-loop/agent-record.json",
+        help="Record path (default: %(default)s — the one canonical location; "
+        "the attestation hash excludes .quality-loop/, so the record can keep "
+        "changing without staling reviews). A root ./agent-record.json is "
+        "still read as a fallback for one deprecation release.",
+    )
     p_init.set_defaults(func=init_record)
 
     p_check = sub.add_parser("check-record", help="Validate a state record")
@@ -2209,12 +2159,12 @@ def main() -> int:
     p_gates = sub.add_parser("verify-gates", help="Check verification evidence against risk tier")
     p_gates.add_argument("record")
     p_gates.add_argument("--against-diff", action="store_true", help="Also verify the record against the real git diff (phantom completion, scope integrity, review freshness, etc.)")
-    p_gates.add_argument("--base", default=None, help="Git base ref for --against-diff (default: auto — merge-base of the origin/main ladder and HEAD, so committed-but-unpushed work stays in the diff)")
+    p_gates.add_argument("--base", default=None, help="Git base ref for --against-diff (default: auto — QUALITY_LOOP_BASE env, else the config \"base\" key, else the origin/main ladder; merge-base with HEAD keeps committed-but-unpushed work in the diff)")
     p_gates.set_defaults(func=verify_gates)
 
     p_verify = sub.add_parser("verify", help="Umbrella: record gates + diff audit + evidence re-execution + AC coverage in one command")
     p_verify.add_argument("record")
-    p_verify.add_argument("--base", default=None, help="Git base ref (default: auto — merge-base of the origin/main ladder and HEAD, so committed-but-unpushed work stays in the diff)")
+    p_verify.add_argument("--base", default=None, help="Git base ref (default: auto — QUALITY_LOOP_BASE env, else the config \"base\" key, else the origin/main ladder; merge-base with HEAD keeps committed-but-unpushed work in the diff)")
     p_verify.add_argument("--timeout", type=int, default=None, help="Per-command evidence timeout in seconds (default: QUALITY_LOOP_TIMEOUT env, else 120)")
     p_verify.add_argument("--red-green", action="store_true", help="Also replay red_green commands at base (expect fail) and HEAD (expect pass)")
     p_verify.add_argument("--require-terminal", action="store_true", help="Fail if the diff vs --base is non-empty while the record status is not package/done (loop shipped unclosed)")
@@ -2279,7 +2229,7 @@ def main() -> int:
     p_render = sub.add_parser("render-prompt", help="Render a cross-CLI reviewer prompt (assets/prompts/<role>.md) with {contract}/{diff}/{evidence} substituted; pipe stdout to the reviewing CLI")
     p_render.add_argument("--role", required=True, choices=list(_RENDER_PROMPT_ROLES), help="Prompt template to render")
     p_render.add_argument("--record", required=True, help="Agent record JSON supplying the contract and evidence")
-    p_render.add_argument("--base", default=None, help="Git base ref for the diff (default: auto — merge-base of the origin/main ladder and HEAD)")
+    p_render.add_argument("--base", default=None, help="Git base ref for the diff (default: auto — same resolution as verify: QUALITY_LOOP_BASE env / config \"base\" / the origin/main ladder)")
     p_render.set_defaults(func=render_prompt)
 
     p_scan = sub.add_parser("scan-text", help="Secret-scan text from stdin (for host hook shims)")

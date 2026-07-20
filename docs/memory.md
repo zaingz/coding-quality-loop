@@ -40,7 +40,7 @@ python3 scripts/quality_loop.py memory-recall \
   --risk high
 
 # at retrospective: keep a lesson worth remembering, and credit what helped
-python3 scripts/quality_loop.py memory-commit agent-record.json
+python3 scripts/quality_loop.py memory-commit .quality-loop/agent-record.json
 python3 scripts/quality_loop.py memory-recall --goal "fix checkout retry" --bump
 
 # record how the shipped change fared (surfaced at the next session brief)

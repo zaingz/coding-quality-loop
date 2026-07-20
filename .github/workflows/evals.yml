@@ -46,3 +46,20 @@ jobs:
             python3 scripts/quality_loop.py check-record "$rec"
             python3 scripts/quality_loop.py verify-gates "$rec"
           done
+
+  # Dogfood this repo's own composite action against itself so action.yml
+  # breakage (bad YAML, a broken shell branch, a py_compile failure) is caught
+  # here instead of in a consumer repo. Soft: continue-on-error keeps gate
+  # findings from blocking; a broken action shows a red step annotation on the
+  # run page but does NOT fail the check — someone has to look to notice.
+  dogfood-action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run this repo's own action (uses: ./; soft)
+        continue-on-error: true
+        uses: ./
+        with:
+          base: origin/${{ github.base_ref || 'main' }}

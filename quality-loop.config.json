@@ -1,0 +1,12 @@
+{
+  "$schema": "./assets/quality-loop.config.schema.json",
+  "version": "5.1.0",
+  "description": "CQL's own gate configuration (dogfood). Only the deliberate three-key gate-config surface lives here \u2014 base / tests.path_markers / high_risk_paths \u2014 read best-effort by the diff-grounded gates; everything else about the gates is deliberately not configurable. This is not a full orchestration config (profiles/steps live in assets/quality-loop.config.example.json), so check-config will report the missing orchestration sections if pointed at this file. tests.path_markers teaches the gates that evals/cases/ IS this repo's pinned test-fixture suite, so case-pinned releases no longer need a bugfix_test_waiver. Deliberately NOT evals/ wholesale: the eval runners embed weakening-marker fixture strings (t.Skip, #[ignore]) to test the detector itself, and marking them as tests would make the weakening gate flag its own fixtures. protect_harness is false HERE ONLY because this repo IS the harness: its gate scripts are the workpiece under constant edit, so the guard's harness-file denies would make developing CQL impossible; the always-on destructive-command layer still applies, and consumer installs keep the default (on).",
+  "tests": {
+    "path_markers": [
+      "evals/cases/"
+    ]
+  },
+  "high_risk_paths": [],
+  "protect_harness": false
+}

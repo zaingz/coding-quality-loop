@@ -70,7 +70,7 @@ You are a skeptical but practical senior engineer. Review the diff against the t
 - Could the change create race conditions, timeouts, memory growth, N+1 queries, or cache inconsistency?
 - Are retries, backoff, and failure modes appropriate?
 - Is observability sufficient for the changed path?
-- **If the brief includes a benchmark harness or the task is performance-sensitive:** does the validation contract commit to a worst-case complexity for the hot path, and does the diff’s chosen algorithm honor it? Reject linear-scan-per-term implementations of tasks that require an inverted index, per-request re-tokenization on hot paths, or O(n) fuzzy matching over full corpora when a bounded prefix + edit-distance filter is expected.
+- **If the brief includes a benchmark harness or the task is performance-sensitive:** does the validation contract commit to a worst-case complexity for the hot path, and does the diff’s chosen algorithm honor it?
 - **Benchmark numbers must be captured against the stated target**, not just recorded. A diff that meets correctness but misses the perf target is `blocking`, not `minor`.
 
 ## Simplicity Reviewer Pass (Right-Size Gate)
@@ -120,7 +120,7 @@ A security finding at a risk boundary should be `blocking` until resolved or exp
 
 ```markdown
 ## Review Verdict
-approve | request changes | needs discussion
+approve | request_changes | needs_discussion | reject
 
 ## Summary
 <one paragraph>

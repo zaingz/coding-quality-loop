@@ -88,15 +88,13 @@ def changed_files(base: str = "HEAD", cwd: Path | None = None) -> list[str]:
     return files
 
 
-def _is_scaffolding_untracked(path: str) -> bool:
-    """Loop scaffolding (the record, .quality-loop/, caches) is process output,
-    not the change under review — mirrors diff-audit's untracked sweep."""
-    norm = path.replace("\\", "/")
-    if norm.startswith(".quality-loop/") or "/.quality-loop/" in norm:
-        return True
-    if "__pycache__/" in norm or norm.endswith(".pyc"):
-        return True
-    return norm.split("/")[-1] == "agent-record.json"
+# Loop scaffolding (the record, .quality-loop/, caches) is process output, not
+# the change under review — one shared predicate with diff-audit's untracked
+# sweep (quality_loop_core.is_scaffolding_path). Deliberately called WITHOUT an
+# install-manifest set here: the attestation hash must keep pinning untracked
+# copies of shipped files, so manifest membership only relaxes scope-integrity
+# and the diff-size advisory, never review freshness.
+_is_scaffolding_untracked = qlc.is_scaffolding_path
 
 
 def _untracked_pseudo_diff(cwd: Path) -> str:
@@ -161,14 +159,24 @@ def diff_sha256(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir:
     return hashlib.sha256(diff_patch(base, cwd, exclude_record_dir).encode("utf-8")).hexdigest()
 
 
-def _path_matches_high_tier(path: str) -> bool:
+def _path_matches_high_tier(path: str, extra: tuple[str, ...] = ()) -> bool:
+    """Built-in high-tier paths, extended (never replaced) by the config's
+    high_risk_paths entries: an entry matches as a path component, a basename,
+    or (when it contains a slash) a path prefix."""
     name = path.split("/")[-1]
     if name in _HIGH_TIER_FILE_NAMES:
         return True
     if name == ".env" or name.startswith(".env."):
         return True
-    for component in path.split("/")[:-1]:
+    parts = path.split("/")
+    for component in parts[:-1]:
         if component in _HIGH_TIER_DIR_COMPONENTS:
+            return True
+    for token in extra:
+        if "/" in token:
+            if path == token or path.startswith(token + "/"):
+                return True
+        elif token in parts:
             return True
     return False
 
@@ -222,15 +230,31 @@ def _file_is_mapped(
     return False
 
 
-def _has_waiver(record: dict[str, Any]) -> bool:
-    for key in _WAIVER_KEYS:
-        val = record.get(key)
-        if val:
-            return True
-    return False
+def _waiver_status(record: dict[str, Any]) -> tuple[bool, bool]:
+    """(waiver_present, waiver_cites_passing_command).
+
+    A waiver disarms the bugfix-test co-presence gate only when its text names
+    the cmd of a pass-labeled commands_run row (substring match). Any other
+    truthy value — `true`, free prose, an empty object — is present but
+    uncited: free text must not disarm a gate.
+    """
+    texts = [str(record.get(key)) for key in _WAIVER_KEYS if record.get(key)]
+    if not texts:
+        return False, False
+    commands = record.get("commands_run")
+    pass_cmds = [
+        c.get("cmd", "").strip()
+        for c in (commands if isinstance(commands, list) else [])
+        if isinstance(c, dict) and c.get("result") == "pass"
+        and isinstance(c.get("cmd"), str) and c.get("cmd", "").strip()
+    ]
+    cited = any(cmd in text for text in texts for cmd in pass_cmds)
+    return True, cited
 
 
-def _diff_audit_blocking_warnings(base: str, cwd: Path) -> list[str]:
+def _diff_audit_blocking_warnings(
+    base: str, cwd: Path, markers: tuple[str, ...] = qlc.TEST_PATH_MARKERS
+) -> list[str]:
     """Secret and test-weakening warnings from the real diff — promoted to
     blocking by verify-gates --against-diff at medium+."""
     warnings: list[str] = []
@@ -241,7 +265,7 @@ def _diff_audit_blocking_warnings(base: str, cwd: Path) -> list[str]:
     )
     if any(p.search(added_lines) for p in qlc.SECRET_PATTERNS):
         warnings.append("possible secret added in diff")
-    weakened = qlc.test_weakening_hits(patch)
+    weakened = qlc.test_weakening_hits(patch, markers)
     if weakened:
         warnings.append(
             "possible test-weakening (added skip/xfail/.only) in test files: "
@@ -249,7 +273,7 @@ def _diff_audit_blocking_warnings(base: str, cwd: Path) -> list[str]:
         )
     # Deleted/gutted tests (net declaration or assertion loss) are the other
     # half of Hard Rule 6; like the skip patterns, blocking at medium+ only.
-    warnings.extend(qlc.test_shrinkage_hits(patch))
+    warnings.extend(qlc.test_shrinkage_hits(patch, markers))
     return warnings
 
 
@@ -259,13 +283,22 @@ def verify_gates_against_diff(
     base: str = "HEAD",
     cwd: Path | None = None,
     record_path: Path | None = None,
+    warnings: list[str] | None = None,
 ) -> list[str]:
     """Diff-grounded findings that complement the record-only verify-gates.
 
-    Returns a list of human-readable findings (empty = clean).
+    Returns a list of human-readable findings (empty = clean). ``warnings``,
+    when supplied, receives advisory-only notes (currently: an uncited bugfix
+    test waiver below medium risk).
     """
     cwd = cwd or Path.cwd()
     findings: list[str] = []
+    # The three deliberate gate-config keys (tests.path_markers /
+    # high_risk_paths; "base" is resolved by the caller) extend the built-in
+    # constants — best-effort, additive, never replacing.
+    gate_cfg = qlc.load_gate_config(cwd)
+    markers = qlc.test_path_markers(gate_cfg)
+    risk_extras = qlc.high_risk_path_extras(gate_cfg)
     files = changed_files(base, cwd)
     if record_path is not None:
         try:
@@ -293,6 +326,11 @@ def verify_gates_against_diff(
         )
 
     # 2. Scope integrity: changed files ⊄ repo_map ∪ plan ∪ completion_record.
+    # Install-manifest-listed paths are CQL's own scaffolding (the 59-file
+    # install would otherwise poison every canonical diff until merged) and are
+    # exempt here and in the diff-size advisory only — membership-based, since
+    # the manifest records no content hashes (see install_manifest_paths).
+    manifest = qlc.install_manifest_paths(cwd)
     if files and non_trivial:
         paths, globs, dirs = _allowed_paths_and_globs(record)
         # A malformed record (scalar plan) must degrade to a finding, not crash:
@@ -302,7 +340,7 @@ def verify_gates_against_diff(
         plan_text = " ".join(str(p) for p in plan_items).lower()
         unmapped = [
             f for f in files
-            if not _file_is_mapped(f, paths, globs, dirs, plan_text)
+            if f not in manifest and not _file_is_mapped(f, paths, globs, dirs, plan_text)
         ]
         if unmapped:
             findings.append(
@@ -312,25 +350,39 @@ def verify_gates_against_diff(
             )
 
     # 3. Diff-derived risk floor: high-tier paths force high-risk gates.
-    forced = [f for f in files if _path_matches_high_tier(f)]
+    forced = [f for f in files if _path_matches_high_tier(f, risk_extras)]
     if forced and risk != "high":
         findings.append(
             "diff-derived risk floor: changed paths force high-tier gates: %s"
             % ", ".join(forced[:5])
         )
 
-    # 4. Bugfix-test co-presence: bugfix + no test in diff + no waiver → fail.
+    # 4. Bugfix-test co-presence: bugfix + no test in diff + no valid waiver →
+    # fail. A waiver counts only when it cites a pass-labeled commands_run cmd;
+    # an uncited waiver blocks at medium+ and degrades to a warning below.
     goal = str(record.get("goal", "")).lower()
     is_bugfix = any(p.search(goal) for p in _BUGFIX_GOAL_PATTERNS)
-    if is_bugfix and files and not _has_waiver(record):
+    if is_bugfix and files:
         tests_in_diff = [
-            f for f in files if any(m in f.lower() for m in qlc.TEST_PATH_MARKERS)
+            f for f in files if any(m in f.lower() for m in markers)
         ]
-        if not tests_in_diff:
-            findings.append(
-                "bugfix-test co-presence: goal mentions a bug/fix but no test file is "
-                "present in the diff and no waiver is recorded"
-            )
+        waiver_present, waiver_cited = _waiver_status(record)
+        if not tests_in_diff and not (waiver_present and waiver_cited):
+            if not waiver_present:
+                findings.append(
+                    "bugfix-test co-presence: goal mentions a bug/fix but no test file is "
+                    "present in the diff and no waiver is recorded"
+                )
+            else:
+                uncited = (
+                    "bugfix-test co-presence: waiver must cite a recorded passing command "
+                    "(name the pass-labeled commands_run cmd that stands in for the "
+                    "missing test) — free text does not disarm the gate"
+                )
+                if non_trivial:
+                    findings.append(uncited)
+                elif warnings is not None:
+                    warnings.append(uncited)
 
     # 5. Review freshness: recomputed at medium+ for BOTH the independent and the
     # security review — a stale security approval at a risk boundary is exactly
@@ -369,7 +421,7 @@ def verify_gates_against_diff(
     # 6. Promote diff-audit secret/test-weakening warnings to blocking at medium+.
     if non_trivial:
         try:
-            findings.extend(_diff_audit_blocking_warnings(base, cwd))
+            findings.extend(_diff_audit_blocking_warnings(base, cwd, markers))
         except SystemExit:
             pass
 
@@ -393,24 +445,43 @@ def attest_review(
     return out
 
 
-def _load_allowlist(cwd: Path) -> list[str]:
+# A pattern whose text stripped of *, ? and whitespace is empty matches every
+# command — a bare `*` line would turn the allowlist into "auto-execute
+# anything the record claims", so such lines authorize nothing.
+_MATCH_ALL_PATTERN_RE = re.compile(r"^[\s*?]*$")
+
+
+def _load_allowlist(cwd: Path) -> tuple[list[str], list[str]]:
+    """(patterns, warnings) from .quality-loop/allowed-commands.
+
+    Degenerate match-everything lines stay in ``patterns`` (``_command_allowed``
+    skips them) but each produces a warning naming its line number.
+    """
+    warnings: list[str] = []
     candidates = [cwd / ".quality-loop" / "allowed-commands"]
     for path in candidates:
         if path.is_file():
             patterns: list[str] = []
-            for line in path.read_text(encoding="utf-8").splitlines():
+            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
+                if _MATCH_ALL_PATTERN_RE.match(line):
+                    warnings.append(
+                        "allowlist line %d (%r) matches every command and is ignored — "
+                        "list the specific verification commands instead" % (lineno, line)
+                    )
                 patterns.append(line)
-            return patterns
-    return []
+            return patterns, warnings
+    return [], warnings
 
 
 def _command_allowed(cmd: str, patterns: list[str]) -> bool:
     if not patterns:
         return False
     for pat in patterns:
+        if _MATCH_ALL_PATTERN_RE.match(pat):
+            continue  # a pattern that matches everything authorizes nothing
         if fnmatch.fnmatch(cmd, pat):
             return True
     return False
@@ -463,7 +534,7 @@ def run_evidence(
         c for c in record.get("commands_run", []) or []
         if isinstance(c, dict) and c.get("result") == "pass"
     ]
-    allowlist = _load_allowlist(cwd)
+    allowlist, allowlist_warnings = _load_allowlist(cwd)
     findings: list[str] = []
     reruns: list[dict[str, Any]] = []
 
@@ -531,6 +602,8 @@ def run_evidence(
         "commands": reruns,
         "red_green": red_green_results,
         "findings": findings,
+        # Advisory only (never exit-affecting): degenerate allowlist lines.
+        "warnings": allowlist_warnings,
     }
     # Sidecar — never the record.
     sidecar = cwd / ".quality-loop" / f"rerun-{task_id}.json"
@@ -653,6 +726,7 @@ def cmd_run_evidence(args: Any) -> int:
         "commands_rerun": len(result["commands"]),
         "red_green_checks": len(result["red_green"]),
         "findings": findings,
+        "warnings": result.get("warnings", []),
         "sidecar": str(Path.cwd() / ".quality-loop" / f"rerun-{result['task_id']}.json"),
     }
     print(json.dumps(summary, indent=2))

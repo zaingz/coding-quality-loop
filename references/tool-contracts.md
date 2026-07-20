@@ -9,7 +9,7 @@ blocks; everything else here is evidence tooling.
 **Primary verification (one command):**
 
 ```bash
-python3 scripts/quality_loop.py verify agent-record.json --red-green
+python3 scripts/quality_loop.py verify .quality-loop/agent-record.json --red-green
 ```
 
 `verify` runs record-shape gates, diff-grounded reality checks, evidence re-execution, and
@@ -17,8 +17,9 @@ AC-to-command coverage in one pass.
 
 - `--base` defaults to **auto**: the merge-base of the first resolvable ref in the
   `origin/main` → `origin/master` → `main` → `master` → `HEAD` ladder and `HEAD` (empty tree
-  as last resort), so committed-but-unpushed work stays in the diff. An explicit `--base`
-  always wins. `verify-gates` and `render-prompt` share this auto default; `diff-audit`,
+  as last resort), so committed-but-unpushed work stays in the diff. Precedence: an explicit
+  `--base` flag wins, then the `QUALITY_LOOP_BASE` env var, then the config `base` key, then the
+  auto ladder. `verify-gates` and `render-prompt` share this auto default; `diff-audit`,
   `run-evidence`, and `attest-review` keep a `--base` default of `HEAD`.
 - `--timeout <seconds>` bounds each evidence re-execution; precedence is `--timeout` >
   `QUALITY_LOOP_TIMEOUT` env > default 120. (The standalone `run-evidence` subcommand keeps
@@ -26,16 +27,30 @@ AC-to-command coverage in one pass.
 - `--require-terminal` fails when the diff vs base is non-empty while the record status is
   not `package`/`done`.
 
+**Gate configuration (exactly three keys).** The gates read three keys from the canonical root
+`quality-loop.config.json`, and these three are the complete, deliberate gate-config surface —
+everything else about the gates is intentionally not configurable:
+
+- `base` — seeds the base-resolution ladder above (overridden by `QUALITY_LOOP_BASE`, then by an
+  explicit `--base`).
+- `tests.path_markers` — the path fragments that mark a file as a test, so a repo whose tests
+  live under `evals/` or `spec/` gets the bugfix-test and test-shrinkage gates. Point markers at
+  real test/fixture paths only: a marked file that *embeds* weakening-marker strings (say, a
+  test harness whose fixtures contain `t.Skip` or `.only`) will trip the weakening gate on its
+  own fixtures.
+- `high_risk_paths` — extra path prefixes that force the diff-derived risk floor, for a repo
+  whose auth/payments code lives outside the built-in defaults.
+
 **Individual commands (for targeted checks):**
 
 ```bash
-python3 scripts/quality_loop.py init-record --goal "Fix bug" --risk-tier medium --output agent-record.json
-python3 scripts/quality_loop.py check-record agent-record.json --strict
-python3 scripts/quality_loop.py verify-gates agent-record.json --against-diff
+python3 scripts/quality_loop.py init-record --goal "Fix bug" --risk-tier medium --output .quality-loop/agent-record.json
+python3 scripts/quality_loop.py check-record .quality-loop/agent-record.json --strict
+python3 scripts/quality_loop.py verify-gates .quality-loop/agent-record.json --against-diff
 python3 scripts/quality_loop.py diff-audit --base origin/main
-python3 scripts/quality_loop.py run-evidence agent-record.json --red-green --base origin/main
+python3 scripts/quality_loop.py run-evidence .quality-loop/agent-record.json --red-green --base origin/main
 python3 scripts/quality_loop.py attest-review review.json --base origin/main
-python3 scripts/quality_loop.py render-prompt --role reviewer --record agent-record.json
+python3 scripts/quality_loop.py render-prompt --role reviewer --record .quality-loop/agent-record.json
 python3 scripts/quality_loop.py scan-text --stdin
 python3 scripts/quality_loop.py brief
 python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json

@@ -10,10 +10,10 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-6.0.1-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-6.1.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-219%20core%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-234%20core%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-routed-111111?style=flat-square)](#install--use-matrix)
@@ -194,11 +194,10 @@ python3 evals/run_reality_evals.py                                              
 python3 evals/run_hook_evals.py                                                              # 7. host hook fixtures
 python3 evals/run_routing_evals.py                                                           # 8. model routing
 python3 evals/run_control_evals.py                                                           # 9. control-plane add-on (in-repo checkout only; not in the npm tarball)
-python3 evals/run_trigger_evals.py                                                           # 10. activation smoke (excluded from the count)
-python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 11. bench fixture smoke
+python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 10. bench fixture smoke
 ```
 
-Current result: **20/20 static** + **54/54 behavioral** + **32/32 memory** + **42/42 reality** + **29/29 routing** + **42/42 hook** = **219 gate cases** across the six core suites, plus **35 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). A separate **10-case trigger smoke** fixture runs locally (step 10 above): its default grader is keyword-overlap and structurally cannot fail, so it is excluded from the gate count — a real activation check needs `--judge-command` with an LLM judge.
+Current result: **20/20 static** + **55/55 behavioral** + **32/32 memory** + **48/48 reality** + **30/30 routing** + **49/49 hook** = **234 gate cases** across the six core suites, plus **35 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -217,11 +216,11 @@ Five eval directories are committed with source, numbers, and caveats. Read them
 
 | Eval | Date | Task | Agents | Methodology | Headline result (incl. negatives) |
 |---|---|---|---|---|---|
-| [Sudoku 06-28](examples/sudoku-agent-eval-2026-06-28/README.md) | 2026-06-28 | Browser Sudoku app | "Claude-style" + "OpenAI-style", skill vs baseline | Methodology not recorded (build invocation undocumented) | Skill avg 90.8 vs 83.3 baseline (~+7.5); original pilot |
-| [Sudoku 07-01](examples/sudoku-agent-eval-2026-07-01/README.md) | 2026-07-01 | Browser Sudoku app | Codex, Claude Code, Droid/GLM-5.2 | Model-proxy (Perplexity subagents, per procmon cross-ref); no browser automation | CQL +4.5 avg (Codex +1.0, Claude Code +4.5, Droid/GLM-5.2 +8.0) |
-| [ts-search 07-03](examples/ts-search-eval-2026-07-03/README.md) | 2026-07-03 | TS in-memory search library | Codex (GPT-5), Claude Code (Sonnet 5) | Subagent proxy (not the real CLIs) | Claude Code **+15.0**; Codex **−9.0** (a 60× slower single-term strategy crushed the perf dimension) |
-| [procmon 07-03](examples/rust-procmon-eval-2026-07-03/README.md) | 2026-07-03 | Rust process manager | Codex (GPT-5), Claude Code (Sonnet 4.6) | Model-proxy (Perplexity subagents) | Overall +5.75 (Codex +4.0, Claude +7.5) — almost all from D7 artifacts; code-quality dims flat-to-worse |
-| [Webapp 07-07](examples/webapp-agent-eval-2026-07-07/README.md) | 2026-07-07 | Browser task manager | Codex (gpt-5.5), Claude Code (claude-fable-5) | Live CLI + real browser verification (drop-in delivery) | Code-quality **excl. D7**: Claude Code **+6.67**, Codex **−1.11** (totals with D7: +16.0 / +7.5) |
+| [Sudoku 06-28](archive/eval-runs/sudoku-agent-eval-2026-06-28/README.md) | 2026-06-28 | Browser Sudoku app | "Claude-style" + "OpenAI-style", skill vs baseline | Methodology not recorded (build invocation undocumented) | Skill avg 90.8 vs 83.3 baseline (~+7.5); original pilot |
+| [Sudoku 07-01](archive/eval-runs/sudoku-agent-eval-2026-07-01/README.md) | 2026-07-01 | Browser Sudoku app | Codex, Claude Code, Droid/GLM-5.2 | Model-proxy (Perplexity subagents, per procmon cross-ref); no browser automation | CQL +4.5 avg (Codex +1.0, Claude Code +4.5, Droid/GLM-5.2 +8.0) |
+| [ts-search 07-03](archive/eval-runs/ts-search-eval-2026-07-03/README.md) | 2026-07-03 | TS in-memory search library | Codex (GPT-5), Claude Code (Sonnet 5) | Subagent proxy (not the real CLIs) | Claude Code **+15.0**; Codex **−9.0** (a 60× slower single-term strategy crushed the perf dimension) |
+| [procmon 07-03](archive/eval-runs/rust-procmon-eval-2026-07-03/README.md) | 2026-07-03 | Rust process manager | Codex (GPT-5), Claude Code (Sonnet 4.6) | Model-proxy (Perplexity subagents) | Overall +5.75 (Codex +4.0, Claude +7.5) — almost all from D7 artifacts; code-quality dims flat-to-worse |
+| [Webapp 07-07](archive/eval-runs/webapp-agent-eval-2026-07-07/README.md) | 2026-07-07 | Browser task manager | Codex (gpt-5.5), Claude Code (claude-fable-5) | Live CLI + real browser verification (drop-in delivery) | Code-quality **excl. D7**: Claude Code **+6.67**, Codex **−1.11** (totals with D7: +16.0 / +7.5) |
 
 All directional, not durable benchmark claims — and note the sign flips: the lift is model-specific (Claude positive, Codex flat-to-negative), which is exactly why the live ablation is pre-registered before it runs. The webapp run also caught an agent silently softening its local copy of the gate script and reporting PASS against it — see the panel below. The benchmark harness, fixture-smoke result, and the pre-registered protocol live in [`bench/PROTOCOL.md`](bench/PROTOCOL.md).
 
@@ -233,15 +232,25 @@ All directional, not durable benchmark claims — and note the sign flips: the l
 
 </div>
 
-During the [Webapp 07-07](examples/webapp-agent-eval-2026-07-07/README.md) run, one agent silently softened its workspace copy of `diff-audit` and reported `Overall: PASS` under its own weakened gate. The pristine gates, re-run against the same record, failed it immediately — that contrast is the product in one incident. The fix ([`CHANGELOG.md` §3.1.0](CHANGELOG.md#310)): `verify` prints a sha256 for each helper module, the SKILL.md rule *never repair or stub the helper; report and stop*, and reality-eval cases pinning it. A repeated failure becomes a durable rule, test, and hook — not a chat correction.
+During the [Webapp 07-07](archive/eval-runs/webapp-agent-eval-2026-07-07/README.md) run, one agent silently softened its workspace copy of `diff-audit` and reported `Overall: PASS` under its own weakened gate. The pristine gates, re-run against the same record, failed it immediately — that contrast is the product in one incident. The fix ([`CHANGELOG.md` §3.1.0](CHANGELOG.md#310)): `verify` prints a sha256 for each helper module, the SKILL.md rule *never repair or stub the helper; report and stop*, and reality-eval cases pinning it. A repeated failure becomes a durable rule, test, and hook — not a chat correction.
 
 ### Run it yourself on your task
 
-For medium/high-risk work, create a state record and run the primary verification command — an umbrella over record-shape gates, diff-grounded reality checks, evidence re-execution, and AC-to-command coverage:
+First, see a record that already passes, end to end, in about ten seconds (exit 0):
 
 ```bash
-python3 scripts/quality_loop.py init-record --goal "Fix checkout retry bug" --risk-tier medium --output agent-record.json
-python3 scripts/quality_loop.py verify agent-record.json --red-green   # --base defaults to the merge-base with origin/main
+python3 scripts/quality_loop.py verify-gates examples/walkthrough/agent-record.json
+# verification gates look sufficient for recorded risk tier
+# (exit 0 — this is what a complete, honest record looks like)
+```
+
+Then start your own. For medium/high-risk work, create a state record and run the primary verification command — an umbrella over record-shape gates, diff-grounded reality checks, evidence re-execution, and AC-to-command coverage:
+
+```bash
+python3 scripts/quality_loop.py init-record --goal "Fix invoice total rounding" --risk-tier medium --output .quality-loop/agent-record.json
+python3 scripts/quality_loop.py verify .quality-loop/agent-record.json --red-green   # --base defaults to the merge-base with origin/main
+# Overall: FAIL
+# (expected — a freshly-initialized record has no evidence or review yet; verify lists exactly what to fill in)
 ```
 
 ---
@@ -269,14 +278,14 @@ Most tools hide this table. Ours is one of the best marketing artifacts in the r
 | Enforced today | Not enforced by design, to stay portable |
 |---|---|
 | Non-trivial work, meaning medium/mission or any medium/high-risk or security-sensitive task, requires a named implementer, a real **validation contract**, an approving **independent review** by someone *other than* the implementer, and, at ship, a **completion record** with evidence. Required fields must be present and non-empty; bare booleans, empty strings, and nonexistent paths are rejected. It checks *shape*, not whether the content is substantive. A small low-risk task ships with handoff evidence, not a formal completion record. | `run-evidence` re-executes allowlisted commands but is **not a sandbox**. The trust model is repo-defined commands, same as CI. Commands not on the `.quality-loop/allowed-commands` allowlist are skipped and reported as `not_allowed`, not run. |
-| **Reality layer.** `verify-gates --against-diff` reads the real git diff and catches **phantom completion**, **scope integrity**, a **diff-derived risk floor**, **bugfix-test co-presence**, and **stale review hashes**. `run-evidence` **re-executes** recorded pass commands; `--red-green` replays a red_green command in a worktree at base and HEAD. Worktree unavailable means "not proven", never a silent pass. `attest-review` embeds the recomputed diff hash. | Reviewer/implementer separation is compared as trimmed strings and fresh context is self-attested. `attest-review` plus `--against-diff` make review *freshness* checkable, but cannot prove the reviewer *read* the diff. |
+| **Reality layer.** `verify-gates --against-diff` reads the real git diff and catches **phantom completion**, **scope integrity**, a **diff-derived risk floor**, **bugfix-test co-presence**, and **stale review hashes**. `run-evidence` **re-executes** recorded pass commands; `--red-green` replays a red_green command in a worktree at base and HEAD. Worktree unavailable means "not proven", never a silent pass. `attest-review` embeds the recomputed diff hash. | Reviewer/implementer separation is compared as trimmed strings and fresh context is self-attested. `attest-review` plus `--against-diff` make review *freshness* checkable, but cannot prove the reviewer *read* the diff. The merge-base the diff is computed against is a **CI-anchored** guarantee, not a local one: locally, an agent that rewrites refs can move the base, and no gate reads the reflog to catch it — commit-first evasion is CI's job. |
 | **Detected-risk floor.** The record goal, criteria, and plan are scanned for auth/authz, secrets, crypto, payments, migrations, destructive, concurrency, data-loss, PII, and infra boundaries. Any hit forces high-risk plus security-review gates regardless of the declared tier. | The detected-risk floor is a curated heuristic. It catches honest mis-tiering, not an agent deliberately phrasing around it. **Deterministic policy hooks** remain the backstop for anything you cannot afford an agent to get wrong. |
 | **UNDERSTAND is gated.** Non-trivial work must carry a substantive context map with entry points or likely files plus callers or tests. | **`verify-gates` without `--against-diff` reads the record, not the diff.** It confirms recorded evidence is present and well-formed; `--against-diff` adds diff-grounded checks. `diff-audit` and CI remain the blocking layer. |
 | Every `pass` command carries a verifiable evidence handle and known `class`; a recorded minimality decision; and `diff-audit` flags secrets, including **untracked files** and **test-weakening**, dependency edits, migrations, and oversized diffs. `diff-audit --staged` covers the pre-commit diff; `scan-text --stdin` is a secret-scan-as-a-service for hook shims. | The helper is not a hosted agent service. Authentication, model cost, and production rollout remain the caller's responsibility. |
 | **Repeated failure -> durable change.** A recurring mistake must become a rule/test/hook/checklist/template, so a clean final record cannot bury a mistake corrected only in chat. | Host hooks are advisory unless the host or repo chooses to trust and enable them. Git hooks and CI are the portable backstop. |
 | **Helper-integrity reporting.** `verify` prints the sha256 of each helper module so a hook or CI can catch a locally modified gate script. Motivated by the [gate-gaming incident](#the-gate-gaming-story). | Helper-integrity is a *report*, not an enforcement action by itself — pair it with a CI check that compares against a known-good sha to make it blocking. |
 
-The runtime entry points are `verify` (the umbrella: record gates + diff audit + evidence re-execution + AC coverage), `verify-gates`, `verify-gates --against-diff`, `check-record`, `diff-audit`, `run-evidence`, `attest-review`, `render-prompt`, and `scan-text --stdin`, pinned by [evals](evals/). On Claude Code, the Stop hook runs the full `verify` umbrella (evidence re-execution included) at terminal statuses — fabricated pass rows no longer clear the local gate.
+The runtime entry points are `verify` (the umbrella: record gates + diff audit + evidence re-execution + AC coverage), `verify-gates`, `verify-gates --against-diff`, `check-record`, `diff-audit`, `run-evidence`, `attest-review`, `render-prompt`, and `scan-text --stdin`, pinned by [evals](evals/). On Claude Code, the Stop hook runs the full `verify` umbrella (evidence re-execution included) at terminal statuses — fabricated pass rows no longer clear the local gate. The honest caveat: *truthful-but-vacuous* rows still clear it — an allowlisted no-op (e.g. `true`) named as the proving command for every acceptance criterion re-executes and passes, and >=3 criteria sharing one proving command is warn-only, even at medium+. The gate checks that evidence exists and re-runs, not that it is substantive.
 
 **Reviewer heterogeneity.** `check-config` now hard-fails when the implementer and fresh_reviewer resolve to the same model on medium+ tasks. **Tool-using evaluator.** The reviewer must execute tests and benchmarks when available, not just read the diff; the verdict records `ran_checks: true|false`. **Communication-bridge rule.** After the reviewer produces findings, the implementer filters them against the contract: in-scope findings become fix tasks, out-of-scope findings become follow-ups. This prevents review loops.
 
@@ -375,16 +384,16 @@ Medium/high-risk and long-running work maintains a compact state record. Tiny ta
 Helper script commands are advisory. They do not replace human review, tests, scanners, or CI.
 
 ```bash
-python3 scripts/quality_loop.py verify agent-record.json --red-green      # primary: record gates + diff audit + evidence + AC coverage (--base defaults to the origin/main merge-base; --timeout for slow suites)
-python3 scripts/quality_loop.py init-record --goal "Fix invoice total rounding" --risk-tier medium --output agent-record.json
-python3 scripts/quality_loop.py check-record agent-record.json
+python3 scripts/quality_loop.py verify .quality-loop/agent-record.json --red-green      # primary: record gates + diff audit + evidence + AC coverage (--base defaults to the origin/main merge-base; --timeout for slow suites)
+python3 scripts/quality_loop.py init-record --goal "Fix invoice total rounding" --risk-tier medium --output .quality-loop/agent-record.json
+python3 scripts/quality_loop.py check-record .quality-loop/agent-record.json
 python3 scripts/quality_loop.py diff-audit --base origin/main
 python3 scripts/quality_loop.py diff-audit --staged
-python3 scripts/quality_loop.py verify-gates agent-record.json
-python3 scripts/quality_loop.py verify-gates agent-record.json --against-diff
+python3 scripts/quality_loop.py verify-gates .quality-loop/agent-record.json
+python3 scripts/quality_loop.py verify-gates .quality-loop/agent-record.json --against-diff
 python3 scripts/quality_loop.py attest-review review.json --base origin/main
-python3 scripts/quality_loop.py run-evidence agent-record.json --red-green --base origin/main
-python3 scripts/quality_loop.py render-prompt --role reviewer --record agent-record.json   # substituted reviewer prompt for a cross-CLI review leg
+python3 scripts/quality_loop.py run-evidence .quality-loop/agent-record.json --red-green --base origin/main
+python3 scripts/quality_loop.py render-prompt --role reviewer --record .quality-loop/agent-record.json   # substituted reviewer prompt for a cross-CLI review leg
 python3 scripts/quality_loop.py scan-text --stdin < suspicious-file.txt
 python3 scripts/quality_loop.py brief
 python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
@@ -408,7 +417,7 @@ It is **retrieval, not context stuffing**: only a <=40-line index auto-loads, re
 python3 scripts/quality_loop.py memory-recall --goal "fix checkout retry" \
   --files src/payments/charge.py --risk high
 # at retrospective, keep a lesson worth remembering
-python3 scripts/quality_loop.py memory-commit agent-record.json
+python3 scripts/quality_loop.py memory-commit .quality-loop/agent-record.json
 ```
 
 The default backend is **stdlib-only and checked-in**: `.quality-loop/memory/`, git-diffable and team-shared.
@@ -513,7 +522,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all suites green: 20 static + 54 behavioral + 32 memory + 42 reality + 29 routing + 42 hook = 219 gate cases, plus 35 add-on cases for the control plane and the 10-case trigger smoke fixture).
+     and the full eval suite (all suites green: 20 static + 55 behavioral + 32 memory + 48 reality + 30 routing + 49 hook = 234 gate cases, plus 35 add-on cases for the control plane).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules

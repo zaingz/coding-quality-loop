@@ -39,7 +39,7 @@ Follow the Coding Quality Loop: smallest correct change, with evidence to trust,
 ## Project Memory (optional, advisory)
 
 - Recall before mapping: `python3 scripts/quality_loop.py memory-recall --goal "<goal>" --files <changed,files> --risk <low|medium|high>`
-- Commit a lesson at retrospective: `python3 scripts/quality_loop.py memory-commit agent-record.json`
+- Commit a lesson at retrospective: `python3 scripts/quality_loop.py memory-commit .quality-loop/agent-record.json`
 - Lessons live in `.quality-loop/memory/` (project) and `~/.quality-loop/global/` (cross-project). Never store secrets.
 
 ## Session Continuity

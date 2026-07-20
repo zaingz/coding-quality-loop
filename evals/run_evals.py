@@ -45,17 +45,16 @@ SCRIPT = ROOT / "scripts" / "quality_loop.py"
 
 # Canonical count of offline CORE gate cases. This is the single source of truth
 # the count-consistency lint (case_doc_counts_match_canonical) asserts every
-# public doc agrees with. It EXCLUDES the trigger smoke fixture, whose default
-# grader is reverse-engineered from its own prompts and cannot fail (see
-# evals/run_trigger_evals.py, evals/README.md), and the opt-in control-plane
-# add-on suite, which is tracked separately as CONTROL_ADDON_CASES and must be
-# phrased "<n> add-on cases" in docs.
+# public doc agrees with. It EXCLUDES the opt-in control-plane add-on suite,
+# which is tracked separately as CONTROL_ADDON_CASES and must be phrased
+# "<n> add-on cases" in docs. (The trigger smoke fixture, whose default grader
+# structurally could not fail, was deleted in v6.1.0.)
 #
 # BUMP THESE whenever a suite's case count changes. Current breakdown:
-#   20 static + 54 behavioral + 32 memory + 42 reality + 29 routing + 42 hook
-#   = 219 core; control add-on = 35
+#   20 static + 55 behavioral + 32 memory + 48 reality + 30 routing + 49 hook
+#   = 234 core; control add-on = 35
 # (behavioral is this file: len(CASES); run each suite to confirm.)
-CANONICAL_GATE_CASES = 219
+CANONICAL_GATE_CASES = 234
 CONTROL_ADDON_CASES = 35
 
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -468,8 +467,20 @@ def case_valid_inline_artifacts_pass(tmp: Path) -> tuple[bool, str]:
     # are real evidence and must pass even without files on disk.
     record = passing_medium()
     code, output = verify_gates(tmp, record)
-    ok = code == 0
-    return ok, f"exit={code}; output={output.strip()!r}"
+
+    # One truth per thing (1.4d): acceptance criteria live ONLY in the record's
+    # top-level list. A validation_contract with goal + evidence and NO
+    # acceptance-criteria copy passes — the gate reads no copy inside the
+    # artifact, so it must not demand one.
+    no_dup = passing_medium(
+        validation_contract={
+            "goal": "Move invoice rounding to the summed total",
+            "evidence": ["pytest billing/tests -> pass"],
+        },
+    )
+    code_n, out_n = verify_gates(tmp, no_dup)
+    ok = code == 0 and code_n == 0
+    return ok, f"with_dup(exit={code}); no_dup_copy(exit={code_n}: {out_n.strip()!r})"
 
 
 def case_existing_artifact_path_passes(tmp: Path) -> tuple[bool, str]:
@@ -914,8 +925,8 @@ def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
     # CANONICAL_GATE_CASES (core suites), and every "<n> add-on cases" mention
     # must state CONTROL_ADDON_CASES (the opt-in control-plane suite). Guards
     # against the 116->121 drift the review flagged. Two deliberate exemptions:
-    # the trigger smoke fixture is always "10-case ..." (hyphen + singular,
-    # which the pattern does not match), and any LINE annotated "as of vX.Y" is
+    # the CHANGELOG top entry may reference the historical 10-case trigger
+    # fixture (deleted in v6.1.0), and any LINE annotated "as of vX.Y" is
     # historical by declaration — the lint must never rewrite history again
     # (it once overwrote ROADMAP's v3.0-era count with the then-current one).
     docs = [
@@ -1306,6 +1317,9 @@ def case_reviewer_contract_surfaces_agree(tmp: Path) -> tuple[bool, str]:
         ROOT / ".claude" / "agents" / "quality-loop-security-reviewer.md",
         ROOT / "examples" / "droid" / ".factory" / "droids" / "quality-loop-reviewer.md",
         ROOT / "examples" / "droid" / ".factory" / "droids" / "quality-loop-security-reviewer.md",
+        # The surface that actually drifted in v6.0.x (shipped a stale 3-value
+        # spaced enum no gate accepts) — pinned so it cannot recur silently.
+        ROOT / "references" / "reviewer-checklists.md",
     ]
     problems = []
     for path in md_surfaces:
@@ -1319,6 +1333,13 @@ def case_reviewer_contract_surfaces_agree(tmp: Path) -> tuple[bool, str]:
                 problems.append(f"{rel}: verdict {verdict!r} absent")
         if "ran_checks" not in text:
             problems.append(f"{rel}: ran_checks absent")
+        # Negative check with teeth: presence alone let the stale spaced
+        # 3-value enum (`approve | request changes | needs discussion`) ship
+        # alongside the correct one. Reject the known-bad spaced forms so a
+        # surface cannot carry a contradictory enum the machine rejects.
+        for stale in ("request changes", "needs discussion"):
+            if re.search(r"\b" + stale.replace(" ", r"\s+") + r"\b", text):
+                problems.append(f"{rel}: stale spaced verdict {stale!r} present (use underscored enum)")
 
     schema = json.loads((ROOT / "assets" / "agent-record.schema.json").read_text(encoding="utf-8"))
     for key in ("independent_review", "security_review"):
@@ -1493,6 +1514,41 @@ def case_check_config_core_control_plane_shape(tmp: Path) -> tuple[bool, str]:
     )
 
 
+def case_config_schema_version_pinned(tmp: Path) -> tuple[bool, str]:
+    """1.3: CONFIG_SCHEMA_VERSION is the config SCHEMA lineage version (the
+    shape last changed in release 5.1.0), not the package release version.
+    Three-way pin — engine constant == schema const == example config version —
+    so the silent drift that hid behind the old EXPECTED_CONFIG_VERSION name
+    (nothing read it; the rejection text claimed a version unification that was
+    false) cannot recur. Also pins the rejection text's honesty."""
+    example = json.loads(EXAMPLE_CONFIG.read_text(encoding="utf-8"))
+    schema = json.loads(
+        (ROOT / "assets" / "quality-loop.config.schema.json").read_text(encoding="utf-8")
+    )
+    engine = quality_loop.CONFIG_SCHEMA_VERSION
+    schema_const = schema["properties"]["version"].get("const")
+    pinned = (
+        isinstance(engine, str) and engine
+        and example.get("version") == engine == schema_const
+    )
+
+    bad = dict(example)
+    bad["version"] = "9.9.9"
+    bad_path = tmp / "bad-version.json"
+    bad_path.write_text(json.dumps(bad), encoding="utf-8")
+    code, out, err = run_cli("check-config", str(bad_path))
+    rejected_honestly = (
+        code == 1
+        and "does not track the package release version" in err
+        and "share one version" not in (out + err)
+    )
+    ok = bool(pinned) and rejected_honestly
+    return ok, (
+        f"engine={engine!r}; schema_const={schema_const!r}; example={example.get('version')!r}; "
+        f"pinned={bool(pinned)}; rejected_honestly={rejected_honestly}(exit={code})"
+    )
+
+
 def case_check_config_always_prints_heterogeneity(tmp: Path) -> tuple[bool, str]:
     """check-config always emits a heterogeneity_status line — including the
     no-model_routing SKIPPED case — so a passing config without routing is
@@ -1562,6 +1618,7 @@ CASES = [
     ("brief caps an over-budget recalled lesson in text and --json output", case_brief_caps_over_budget_lesson),
     ("control_plane shape is validated in core even without the add-on installed", case_check_config_core_control_plane_shape),
     ("check-config prints heterogeneity_status even without model_routing (SKIPPED)", case_check_config_always_prints_heterogeneity),
+    ("config schema version is pinned three ways (engine == schema const == example)", case_config_schema_version_pinned),
 ]
 
 

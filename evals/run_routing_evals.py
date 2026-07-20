@@ -930,6 +930,47 @@ def case_brief_heterogeneity_status_line(tmp: Path) -> tuple[bool, str]:
     return ok, f"skipped_loud={skipped_loud}; verified={verified}"
 
 
+def case_display_never_verified_when_unenforced(tmp: Path) -> tuple[bool, str]:
+    """1.5: one heterogeneity resolver for enforcement and display. The old
+    display path applied default-class fallbacks the enforcing path bails on,
+    so brief could report 'verified' for a config the gate never evaluated.
+    With classes unresolved (no steps, no main_session, agents: {}) the line
+    must now be SKIPPED-not-enforced; adding the steps classes — the same
+    resolution enforcement uses — flips it to verified."""
+    routing = {
+        "host": "claude-code",
+        "host_models": {
+            "claude-code": {
+                "code_specialized": {"model": "claude-opus-4-8", "family": "claude"},
+                "strong_reasoning": {"model": "gpt-5.6-sol", "family": "gpt"},
+            }
+        },
+        "agents": {},
+    }
+    target = tmp / "project"
+    target.mkdir()
+    cfg1 = tmp / "unresolved.json"
+    cfg1.write_text(json.dumps({"model_routing": routing}), encoding="utf-8")
+    code1, out1, _ = run_cli("brief", "--config", str(cfg1), "--cwd", str(target))
+    skipped_not_verified = (
+        "reviewer heterogeneity: SKIPPED" in out1
+        and "not enforced" in out1
+        and "verified" not in out1
+    )
+    cfg2 = tmp / "resolved.json"
+    cfg2.write_text(json.dumps({
+        "model_routing": routing,
+        "steps": [
+            {"step": "IMPLEMENT_SLICE", "model_class": "code_specialized"},
+            {"step": "REVIEW", "model_class": "strong_reasoning"},
+        ],
+    }), encoding="utf-8")
+    code2, out2, _ = run_cli("brief", "--config", str(cfg2), "--cwd", str(target))
+    verified = "reviewer heterogeneity: verified (claude vs gpt)" in out2
+    ok = code1 == 0 and code2 == 0 and skipped_not_verified and verified
+    return ok, f"skipped_not_verified={skipped_not_verified}; verified_with_steps={verified}"
+
+
 def case_routing_variants_carry_as_of(tmp: Path) -> tuple[bool, str]:
     """Static: every shipped routing variant carries a parseable as_of date."""
     import re as _re
@@ -996,6 +1037,7 @@ CASES = [
     ("setup-models skips placeholder/inherit models with a per-file reason", case_setup_placeholder_guard),
     ("model_routing.families un-skips unknown ids and enforcement fires", case_families_config_unskips_enforcement),
     ("brief prints a loud heterogeneity status line (SKIPPED -> verified)", case_brief_heterogeneity_status_line),
+    ("display never claims verified for a config enforcement bailed on (one resolver)", case_display_never_verified_when_unenforced),
     ("every shipped routing variant carries an as_of date", case_routing_variants_carry_as_of),
     ("brief warns once when model_routing.as_of is >90 days old", case_brief_warns_on_stale_as_of),
 ]

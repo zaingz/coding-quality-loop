@@ -33,10 +33,12 @@ rule (§6.1).
   browser automation). Every headline claim must include this task; §6.1 is
   defined on it.
 - **Micro-task (for §6.2 only):** a single-file bug fix in an existing small
-  codebase, target diff under ~30 lines, with one failing test that the fix
-  must turn green. The concrete spec is written by whoever executes the cell
-  and committed alongside its results — it is deliberately not a prompt stub
-  in `bench/tasks/`.
+  codebase, target diff under ~30 lines, with one committed failing test the
+  fix must turn green plus held-out hidden cases. The concrete spec is now
+  committed at `bench/tasks/14-micro-bugfix.json`. It was previously left
+  uncommitted "by design" (written by whoever ran the cell) — that design
+  failed its purpose: §6.2 sat unrun for three releases because nobody wrote
+  the spec. Committing it removes the last excuse.
 - Additional tasks may be added as committed JSON specs with hidden tests and
   trap flags; the ≥2-family pruning rule (§6.3) prefers evidence from ≥2 tasks.
 
@@ -72,8 +74,12 @@ Objective checks, per arm — these come first and judges cannot override them:
 
 Blind judging:
 
-- **Two judges** from different model families than each other; anonymized
-  packets with **different letter mappings per judge**.
+- **Two judges**, each from a different model family than each other **and
+  from the family of the arm's own implementer model** (a judge sharing the
+  arm's family scores its own house style, not the code). The 2026-07-07
+  webapp run violated this — the judges differed only from each other, not
+  from the arms' models — and its lift claims are void for that reason.
+  Anonymized packets carry **different letter mappings per judge**.
 - Rename `.quality-loop/` to `process-notes/`; strip the CQL drop-in and
   `.git/`; scrub host/model/vendor identity strings and re-scan until clean.
 - Attach a blinded machine-check summary (tests, deps, hidden behaviors, LOC,
@@ -140,6 +146,18 @@ and transcripts local.
 
 ## 6. Pre-registered decision rules (verbatim commitments)
 
+### 6.0 Discriminating-power precondition (before any §6 rule may fire)
+
+No §6 rule fires until the run has proven it can tell arms apart on
+**objective** metrics. The committed `baseline` run MUST FAIL some part of the
+task's hidden suite; if every arm passes the entire objective battery (as
+happened in the one live webapp run — all four arms passed npm tests, 0 deps,
+and 5/5 hidden behaviors, leaving only judge scores to move), the task has no
+discriminating power and no §6 outcome may be claimed from it. The fix is to
+expand the hidden suite until the baseline fails part of it, or switch the
+headline to bugfix-class tasks with committed failing held-out tests (e.g.
+`bench/tasks/14-micro-bugfix.json`).
+
 ### 6.1 R5 rule (per-model process depth)
 
 > IF Codex-family excl-D7 code-quality delta <= 0 at n>=3 on the webapp task
@@ -158,10 +176,20 @@ and transcripts local.
 > Any arm component showing no code-quality lift across >=2 model families
 > gets deleted (celebrated in the changelog).
 
-**Noise band:** double-judge one artifact set (both judges score the same
-packets twice, or a second mapping of the same packets) and take the observed
-inter-judge spread as the minimum effect size. A delta inside the noise band
-counts as "no lift" for §6.1 and §6.3.
+Deletion requires the null on an **objective** metric (tests, deps, held-out
+suite, LOC, timing). A null that is judge-delta-only — the arms are
+indistinguishable to the judges but the objective battery did not separate
+them either — downgrades the component to **"unproven"** and records it as
+such; it never auto-deletes. Auto-deleting on judge noise would let §6.3
+throw away components the run never actually tested (see §6.0).
+
+**Noise band and minimum detectable effect:** double-judge one artifact set
+(both judges score the same packets twice, or a second mapping of the same
+packets) and take the observed inter-judge spread as the minimum effect size.
+In the one live webapp run the same-packet judge spread was **0.25–3.75**;
+that band is the noise floor. Any arm-vs-baseline delta inside it is
+indistinguishable from judge noise at n=3 and counts as "no lift" for §6.1
+and §6.3 — it is not evidence of either lift or its absence.
 
 ## Running
 

@@ -27,6 +27,7 @@ Cases (record↔reality verification):
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -37,13 +38,24 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "quality_loop.py"
 
 sys.path.insert(0, str(ROOT / "scripts"))
+import quality_loop_core as qlcore  # noqa: E402
 import quality_loop_reality as qlreal  # noqa: E402
 
 PASS = "PASS"
 FAIL = "FAIL"
 
 
-def run_cli(*args: str, cwd: str | None = None, stdin: str | None = None) -> tuple[int, str, str]:
+def run_cli(
+    *args: str,
+    cwd: str | None = None,
+    stdin: str | None = None,
+    env: dict[str, str] | None = None,
+) -> tuple[int, str, str]:
+    # QUALITY_LOOP_BASE is scrubbed by default so a developer's ambient env
+    # cannot change what these cases pin; pass env explicitly to test it.
+    run_env = {k: v for k, v in os.environ.items() if k != "QUALITY_LOOP_BASE"}
+    if env:
+        run_env.update(env)
     proc = subprocess.run(
         [sys.executable, str(SCRIPT), *args],
         text=True,
@@ -51,6 +63,7 @@ def run_cli(*args: str, cwd: str | None = None, stdin: str | None = None) -> tup
         stderr=subprocess.PIPE,
         cwd=cwd,
         input=stdin,
+        env=run_env,
         check=False,
     )
     return proc.returncode, proc.stdout, proc.stderr
@@ -530,14 +543,36 @@ def case_record_only_trailing_change_stays_fresh(tmp: Path) -> tuple[bool, str]:
 
 
 def case_init_record_scaffolds_allowlist(tmp: Path) -> tuple[bool, str]:
+    # Explicit root --output (the deprecated fallback location) still works...
     repo = make_repo(tmp)
     code, out, err = run_cli(
         "init-record", "--goal", "Fix invoice rounding", "--risk-tier", "medium",
         "--output", "agent-record.json", cwd=str(repo),
     )
     allowlist = repo / ".quality-loop" / "allowed-commands"
-    ok = code == 0 and allowlist.is_file() and "allowed-commands" in out
-    return ok, f"exit={code}; allowlist_exists={allowlist.is_file()}"
+    root_ok = code == 0 and allowlist.is_file() and "allowed-commands" in out
+
+    # ...and the DEFAULT is the one canonical path, .quality-loop/agent-record.json
+    # (1.1: the root default structurally broke review freshness — writing the
+    # attested review into a root record changed the hashed diff). init-record
+    # must create the directory itself.
+    sub = tmp / "default"
+    sub.mkdir()
+    repo2 = make_repo(sub)
+    code2, out2, err2 = run_cli(
+        "init-record", "--goal", "Fix invoice rounding", cwd=str(repo2),
+    )
+    default_record = repo2 / ".quality-loop" / "agent-record.json"
+    default_allowlist = repo2 / ".quality-loop" / "allowed-commands"
+    default_ok = (
+        code2 == 0
+        and default_record.is_file()
+        and default_allowlist.is_file()
+        and ".quality-loop/agent-record.json" in out2
+        and not (repo2 / "agent-record.json").exists()
+    )
+    ok = root_ok and default_ok
+    return ok, f"explicit_root(exit={code},ok={root_ok}); default(exit={code2},ok={default_ok})"
 
 
 def case_partial_install_fails_actionably(tmp: Path) -> tuple[bool, str]:
@@ -935,67 +970,87 @@ def case_bugfix_fixture_not_bugfix(tmp: Path) -> tuple[bool, str]:
     return ok, f"fixture(exit={code_x},clean={fixture_clean}); fix(exit={code_f},flagged={fix_flagged})"
 
 
-def case_auto_base_never_falls_back_to_head(tmp: Path) -> tuple[bool, str]:
-    """Auto-base (commit-first evasion, closing the last rung): when no
-    origin/main|origin/master|main|master ref exists, the AUTO default must
-    diff against the empty tree — a HEAD fallback would empty the diff for
-    committed work and hide it from the diff-grounded gates."""
+def case_no_origin_auto_base_defaults_to_head(tmp: Path) -> tuple[bool, str]:
+    """No-origin repos (2.2b): when no origin/* rung resolves and the ladder
+    would fall through to the empty tree, the LOCAL auto default becomes HEAD
+    with a one-line advisory — diffing the whole repository forever poisoned
+    day one. Commit-first evasion is CI's job by doctrine: under
+    --require-terminal the empty-tree fallback remains, as a loud blocking
+    finding instead of a note."""
     repo = make_repo(tmp)
     _git(repo, "branch", "-m", "trunk")  # no main/master anywhere
-    auth = repo / "src" / "auth"
-    auth.mkdir(parents=True)
-    (auth / "login.py").write_text("def login(): pass\n")
+    committed = repo / "src" / "auth"
+    committed.mkdir(parents=True)
+    (committed / "login.py").write_text("def login(): pass\n")
     _git(repo, "add", "src/auth/login.py")
     _git(repo, "commit", "-m", "add login")
+    # Work in flight (uncommitted) stays visible against the HEAD default.
+    invoice = repo / "src" / "invoice"
+    invoice.mkdir(parents=True)
+    (invoice / "round.py").write_text("def round_total(): return 0\n")
     record = passing_record(
         repo,
-        goal="rename a local helper for clarity",
-        risk_tier="low",
-        task_class="small",
-        status="done",
-        commands_run=[{"cmd": "read", "class": "lint", "result": "pass", "evidence": "looks good"}],
-        validation_contract=None,
-        independent_review=None,
-        completion_record=None,
-        repo_map={"entry_points": [], "likely_files": [], "callers_checked": [], "tests": []},
-        plan=[],
-        review_findings=[],
+        completion_record=_completion(files=["src/invoice/round.py"]),
     )
     path = write_record(repo, record)
-    # Deliberately NO --base: the auto default must still see the committed diff.
+    # Deliberately NO --base: the auto default must be HEAD with the note.
     code, out, err = run_cli("verify-gates", str(path), "--against-diff", cwd=str(repo))
-    combined = (out + err).lower()
-    floor_fired = "diff-derived risk floor" in combined
-    no_phantom = "phantom completion" not in combined
-    ok = code == 1 and floor_fired and no_phantom
-    return ok, f"exit={code}; floor={floor_fired}; no_phantom={no_phantom}; output={ (out + err).strip()[:200]!r}"
+    combined = out + err
+    noted = "no origin baseline" in combined
+    committed_invisible = "diff-derived risk floor" not in combined.lower()
+    local_ok = code == 0 and noted and committed_invisible
+
+    # CI anchor: verify --require-terminal keeps the empty tree and the
+    # unresolvable-baseline hint lands in Findings (Overall: FAIL).
+    code_ci, out_ci, err_ci = run_cli(
+        "verify", str(path), "--require-terminal", cwd=str(repo)
+    )
+    ci_combined = out_ci + err_ci
+    ci_empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904" in ci_combined
+    ci_blocks = code_ci != 0 and "empty tree" in ci_combined and "Overall: FAIL" in ci_combined
+    ok = local_ok and ci_empty_tree and ci_blocks
+    return ok, (
+        f"local(exit={code},noted={noted},committed_invisible={committed_invisible}); "
+        f"ci(exit={code_ci},empty_tree={ci_empty_tree},blocks={ci_blocks})"
+    )
 
 
-def case_auto_base_local_main_keeps_work_visible(tmp: Path) -> tuple[bool, str]:
-    """Auto-base on a local-only main/master (no remote): merge-base(main,HEAD)
-    IS HEAD's commit, which would empty the diff for committed work. The auto
-    default must fall to the empty tree so committed work stays visible — while
-    a genuine origin/main==HEAD stays an empty diff (phantom), covered elsewhere."""
+def case_local_main_auto_base_defaults_to_head(tmp: Path) -> tuple[bool, str]:
+    """Auto-base on a local-only main/master (no remote) whose merge-base with
+    HEAD IS HEAD (2.2b): the local default becomes HEAD with the no-origin
+    advisory — committed work is CI's job (--require-terminal keeps the empty
+    tree there). Contrast case_committed_work_still_diffed, where the local
+    branch diverges from main/master and the merge-base default still sees the
+    committed diff."""
     repo = make_repo(tmp)  # git init defaults to main/master, no remote
     auth = repo / "src" / "auth"
     auth.mkdir(parents=True)
     (auth / "login.py").write_text("def login(token): return token\n")
     _git(repo, "add", "src/auth/login.py")
     _git(repo, "commit", "-m", "add auth login")  # committed; HEAD == local main
+    invoice = repo / "src" / "invoice"
+    invoice.mkdir(parents=True)
+    (invoice / "round.py").write_text("def round_total(): return 0\n")  # in flight
     record = passing_record(
-        repo, goal="tidy a helper", risk_tier="low", task_class="small", status="done",
-        commands_run=[{"cmd": "read", "class": "lint", "result": "pass", "evidence": "ok"}],
-        validation_contract=None, independent_review=None, completion_record=None,
-        repo_map={"entry_points": [], "likely_files": [], "callers_checked": [], "tests": []},
-        plan=[], review_findings=[],
+        repo,
+        completion_record=_completion(files=["src/invoice/round.py"]),
     )
     path = write_record(repo, record)
     code, out, err = run_cli("verify-gates", str(path), "--against-diff", cwd=str(repo))
-    combined = (out + err).lower()
-    floor_fired = "diff-derived risk floor" in combined  # auth path is visible
-    no_phantom = "phantom completion" not in combined
-    ok = code == 1 and floor_fired and no_phantom
-    return ok, f"exit={code}; floor={floor_fired}; no_phantom={no_phantom}; out={combined.strip()[:160]!r}"
+    combined = out + err
+    noted = "no origin baseline" in combined
+    in_flight_visible_clean = code == 0  # uncommitted work diffs cleanly vs HEAD
+    committed_invisible = "diff-derived risk floor" not in combined.lower()
+
+    code_ci, out_ci, err_ci = run_cli("verify", str(path), "--require-terminal", cwd=str(repo))
+    ci_combined = out_ci + err_ci
+    ci_empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904" in ci_combined
+    ci_blocks = code_ci != 0 and "empty tree" in ci_combined
+    ok = in_flight_visible_clean and noted and committed_invisible and ci_empty_tree and ci_blocks
+    return ok, (
+        f"local(exit={code},noted={noted},committed_invisible={committed_invisible}); "
+        f"ci(exit={code_ci},empty_tree={ci_empty_tree},blocks={ci_blocks})"
+    )
 
 
 def case_untracked_symlink_not_disclosed(tmp: Path) -> tuple[bool, str]:
@@ -1138,6 +1193,418 @@ def case_render_prompt_substitutes(tmp: Path) -> tuple[bool, str]:
     )
 
 
+def case_base_env_and_config_precedence(tmp: Path) -> tuple[bool, str]:
+    """Default-base precedence (2.2a): --base flag > QUALITY_LOOP_BASE env >
+    config "base" > the built-in ladder. The config key seeds the ladder; the
+    env var beats the config key."""
+    repo = make_repo(tmp)
+    _git(repo, "branch", "baseline")  # pin the initial commit
+    auth = repo / "src" / "auth"
+    auth.mkdir(parents=True)
+    (auth / "login.py").write_text("def login(): pass\n")
+    _git(repo, "add", "src/auth/login.py")
+    _git(repo, "commit", "-m", "add login")  # committed past the baseline
+    (repo / "quality-loop.config.json").write_text(json.dumps({"base": "baseline"}))
+    _git(repo, "add", "quality-loop.config.json")
+    _git(repo, "commit", "-m", "gate config")
+    record = passing_record(
+        repo,
+        goal="rename a local helper for clarity",
+        risk_tier="low",
+        task_class="small",
+        status="done",
+        commands_run=[{"cmd": "read", "class": "lint", "result": "pass", "evidence": "looks good"}],
+        validation_contract=None,
+        independent_review=None,
+        completion_record=None,
+        repo_map={"entry_points": [], "likely_files": [], "callers_checked": [], "tests": []},
+        plan=[],
+        review_findings=[],
+    )
+    path = write_record(repo, record)
+    # No --base, no env: the config "base" seeds the ladder, so the committed
+    # auth work is diffed against `baseline` and the risk floor fires.
+    code_cfg, out_cfg, err_cfg = run_cli("verify-gates", str(path), "--against-diff", cwd=str(repo))
+    config_used = code_cfg == 1 and "diff-derived risk floor" in (out_cfg + err_cfg).lower()
+
+    # Env beats config: seeding with the checked-out branch makes the
+    # merge-base HEAD itself, so the default degrades to HEAD (with the
+    # advisory) and the committed auth work is NOT in the local diff.
+    branch = _default_branch(repo)
+    code_env, out_env, err_env = run_cli(
+        "verify-gates", str(path), "--against-diff", cwd=str(repo),
+        env={"QUALITY_LOOP_BASE": branch},
+    )
+    env_combined = out_env + err_env
+    env_won = "diff-derived risk floor" not in env_combined.lower() and "no origin baseline" in env_combined
+
+    ok = config_used and env_won
+    return ok, f"config_used(exit={code_cfg})={config_used}; env_beats_config(exit={code_env})={env_won}"
+
+
+def case_gate_config_markers_and_high_risk(tmp: Path) -> tuple[bool, str]:
+    """The two remaining gate-config keys (3.2), additive only: tests.path_markers
+    teaches the bugfix-test gate a repo's real test layout; high_risk_paths
+    forces the diff-derived floor on repo-specific boundaries the built-ins
+    cannot know."""
+    # A: without config, a bugfix whose tests live in checks/ draws the
+    # co-presence finding; with tests.path_markers ["checks/"] it passes.
+    sub_a = tmp / "markers"
+    sub_a.mkdir()
+    repo_a = make_repo(sub_a)
+    (repo_a / "src").mkdir()
+    (repo_a / "src" / "round.py").write_text("def round_total(): return 0\n")
+    checks = repo_a / "checks"
+    checks.mkdir()
+    (checks / "check_round.py").write_text("def check(): assert round_total() == 0\n")
+    record_a = passing_record(
+        repo_a,
+        goal="Fix the rounding bug in the total calculation",
+        completion_record=_completion(files=["src/round.py", "checks/check_round.py"]),
+        plan=["edit src/round.py and checks/check_round.py"],
+    )
+    path_a = write_record(repo_a, record_a)
+    code_1, out_1, err_1 = run_cli("verify-gates", str(path_a), "--against-diff", "--base", "HEAD", cwd=str(repo_a))
+    without_cfg_flagged = code_1 == 1 and "bugfix-test" in (out_1 + err_1).lower()
+
+    (repo_a / "quality-loop.config.json").write_text(
+        json.dumps({"tests": {"path_markers": ["checks/"]}})
+    )
+    _git(repo_a, "add", "quality-loop.config.json")
+    _git(repo_a, "commit", "-m", "gate config")
+    # Re-attest: committing the config changed nothing in the diff vs HEAD,
+    # but recompute defensively so the case pins only the marker behavior.
+    record_a["independent_review"]["diff_sha256"] = qlreal.diff_sha256("HEAD", cwd=repo_a)
+    path_a = write_record(repo_a, record_a)
+    code_2, out_2, err_2 = run_cli("verify-gates", str(path_a), "--against-diff", "--base", "HEAD", cwd=str(repo_a))
+    with_cfg_clean = code_2 == 0
+
+    # B: high_risk_paths ["identity"] forces the floor on identity/ paths.
+    sub_b = tmp / "highrisk"
+    sub_b.mkdir()
+    repo_b = make_repo(sub_b)
+    (repo_b / "quality-loop.config.json").write_text(json.dumps({"high_risk_paths": ["identity"]}))
+    _git(repo_b, "add", "quality-loop.config.json")
+    _git(repo_b, "commit", "-m", "gate config")
+    identity = repo_b / "identity"
+    identity.mkdir()
+    # Deliberately no boundary keyword in path/plan (no "login"/"auth"): only
+    # the config-taught path may force the floor here.
+    (identity / "profile.py").write_text("def display_name(): return ''\n")
+    record_b = passing_record(
+        repo_b,
+        completion_record=_completion(files=["identity/profile.py"]),
+        plan=["edit identity/profile.py"],
+    )
+    path_b = write_record(repo_b, record_b)
+    code_3, out_3, err_3 = run_cli("verify-gates", str(path_b), "--against-diff", "--base", "HEAD", cwd=str(repo_b))
+    floor_forced = code_3 == 1 and "diff-derived risk floor" in (out_3 + err_3).lower()
+
+    ok = without_cfg_flagged and with_cfg_clean and floor_forced
+    return ok, (
+        f"no_cfg(exit={code_1},flagged={without_cfg_flagged}); "
+        f"markers(exit={code_2},clean={with_cfg_clean}); "
+        f"high_risk(exit={code_3},forced={floor_forced})"
+    )
+
+
+def case_waiver_must_cite_passing_command(tmp: Path) -> tuple[bool, str]:
+    """Waivers cite evidence (3.3): a bugfix test waiver disarms the gate only
+    when its text names a pass-labeled commands_run cmd. Free text (or a bare
+    `true`) blocks at medium+ and degrades to a note below medium."""
+    repo = make_repo(tmp)
+    (repo / "src").mkdir()
+    (repo / "src" / "round.py").write_text("def round_total(): return 0\n")
+
+    uncited = passing_record(
+        repo,
+        goal="Fix the rounding bug in the total calculation",
+        bugfix_test_waiver=True,  # truthy, cites nothing
+        completion_record=_completion(files=["src/round.py"]),
+        plan=["edit src/round.py"],
+    )
+    path = write_record(repo, uncited)
+    code_u, out_u, err_u = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    combined_u = out_u + err_u
+    uncited_blocks = code_u == 1 and "waiver must cite a recorded passing command" in combined_u
+
+    cited = dict(uncited)
+    cited["bugfix_test_waiver"] = "regression covered by the recorded pytest run (pytest)"
+    path = write_record(repo, cited)
+    code_c, out_c, err_c = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    cited_passes = code_c == 0
+
+    low = passing_record(
+        repo,
+        goal="fix the rounding in the helper",
+        risk_tier="low",
+        task_class="small",
+        status="done",
+        acceptance_criteria=["rounding fixed"],
+        bugfix_test_waiver=True,
+        commands_run=[{"cmd": "read", "class": "lint", "result": "pass", "evidence": "ok"}],
+        validation_contract=None,
+        independent_review=None,
+        completion_record=None,
+        repo_map={"entry_points": [], "likely_files": ["src/round.py"], "callers_checked": [], "tests": []},
+        plan=["edit src/round.py"],
+        review_findings=[],
+    )
+    path = write_record(repo, low)
+    code_l, out_l, err_l = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    combined_l = out_l + err_l
+    low_warns_only = code_l == 0 and "waiver must cite" in combined_l and "note:" in combined_l
+
+    ok = uncited_blocks and cited_passes and low_warns_only
+    return ok, (
+        f"uncited(exit={code_u},blocks={uncited_blocks}); cited(exit={code_c},passes={cited_passes}); "
+        f"low(exit={code_l},warns_only={low_warns_only})"
+    )
+
+
+def case_bare_star_allowlist_authorizes_nothing(tmp: Path) -> tuple[bool, str]:
+    """1.2c: an allowlist pattern that matches everything (bare *, ?, blanks)
+    authorizes nothing — Stop-time auto-execution must not be a blank check —
+    and each such line is named in a warning without failing an otherwise
+    valid run."""
+    repo = make_repo(tmp)
+    write_allowlist(repo, ["*"])
+    record = passing_record(
+        repo,
+        commands_run=[{"cmd": "echo hi", "class": "unit", "result": "pass", "evidence": "ok"}],
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("run-evidence", str(path), cwd=str(repo))
+    combined = out + err
+    star_refused = code == 1 and "not on allowlist" in combined.lower()
+    warned = "allowlist line 1" in combined and "matches every command" in combined
+
+    # A real pattern alongside the degenerate line still authorizes its
+    # command; the warning names the degenerate line without failing the run.
+    sub = tmp / "mixed"
+    sub.mkdir()
+    repo2 = make_repo(sub)
+    write_allowlist(repo2, ["*", f"{sys.executable}*"])
+    cmd = f"{sys.executable} -c pass"
+    record2 = passing_record(
+        repo2,
+        commands_run=[{"cmd": cmd, "class": "unit", "result": "pass", "evidence": "ok"}],
+    )
+    path2 = write_record(repo2, record2)
+    code2, out2, err2 = run_cli("run-evidence", str(path2), cwd=str(repo2))
+    combined2 = out2 + err2
+    real_pattern_ok = code2 == 0 and "allowlist line 1" in combined2
+
+    ok = star_refused and warned and real_pattern_ok
+    return ok, (
+        f"star(exit={code},refused={star_refused},warned={warned}); "
+        f"mixed(exit={code2},ok={real_pattern_ok})"
+    )
+
+
+def case_install_manifest_paths_are_scaffolding(tmp: Path) -> tuple[bool, str]:
+    """2.2c: install-manifest-listed paths are CQL's own scaffolding for
+    scope-integrity and the diff-size advisory (membership-based — the
+    manifest records no hashes), so a fresh install does not read as a
+    59-file unmapped change. Without the manifest the same paths are flagged."""
+    repo = make_repo(tmp)
+    scripts = repo / "scripts"
+    scripts.mkdir()
+    (scripts / "quality_loop.py").write_text("# shipped helper (fake)\n")
+    (repo / "SKILL.md").write_text("# shipped skill (fake)\n")
+    (repo / "src").mkdir()
+    (repo / "src" / "round.py").write_text("def round_total(): return 0\n")
+    manifest_path = repo / ".quality-loop" / "install-manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps({
+        "version": 1,
+        "host": "claude-code",
+        "files": ["scripts/quality_loop.py", "SKILL.md"],
+        "preexisting": [],
+        "hook_groups": [],
+    }))
+    record = passing_record(
+        repo,
+        completion_record=_completion(files=["src/round.py"]),
+        plan=["edit src/round.py"],
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    manifest_exempt = code == 0 and "scope integrity" not in (out + err).lower()
+
+    code_da, out_da, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(repo))
+    try:
+        advisory = json.loads(out_da).get("advisory", [])
+    except json.JSONDecodeError:
+        advisory = None
+    untracked_note = next((a for a in advisory or [] if "untracked file(s) included" in a), "")
+    audit_excludes = advisory is not None and "scripts/quality_loop.py" not in untracked_note
+
+    manifest_path.unlink()  # .quality-loop/ is hash-excluded, so freshness holds
+    code_no, out_no, err_no = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    combined_no = out_no + err_no
+    without_manifest_flagged = (
+        code_no == 1
+        and "scope integrity" in combined_no.lower()
+        and "scripts/quality_loop.py" in combined_no
+    )
+
+    # Shape boundary: the manifest is agent-writable checkout data, so listing
+    # an arbitrary CONSUMER source path must exempt nothing — only CQL's own
+    # shipped path shapes qualify. An unmapped src/ file stays a scope error
+    # even when the manifest names it.
+    # Put the file in a directory NOT already whitelisted by a mapped file
+    # (src/ is mapped via src/round.py's one-level dir whitelist), so the only
+    # thing that could exempt it is the manifest — which must not, for a
+    # consumer path shape.
+    (repo / "lib").mkdir()
+    (repo / "lib" / "sneaky.py").write_text("def backdoor(): pass\n")
+    manifest_path.write_text(json.dumps({
+        "version": 1,
+        "host": "claude-code",
+        "files": ["scripts/quality_loop.py", "SKILL.md", "lib/sneaky.py"],
+        "preexisting": [],
+        "hook_groups": [],
+    }))
+    code_shape, out_shape, err_shape = run_cli(
+        "verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    combined_shape = out_shape + err_shape
+    consumer_path_not_exempt = (
+        code_shape == 1
+        and "scope integrity" in combined_shape.lower()
+        and "lib/sneaky.py" in combined_shape
+        and "scripts/quality_loop.py" not in combined_shape
+    )
+    (repo / "lib" / "sneaky.py").unlink()
+
+    ok = manifest_exempt and audit_excludes and without_manifest_flagged and consumer_path_not_exempt
+    return ok, (
+        f"with_manifest(exit={code},exempt={manifest_exempt}); audit_excludes={audit_excludes}; "
+        f"without(exit={code_no},flagged={without_manifest_flagged}); "
+        f"consumer_path_not_exempt={consumer_path_not_exempt}"
+    )
+
+
+_GO_TEST_FULL = (
+    "package calc\n\nimport \"testing\"\n\n"
+    "func TestAdd(t *testing.T) {\n"
+    "\tif Add(1, 2) != 3 {\n\t\tt.Errorf(\"bad add\")\n\t}\n"
+    "\tif Add(0, 0) != 0 {\n\t\tt.Fatalf(\"bad zero\")\n\t}\n}\n\n"
+    "func TestSub(t *testing.T) {\n"
+    "\tif Sub(2, 1) != 1 {\n\t\tt.Error(\"bad sub\")\n\t}\n}\n"
+)
+_RUST_TEST_FULL = (
+    "#[test]\nfn adds() {\n    assert_eq!(add(1, 2), 3);\n    assert!(add(0, 0) == 0);\n}\n\n"
+    "#[test]\nfn subs() {\n    assert_ne!(sub(2, 1), 0);\n}\n"
+)
+
+
+def case_multilang_test_lexicon(tmp: Path) -> tuple[bool, str]:
+    """3.1: Hard Rule 6 sees non-Python/JS test files. Gutted Go and Rust test
+    files fire net-declaration/assertion loss at medium; a Go test MOVE that
+    keeps assertions stays green; Go t.Skip and Rust #[ignore] additions fire
+    test-weakening; Java/Ruby/C# patterns are pinned at the function level."""
+    def build(name: str, rel: str, full: str) -> Path:
+        sub = tmp / name
+        sub.mkdir()
+        repo = make_repo(sub)
+        target = repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(full)
+        _git(repo, "add", rel)
+        _git(repo, "commit", "-m", "add tests")
+        return repo
+
+    def gates(repo: Path, files: list[str]) -> tuple[int, str]:
+        record = passing_record(repo, completion_record=_completion(files=files))
+        path = write_record(repo, record)
+        code, out, err = run_cli(
+            "verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo)
+        )
+        return code, out + err
+
+    # Gutted Go test file: fewer TestXxx funcs, zero t.Errorf/t.Fatalf.
+    repo_go = build("go", "calc_test.go", _GO_TEST_FULL)
+    (repo_go / "calc_test.go").write_text(
+        "package calc\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\t_ = Add(1, 2)\n}\n"
+    )
+    code_go, out_go = gates(repo_go, ["calc_test.go"])
+    go_gutted = code_go == 1 and "net test-declaration loss" in out_go and "net assertion loss" in out_go
+
+    # Gutted Rust test file: the assert!/assert_eq! macros' bang defeated the
+    # old regex — this pins that they now count.
+    repo_rs = build("rust", "tests/calc.rs", _RUST_TEST_FULL)
+    (repo_rs / "tests" / "calc.rs").write_text(
+        "#[test]\nfn adds() {\n    let _ = add(1, 2);\n}\n"
+    )
+    code_rs, out_rs = gates(repo_rs, ["tests/calc.rs"])
+    rust_gutted = code_rs == 1 and "net test-declaration loss" in out_rs and "net assertion loss" in out_rs
+
+    # Equivalent modular refactor: the same Go tests move to another test file
+    # in the same diff — netting is diff-level, stays green.
+    repo_mv = build("gomove", "calc_test.go", _GO_TEST_FULL)
+    (repo_mv / "calc_test.go").unlink()
+    (repo_mv / "calc_more_test.go").write_text(_GO_TEST_FULL)
+    _git(repo_mv, "add", "-A")
+    code_mv, out_mv = gates(repo_mv, ["calc_test.go", "calc_more_test.go"])
+    move_clean = code_mv == 0 and "net " not in out_mv
+
+    # Added skip markers: Go t.Skip( and Rust #[ignore] are test-weakening.
+    repo_skip = build("goskip", "calc_test.go", _GO_TEST_FULL)
+    (repo_skip / "calc_test.go").write_text(
+        _GO_TEST_FULL.replace(
+            "func TestAdd(t *testing.T) {\n",
+            "func TestAdd(t *testing.T) {\n\tt.Skip(\"flaky\")\n",
+        )
+    )
+    code_sk, out_sk = gates(repo_skip, ["calc_test.go"])
+    go_skip_flagged = code_sk == 1 and "test-weakening" in out_sk
+
+    repo_ig = build("rustignore", "tests/calc.rs", _RUST_TEST_FULL)
+    (repo_ig / "tests" / "calc.rs").write_text(
+        _RUST_TEST_FULL.replace("#[test]\nfn adds", "#[test]\n#[ignore]\nfn adds", 1)
+    )
+    code_ig, out_ig = gates(repo_ig, ["tests/calc.rs"])
+    rust_ignore_flagged = code_ig == 1 and "test-weakening" in out_ig
+
+    # Function-level pins for the remaining families (patch-shaped input).
+    def patch_for(path: str, removed: list[str], added: list[str]) -> str:
+        body = "".join(f"-{line}\n" for line in removed) + "".join(f"+{line}\n" for line in added)
+        return f"--- a/{path}\n+++ b/{path}\n{body}"
+
+    java_gut = qlcore.test_shrinkage_hits(patch_for(
+        "src/test/CalcTest.java",
+        ["    @Test", "    void adds() { assertEquals(3, add(1, 2)); }",
+         "    @Test", "    void subs() { assertTrue(sub(2, 1) == 1); }"],
+        ["    @Test", "    void adds() { add(1, 2); }"],
+    ))
+    ruby_gut = qlcore.test_shrinkage_hits(patch_for(
+        "spec/calc_spec.rb",
+        ['  it "adds" do', "    expect(add(1, 2)).to eq(3)", "  end",
+         '  it "subs" do', "    expect(sub(2, 1)).to eq(1)", "  end"],
+        ['  it "adds" do', "    add(1, 2)", "  end"],
+    ))
+    csharp_gut = qlcore.test_shrinkage_hits(patch_for(
+        "tests/CalcTests.cs",
+        ["    [Fact]", "    public void Adds() { Assert.Equal(3, Add(1, 2)); }",
+         "    [Fact]", "    public void Subs() { Assert.True(Sub(2, 1) == 1); }"],
+        ["    [Fact]", "    public void Adds() { Add(1, 2); }"],
+    ))
+    weaken_pins = [
+        qlcore.test_weakening_hits(patch_for("src/test/CalcTest.java", [], ["    @Disabled"])),
+        qlcore.test_weakening_hits(patch_for("spec/calc_spec.rb", [], ['  xit "adds" do'])),
+        qlcore.test_weakening_hits(patch_for("tests/CalcTests.cs", [], ['    [Fact(Skip = "slow")]'])),
+    ]
+    fn_pins = bool(java_gut and ruby_gut and csharp_gut and all(weaken_pins))
+
+    ok = go_gutted and rust_gutted and move_clean and go_skip_flagged and rust_ignore_flagged and fn_pins
+    return ok, (
+        f"go_gutted={go_gutted}; rust_gutted={rust_gutted}; move_clean={move_clean}; "
+        f"go_skip={go_skip_flagged}; rust_ignore={rust_ignore_flagged}; fn_pins={fn_pins} "
+        f"(java={bool(java_gut)},ruby={bool(ruby_gut)},csharp={bool(csharp_gut)},weaken={[bool(w) for w in weaken_pins]})"
+    )
+
+
 CASES = [
     ("action.yml python invocations all run the pinned copy", case_action_invocations_are_pinned),
     ("phantom completion (done + empty diff) is caught", case_phantom_completion),
@@ -1174,8 +1641,14 @@ CASES = [
     ("render-prompt substitutes {contract}/{diff}/{evidence} for the reviewer role", case_render_prompt_substitutes),
     ("task_class=medium with risk_tier=low still fires scope integrity (classifier parity)", case_task_class_medium_low_risk_scope_integrity),
     ("'add a test fixture' is not a bugfix; 'fix the rounding' is (explicit inflections)", case_bugfix_fixture_not_bugfix),
-    ("auto base never falls back to HEAD (empty tree keeps committed work visible)", case_auto_base_never_falls_back_to_head),
-    ("auto base on local-only main/master keeps committed work visible", case_auto_base_local_main_keeps_work_visible),
+    ("no-origin repo: local auto base is HEAD with a note; CI keeps the empty tree", case_no_origin_auto_base_defaults_to_head),
+    ("local-only main/master at HEAD: local auto base is HEAD; CI keeps the empty tree", case_local_main_auto_base_defaults_to_head),
+    ("default-base precedence: env beats config 'base' beats the ladder", case_base_env_and_config_precedence),
+    ("tests.path_markers and high_risk_paths extend the gates additively", case_gate_config_markers_and_high_risk),
+    ("bugfix test waiver must cite a recorded passing command", case_waiver_must_cite_passing_command),
+    ("bare-* allowlist line authorizes nothing and is named in a warning", case_bare_star_allowlist_authorizes_nothing),
+    ("install-manifest paths are scaffolding for scope integrity and audit sizing", case_install_manifest_paths_are_scaffolding),
+    ("multi-language test lexicon: gutted Go/Rust tests fire; moves stay green", case_multilang_test_lexicon),
     ("untracked symlink is not followed/disclosed by the canonical diff", case_untracked_symlink_not_disclosed),
     ("untracked file content is pinned by attestation (edit after attest goes stale)", case_attest_covers_untracked_content),
     ("empty current diff makes review freshness N/A, not stale (post-merge)", case_empty_diff_freshness_is_na),

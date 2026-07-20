@@ -133,14 +133,18 @@ async function commandInit(args) {
   const showSetupModels = host !== "git" && host !== "github";
   // Every command printed here must exit 0 on a fresh install of this host.
   const steps = [];
-  let n = 1;
+  let n = 0;
+  // Step 0 — commit the install so the ~59 installed files stay out of the
+  // task diff (an uncommitted install pollutes every scope/diff gate until it
+  // lands). Same wording as scripts/install.py's footer.
+  steps.push(`${n++}. ${c.bold("Commit the install:")} git add -A && git commit -m "chore: install coding-quality-loop"`);
   if (showSetupModels) {
     steps.push(`${n++}. ${c.bold("Create your config:")} cp assets/quality-loop.config.example.json quality-loop.config.json`);
     steps.push(`${n++}. ${c.bold("Set your models:")}    python3 scripts/quality_loop.py setup-models --host ${modelRoutedHost}`);
   }
   steps.push(`${n++}. ${c.bold("Try it out:")}         ${invokeExample}`);
   steps.push(``);
-  steps.push(c.dim(`Docs: https://github.com/zaingz/coding-quality-loop#quickstart-60-seconds`));
+  steps.push(c.dim(`Docs: https://github.com/zaingz/coding-quality-loop#quickstart`));
   box("Next steps:", steps);
   return 0;
 }

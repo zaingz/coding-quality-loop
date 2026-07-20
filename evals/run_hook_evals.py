@@ -280,17 +280,57 @@ def case_pretool_blocks_record_deletion(tmp: Path) -> tuple[bool, str]:
 
 
 def case_pretool_protect_harness_blocks_gate_edit(tmp: Path) -> tuple[bool, str]:
-    # Default-on tamper-evidence: editing the gate scripts, hook shims, or the
-    # active record is denied without any config present.
+    # Default-on tamper-evidence: editing the gate scripts or hook shims is
+    # denied without any config present. (The agent record is deliberately NOT
+    # protected here — see case_pretool_allows_record_edit.)
     repo = make_repo(tmp)
     details = []
     ok = True
-    for target in ("scripts/quality_loop.py", "hosts/claude-code/stop_gate.py", "agent-record.json"):
+    for target in ("scripts/quality_loop.py", "hosts/claude-code/stop_gate.py"):
         code, out, _ = run_script(PRE, {"cwd": str(repo), "tool_name": "Edit", "tool_input": {"file_path": target, "new_string": "x = 1"}}, repo)
         good = code == 0 and deny_json(out) and "tamper-evidence" in out
         ok = ok and good
         details.append(f"{target}: exit={code} denied={deny_json(out)}")
     return ok, "; ".join(details)
+
+
+def case_pretool_allows_record_edit(tmp: Path) -> tuple[bool, str]:
+    # The agent record is deliberately OUT of the edit-deny set: the lifecycle
+    # requires continuous record mutation via Write/Edit and no CLI subcommand
+    # writes it, so denying record edits only funnels honest agents into Bash
+    # heredocs. Record integrity comes from the freshness hash + verify
+    # re-execution + CI, not a PreToolUse path deny.
+    repo = make_repo(tmp, with_scripts=True)
+    details = []
+    ok = True
+    for target in (".quality-loop/agent-record.json", "agent-record.json"):
+        code, out, err = run_script(
+            PRE,
+            {"cwd": str(repo), "tool_name": "Edit",
+             "tool_input": {"file_path": target, "new_string": '{"status": "implement"}'}},
+            repo,
+        )
+        good = code == 0 and out.strip() == ""
+        ok = ok and good
+        details.append(f"{target}: exit={code} out={out.strip()[:60]!r}")
+    return ok, "; ".join(details)
+
+
+def case_pretool_allows_stop_gate_restore_remedy(tmp: Path) -> tuple[bool, str]:
+    # The stop gate's no-record remedy must not itself be blocked by the guard.
+    # The old `git checkout -- ...` remedy WAS matched by the DESTRUCTIVE checkout
+    # rule; extract the exact restore command from stop_gate.py and run it through
+    # the guard to prove the printed remedy passes.
+    import re as _re
+    src = STOP.read_text(encoding="utf-8")
+    m = _re.search(r"git restore --source=HEAD -- \.quality-loop/agent-record\.json", src)
+    if not m:
+        return False, "could not find the git restore remedy string in stop_gate.py"
+    remedy = m.group(0)
+    repo = make_repo(tmp)
+    code, out, _ = _bash(repo, remedy)
+    ok = code == 0 and out.strip() == "" and not deny_json(out)
+    return ok, f"remedy={remedy!r}; exit={code}; denied={deny_json(out)}"
 
 
 def case_pretool_protect_harness_off_allows_gate_edit(tmp: Path) -> tuple[bool, str]:
@@ -547,6 +587,140 @@ def case_stop_gate_blocks_tombstoned_record_deletion(tmp: Path) -> tuple[bool, s
     return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:200]!r}"
 
 
+def case_stop_gate_closes_merged_clone_record(tmp: Path) -> tuple[bool, str]:
+    # Cloned-repo teardown trap: a committed, merged `done` record (byte-
+    # identical to base, nothing in flight) is CLOSED — the stop is allowed and
+    # the verify umbrella is NOT re-executed. The stub gate prints ARGS on every
+    # invocation, so its absence from the output proves no re-execution.
+    repo = make_repo(tmp)
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "quality_loop.py").write_text(
+        "import sys\nprint('ARGS: ' + ' '.join(sys.argv[1:]))\nsys.exit(1)\n")
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    (qdir / "agent-record.json").write_text(json.dumps(done_record()))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-m", "merged done record")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    env = {k: v for k, v in os.environ.items() if k != "QUALITY_LOOP_BASE"}
+    code, out, err = _stop(repo, env=env)
+    ok = code == 0 and out.strip() == "" and "ARGS:" not in out and "closed" in err.lower()
+    return ok, f"exit={code}; out={out.strip()[:120]!r}; err={err.strip()[:160]!r}"
+
+
+def case_stop_gate_gates_inflight_modified_record(tmp: Path) -> tuple[bool, str]:
+    # A committed `done` record that is then locally MODIFIED (in flight) is NOT
+    # closed: the verify umbrella still runs. Stub gate exits 1 -> block, and
+    # 'ARGS: verify' proves the umbrella was invoked (predicate did not short-circuit).
+    repo = make_repo(tmp)
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "quality_loop.py").write_text(
+        "import sys\nprint('ARGS: ' + ' '.join(sys.argv[1:]))\nsys.exit(1)\n")
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    (qdir / "agent-record.json").write_text(json.dumps(done_record()))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-m", "done record")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    rec = done_record()
+    rec["goal"] = "locally changed after merge"
+    (qdir / "agent-record.json").write_text(json.dumps(rec))
+    env = {k: v for k, v in os.environ.items() if k != "QUALITY_LOOP_BASE"}
+    code, out, _ = _stop(repo, env=env)
+    ok = code == 0 and _decision(out) == "block" and "ARGS: verify " in out
+    return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:160]!r}"
+
+
+def case_stop_gate_gates_dirty_tree_despite_closed_record(tmp: Path) -> tuple[bool, str]:
+    # A committed, base-identical `done` record does NOT close the task when
+    # ANY other file is locally modified: an unchanged record plus new source
+    # edits is a fresh task riding a stale record. The umbrella must run
+    # ('ARGS: verify' proves it), not stop free.
+    repo = make_repo(tmp)
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "quality_loop.py").write_text(
+        "import sys\nprint('ARGS: ' + ' '.join(sys.argv[1:]))\nsys.exit(1)\n")
+    (repo / "app.py").write_text("print('v1')\n")
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    (qdir / "agent-record.json").write_text(json.dumps(done_record()))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-m", "merged done record")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    (repo / "app.py").write_text("print('v2 — new uncommitted work')\n")
+    env = {k: v for k, v in os.environ.items() if k != "QUALITY_LOOP_BASE"}
+    code, out, err = _stop(repo, env=env)
+    ok = (code == 0 and _decision(out) == "block" and "ARGS: verify " in out
+          and "closed" not in err.lower())
+    return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:160]!r}"
+
+
+def case_stop_gate_never_closes_in_no_origin_repo(tmp: Path) -> tuple[bool, str]:
+    # Solo no-origin repo (fresh `git init`, work committed per the step-0
+    # next-steps guidance): the current branch is trivially byte-identical to
+    # itself, so local main/master must NOT be closure-eligible — otherwise any
+    # committed terminal record stops free and the entire umbrella is skipped
+    # in the one environment with no CI anchor. Only origin/* refs or an
+    # explicit QUALITY_LOOP_BASE / config `base` may close a record. 'ARGS:
+    # verify' in the output proves the umbrella still ran.
+    repo = make_repo(tmp)
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "quality_loop.py").write_text(
+        "import sys\nprint('ARGS: ' + ' '.join(sys.argv[1:]))\nsys.exit(1)\n")
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    (qdir / "agent-record.json").write_text(json.dumps(done_record()))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-m", "committed done record, no origin anywhere")
+    env = {k: v for k, v in os.environ.items() if k != "QUALITY_LOOP_BASE"}
+    code, out, err = _stop(repo, env=env)
+    ok = (code == 0 and _decision(out) == "block" and "ARGS: verify " in out
+          and "closed" not in err.lower())
+    return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:160]!r}"
+
+
+def case_install_hooks_portable_and_uninstall_survives_drift(tmp: Path) -> tuple[bool, str]:
+    # Two installer invariants on the hook wiring. (1) Portability: where
+    # `python3` is on PATH the written launcher stays the literal "python3" —
+    # settings.json is often committed and shared, and a machine-specific
+    # absolute path would silently disable the gates on every other clone (the
+    # absolute-path substitution is reserved for hosts with no python3). (2)
+    # Drift: uninstall must recognise its hook groups by the shim-script path,
+    # not interpreter equality — after the recorded interpreter changes (a
+    # python upgrade), uninstall still removes every group instead of leaving
+    # orphaned spawn-failing hooks behind.
+    import shutil as _shutil
+    if not _shutil.which("python3"):
+        return True, "skipped: no python3 on PATH (absolute-path substitution is correct here)"
+    repo = make_repo(tmp)
+    install = ROOT / "scripts" / "install.py"
+    proc = subprocess.run(
+        [sys.executable, str(install), "--host", "claude-code", "--target", str(repo)],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    if proc.returncode != 0:
+        return False, f"install failed: {proc.stdout[-200:]!r}"
+    settings = repo / ".claude" / "settings.json"
+    data = json.loads(settings.read_text())
+    commands = [g2.get("command") for groups in (data.get("hooks") or {}).values()
+                for g in groups for g2 in (g.get("hooks") or [])]
+    if not commands or any(c != "python3" for c in commands):
+        return False, f"expected portable 'python3' launchers, got {commands!r}"
+    # Simulate interpreter drift: the groups were written by an interpreter
+    # that has since been deleted.
+    drifted = settings.read_text().replace('"python3"', '"/old/deleted/python3.13"')
+    settings.write_text(drifted)
+    proc = subprocess.run(
+        [sys.executable, str(install), "--uninstall", "--target", str(repo)],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    if proc.returncode != 0:
+        return False, f"uninstall failed: {proc.stdout[-200:]!r}"
+    if settings.is_file():
+        left = json.loads(settings.read_text()).get("hooks") or {}
+        if left:
+            return False, f"orphaned hook groups survived drift: {list(left)!r}"
+    return True, "portable launcher written; drifted groups fully removed on uninstall"
+
+
 def case_settings_stop_timeout_covers_verify(tmp: Path) -> tuple[bool, str]:
     # Terminal Stop runs the full verify umbrella, which re-executes recorded
     # evidence at up to 120s per command (QUALITY_LOOP_TIMEOUT-overridable). A
@@ -710,7 +884,9 @@ CASES = [
     ("PreToolUse protects hook wiring files and the install manifest", case_pretool_protects_hook_wiring_and_manifest),
     ("PreToolUse apply_patch body targeting a protected path is denied", case_pretool_apply_patch_body_targets_protected),
     ("PreToolUse blocks deletion of the record and .quality-loop", case_pretool_blocks_record_deletion),
-    ("PreToolUse protect_harness blocks gate/hook/record edits by default", case_pretool_protect_harness_blocks_gate_edit),
+    ("PreToolUse protect_harness blocks gate/hook edits by default", case_pretool_protect_harness_blocks_gate_edit),
+    ("PreToolUse allows editing the agent record (not in the deny set)", case_pretool_allows_record_edit),
+    ("PreToolUse allows the stop gate's git restore remedy string", case_pretool_allows_stop_gate_restore_remedy),
     ("PreToolUse protect_harness=false allows gate-script edit", case_pretool_protect_harness_off_allows_gate_edit),
     ("PreToolUse missing runtime allows with a truthful warning", case_pretool_missing_runtime_allows_with_warning),
     ("PreToolUse scans via sys.executable without python3 on PATH", case_pretool_scans_without_python3_on_path),
@@ -722,6 +898,11 @@ CASES = [
     ("Stop gate allows a configured repo with no task (first contact)", case_stop_gate_allows_config_without_task),
     ("Stop gate allows a fresh install with only the install manifest", case_stop_gate_allows_manifest_only_install),
     ("Stop gate blocks a git-tombstoned record deletion without config", case_stop_gate_blocks_tombstoned_record_deletion),
+    ("Stop gate closes a merged/cloned done record (no re-execution)", case_stop_gate_closes_merged_clone_record),
+    ("Stop gate still gates an in-flight modified committed record", case_stop_gate_gates_inflight_modified_record),
+    ("Stop gate still gates a dirty tree despite a closed record", case_stop_gate_gates_dirty_tree_despite_closed_record),
+    ("Stop gate never closes a record in a no-origin repo", case_stop_gate_never_closes_in_no_origin_repo),
+    ("Install writes portable hooks; uninstall survives interpreter drift", case_install_hooks_portable_and_uninstall_survives_drift),
     ("Stop hook timeout covers the terminal verify umbrella budget", case_settings_stop_timeout_covers_verify),
     ("Stop gate runs the verify umbrella at terminal statuses", case_stop_gate_terminal_runs_verify_umbrella),
     ("Stop gate names QUALITY_LOOP_TIMEOUT on timeout-looking failures", case_stop_gate_timeout_failure_names_override),

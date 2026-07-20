@@ -45,6 +45,9 @@ All installs are idempotent, non-destructive (your pre-existing files are backed
 ## After install
 
 ```bash
+# 0. Commit the install so the diff gates start from a clean base
+git add -A && git commit -m "chore: install coding-quality-loop"
+
 # 1. Create your config from the installed example
 cp assets/quality-loop.config.example.json quality-loop.config.json
 

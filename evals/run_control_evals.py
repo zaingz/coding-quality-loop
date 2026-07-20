@@ -1083,7 +1083,7 @@ def case_arm_costs_query(tmp: Path) -> tuple[bool, str]:
         assistant_line("older", "b1", "2026-01-01T09:00:00Z", inp=7, out=3),
     ])
     ctl.index_all(repo)
-    ctl_py = ROOT / "scripts" / "quality_loop_control.py"
+    ctl_py = ROOT / "scripts" / "quality_loop.py"
     code, out, _ = run_stdin([sys.executable, str(ctl_py), "control-report", "--arm-costs",
                               "--cwd", str(repo)], "", repo)
     try:

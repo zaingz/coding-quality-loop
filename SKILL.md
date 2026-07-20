@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "6.0.1"
+  version: "6.1.0"
 ---
 
 # Coding Quality Loop
@@ -42,9 +42,9 @@ A new dependency, framework, queue, cache, service, migration, or abstraction mu
 
 **EXECUTE** — one coherent slice at a time. Boring code, existing conventions, small diffs, no speculative abstraction, no unrelated cleanup. Tests move with the behavior. Mark known shortcuts inline with a `cql:` comment naming the ceiling and upgrade path. Verify: smallest sufficient checks first; record exact commands and results; add each command to `.quality-loop/allowed-commands` (one command per line, matched exactly; `#` comments and glob patterns allowed) so `run-evidence` can re-execute it. Bug fix = RED then GREEN. Never weaken, skip, or delete tests to reach green. If a helper script is broken, report and stop — never repair the gate.
 
-**REVIEW** — medium+: a fresh-context reviewer checks the diff against the contract, executes tests when possible (`ran_checks: true|false`), and flags stubs as blocking. Use a different model family by default; an explicit higher-level harness may use the same model only in a separate host/session. The implementer is never the final validator. Security review at any risk boundary (canonical list: §Task Class). User-facing work carries a product floor: keyboard operable, labeled inputs, no `prompt()`/`confirm()` primary flows. Bridge: in-scope findings become fix tasks; out-of-scope findings become follow-ups, not blockers. Before attestation, re-run the right-size gate on the final diff to confirm nothing crept in. `attest-review` is the final act on the diff; any later code edit requires re-attestation. Package: goal, files changed, right-size decision, evidence, risks, rollback, follow-ups.
+**REVIEW** — medium+: a fresh-context reviewer checks the diff against the contract, executes tests when possible (`ran_checks: true|false`), and flags stubs as blocking. Use a different model family by default; an explicit higher-level harness may use the same model only in a separate host/session. The implementer is never the final validator. Security review at any risk boundary (canonical list: §Task Class). User-facing work carries a product floor: keyboard operable, labeled inputs, no `prompt()`/`confirm()` primary flows. Bridge: in-scope findings become fix tasks; out-of-scope findings become follow-ups, not blockers. Before attestation, re-run the right-size gate on the final diff to confirm nothing crept in. `attest-review` is the final act on the diff; any later code edit requires re-attestation. Package: goal, files changed, right-size decision, evidence, risks, rollback, follow-ups. Teardown: PACKAGE archives the record to `docs/records/vX.Y.Z-agent-record.json` and removes the live file, so a record left identical to its content at the resolved base ref is closed and the Stop gate does not re-verify it.
 
-**RETROSPECTIVE** — every repeated mistake becomes a durable harness change (a rule, a test, a hook, an eval case), never a repeated chat correction. On recurring verification failure, record `repeated_failure: true` and the fix in `harness_update`.
+**RETROSPECTIVE** — every repeated mistake becomes a durable harness change (a rule, a test, a hook, an eval case), never a repeated chat correction. On recurring verification failure, record `repeated_failure: true` and the fix in `harness_update`. A lesson is promoted into a shipped checklist only after it recurs across >=2 distinct tasks; a single-incident lesson goes to project memory, not the checklist.
 
 ## Hard Rules
 
@@ -74,10 +74,10 @@ Run `brief` at session start; update `.quality-loop/progress.md` at PACKAGE/RETR
 ## Verify (one command)
 
 ```bash
-python3 scripts/quality_loop.py verify agent-record.json --red-green
+python3 scripts/quality_loop.py verify .quality-loop/agent-record.json --red-green
 ```
 
-`--base` defaults to the auto merge-base of the origin/main ladder; pass it only to override. Full command catalog (incl. `memory-*`): `references/tool-contracts.md`. Control plane: opt-in add-on installed via `install.py --with-control-plane`; see `docs/control-plane.md`. Drop-in prompt for skill-less agents: `assets/prompts/drop-in-prompt.md`.
+`--base` defaults to the auto merge-base of the origin/main ladder (override with the config `base` key or the `QUALITY_LOOP_BASE` env var); pass the flag only to override those. Full command catalog (incl. `memory-*`): `references/tool-contracts.md`. Control plane: opt-in add-on installed via `install.py --with-control-plane`; see `docs/control-plane.md`. Drop-in prompt for skill-less agents: `assets/prompts/drop-in-prompt.md`.
 
 ## References (load on demand only)
 

@@ -28,8 +28,8 @@ Requires: Python 3.10+, `matplotlib`, `Pillow`. No other dependencies.
   (`CANONICAL_GATE_CASES` / `CONTROL_ADDON_CASES`; the trigger smoke fixture is
   excluded). The committed PNG was rendered with 171 gate cases as of v5.1.0 and
   needs a re-render for the current counts. Per-agent lift values come from
-  `examples/sudoku-agent-eval-2026-07-01/README.md` and
-  `examples/webapp-agent-eval-2026-07-07/README.md`. Every number in the
+  `archive/eval-runs/sudoku-agent-eval-2026-07-01/README.md` and
+  `archive/eval-runs/webapp-agent-eval-2026-07-07/README.md`. Every number in the
   chart is traceable to a repo file.
 - `terminal_demo.py` — line prefixes (`[ok]`, `Overall: PASS`,
   `VERIFY — unified gate report`) match the actual `scripts/quality_loop.py
@@ -38,13 +38,13 @@ Requires: Python 3.10+, `matplotlib`, `Pillow`. No other dependencies.
 - `anatomy.py` — every card references a real field in
   `examples/walkthrough/agent-record.json`.
 - `gate_gaming.py` — story paraphrased from `CHANGELOG.md` §3.1.0 and
-  `examples/webapp-agent-eval-2026-07-07/README.md`.
+  `archive/eval-runs/webapp-agent-eval-2026-07-07/README.md`.
 
 If you change a source-of-truth number in the repo, update the generator
 and re-run it — the media should stay in sync with the record.
 
 > Last regenerated 2026-07-13 (171 gate cases as of v5.1.0 / 7 suites / 5
-> published eval runs; two routed hosts — Claude Code + Codex). The v6.0.0
-> counts (219 core + a 35-case control add-on) are NOT yet rendered: re-run
+> published eval runs; two routed hosts — Claude Code + Codex). The v6.1.0
+> counts (234 core + a 35-case control add-on) are NOT yet rendered: re-run
 > `python3 docs/images/src/evidence_dashboard.py` (needs matplotlib) so the PNG
 > catches up — the numbers-consistency lint covers this file.

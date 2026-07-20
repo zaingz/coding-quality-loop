@@ -35,14 +35,12 @@ the repo stays trustable.
       python3 evals/run_routing_evals.py
       python3 evals/run_hook_evals.py
       python3 evals/run_control_evals.py    # control-plane add-on suite (in-repo checkout)
-      python3 evals/run_trigger_evals.py    # trigger smoke fixture (excluded from the headline count; its default grader cannot fail)
       ```
 
-      The six core gate suites total **219 offline gate cases** (20 static + 54 behavioral +
-      32 memory + 42 reality + 29 routing + 42 hook). The opt-in control plane adds
+      The six core gate suites total **234 offline gate cases** (20 static + 55 behavioral +
+      32 memory + 48 reality + 30 routing + 49 hook). The opt-in control plane adds
       **35 add-on cases** (`run_control_evals.py`), counted separately because the
-      add-on is not installed by default. The trigger smoke fixture is run separately
-      and is **not** part of either count. The canonical numbers live in
+      add-on is not installed by default. The canonical numbers live in
       `evals/run_evals.py` (`CANONICAL_GATE_CASES` / `CONTROL_ADDON_CASES`); a lint
       fails if any public doc — this one included — contradicts them.
 
@@ -94,9 +92,18 @@ For host-specific work, see `hosts/<host>/README.md` where present, or the examp
 folder for your host under `examples/`.
 
 Running `python3 scripts/install.py --host all` inside this source repo is useful for
-local hook testing, but the generated host copies are intentionally ignored here. Commit
+local hook testing, but most generated host copies are intentionally ignored here. Commit
 the source templates under `hosts/`, `examples/`, `scripts/`, and `.claude/agents/`
 instead.
+
+**The deterministic layer is live in this repo.** Since v6.1.0, `.claude/settings.json`
+is committed: the SessionStart brief, PreToolUse guard, and Stop gate fire during CQL's
+own development, so a release can no longer ship a broken hook path unfelt. One honest
+carve-out: the repo's `quality-loop.config.json` sets `protect_harness: false`, because
+here the gate scripts are the workpiece — the guard's harness-file edit denies would
+make developing CQL impossible. The always-on destructive-command layer still applies,
+and consumer installs keep the default (on). If a hook misfires while you work, fix the
+hook — do not delete the settings file to get unstuck.
 
 ## Reviewer independence
 

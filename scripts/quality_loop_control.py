@@ -2443,30 +2443,7 @@ def cmd_ingest(args: Any) -> int:
     return 0
 
 
-def _main(argv: list[str] | None = None) -> int:
-    """Direct entry point (``python3 scripts/quality_loop_control.py ...``).
-
-    The full command set is registered by quality_loop.py; this standalone
-    parser carries only control-report so the --arm-costs bench-cost query is
-    usable before the gate CLI registers the new flags (cql: fold into
-    quality_loop.py's control-report parser and delete this note)."""
-    import argparse
-    parser = argparse.ArgumentParser(
-        description="Control-plane direct entry (full command set: scripts/quality_loop.py)")
-    sub = parser.add_subparsers(dest="command", required=True)
-    p_report = sub.add_parser(
-        "control-report",
-        help="Per-task audit bundle, or --arm-costs for bench cost capture")
-    p_report.add_argument("--cwd", default=".", help="Repo root (default .)")
-    p_report.add_argument("--task-id", help="Task id to report on (omit with --arm-costs)")
-    p_report.add_argument("--json", action="store_true", help="Emit the bundle as JSON instead of markdown")
-    p_report.add_argument("--arm-costs", action="store_true",
-                          help="Emit per-session tokens_in/tokens_out/duration_sec JSON for a bench results arm")
-    p_report.add_argument("--since", help="ISO-8601 cutoff: only sessions active at/after this instant")
-    p_report.set_defaults(func=cmd_report)
-    args = parser.parse_args(argv)
-    return args.func(args)
-
-
-if __name__ == "__main__":
-    raise SystemExit(_main())
+# No direct entry point: every control-plane command (including
+# control-report --arm-costs) is registered by scripts/quality_loop.py when
+# this module is present. The former standalone _main duplicated that parser
+# and was folded in v6.1.0.

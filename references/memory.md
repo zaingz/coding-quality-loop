@@ -25,7 +25,7 @@ Select via `assets/quality-loop.config.example.json` -> `memory`.
 - **commit(record [, --lesson])** -> distills `harness_update`, `minimality_decision`, and
   `review_findings` from an agent record into lesson rows, redacts secrets, and stamps
   best-effort provenance (`source: {task_id, git_author}`). Files backend:
-  `python3 scripts/quality_loop.py memory-commit agent-record.json`. With `--lesson`, the
+  `python3 scripts/quality_loop.py memory-commit .quality-loop/agent-record.json`. With `--lesson`, the
   record path is optional (a manual lesson needs no record).
 - **commit --outcome clean|regressed|reverted [--note ...]** -> records how shipped work
   fared as a `kind=outcome` row (surfaced by the next session brief as
