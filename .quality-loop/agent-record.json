@@ -1,10 +1,10 @@
 {
-  "task_id": "v6.0.0-trust-chain",
-  "status": "review",
+  "task_id": "v6.0.1-freshness-trust",
+  "status": "done",
   "risk_tier": "high",
   "task_class": "medium",
   "security_sensitive": true,
-  "goal": "Ship v6.0.0: close the enforcement gaps the 2026-07-20 deep review verified (verify umbrella at the Stop gate, merge-base diff grounding, object ACs at medium+, satisfiable blocked rows, test-shrinkage and under-fanning gates, protect-harness guard, truthful hook failures), repair the adoption funnel (install manifest, host-aware check, uninstall, codex AGENTS.md, render-prompt), shrink the surface (4-artifact paper trail, 4-value verdict enum, control plane demoted to opt-in add-on, dead templates and speculative tool shapes deleted), make memory read-only-on-recall with outcome feedback, and pre-register the bench protocol with forced decision rules — net negative lines, per docs/improvement-plan-2026-07-20.md",
+  "goal": "Ship v6.0.1: close the two trust-chain holes the Fable/xhigh fifth review found in v6.0.0 — review-freshness now treats an empty post-merge diff as N/A not stale (the shipped tag was failing its own verify), and security_review.diff_sha256 is now validated (was independent_review only, so a security approval survived later code changes at the risk boundary) — plus the Codex Stop timeout, the config-without-task first-contact trap, and malformed-input crash hardening. Closes the loop this time.",
   "acceptance_criteria": [
     {
       "criterion": "All core gate-case suites pass after every change, including the new commit-first-evasion, honest-committer, object-AC, blocked-row, test-shrinkage, and protect-harness cases",
@@ -216,7 +216,7 @@
     }
   ],
   "independent_review": {
-    "reviewer": "v6-fable-final-signoff (claude-fable-5, xhigh)",
+    "reviewer": "v601-fable-review (claude-fable-5, xhigh)",
     "validator": "workflow-subagent",
     "fresh_context": true,
     "patched": false,
@@ -225,18 +225,14 @@
     "findings": [
       {
         "severity": "note",
-        "detail": "Reached approve after 3 prior fresh-context review rounds (cross-family GPT/Codex + security + re-review) whose 39 findings were fixed with eval coverage or rejected with evidence; final sign-off verified every trust-chain mechanism empirically and ran all suites green (216 core + 35 add-on + 33 node)."
-      },
-      {
-        "severity": "info",
-        "detail": "Residual: one doc line '(216 core + a 35-case add-on)' stays invisible to the doc-count lint; non-blocking."
+        "detail": "Both v6.0.0 majors reproduced-then-fixed (empty-diff freshness N/A, security_review freshness); 7 adversarial probes; all 8 suites green. Two minors fixed in follow-up (sibling plan crash, codex timeout pin)."
       }
     ],
-    "diff_sha256": "c04ed7b29c3a4f0d4974f5122dec682e6ae48078a4fa8b946bd4b2a2e4a7ecba",
-    "attested_at": "2026-07-20T13:31:44"
+    "diff_sha256": "31c6c4e79b0c449dbac7273a15049ffcf2ec5a51103cd5c791224961727a4fef",
+    "attested_at": "2026-07-20T15:05:34"
   },
   "security_review": {
-    "reviewer": "v6-security-reviewer + fable-final battery",
+    "reviewer": "v601-fable-review security surface",
     "fresh_context": true,
     "patched": false,
     "ran_checks": true,
@@ -244,20 +240,15 @@
     "findings": [
       {
         "severity": "note",
-        "detail": "Round-1 security review found a reproduced uninstall path-traversal (blocking) + destructive-guard wrapper regression (major); both fixed and re-verified. Final Fable battery re-confirmed: uninstall symlink containment (victim survives), pre-existing-file protection, untracked-symlink non-disclosure + byte-faithful hashing, protect_harness 40-case deny/allow battery incl. all wrapper forms and sh -c payloads, secret patterns/redaction unweakened, control plane 127.0.0.1-bound and genuinely opt-in."
-      },
-      {
-        "severity": "note",
-        "detail": "Accepted residuals (documented): apply_patch best-effort protection (tamper-evidence), Bash sed/heredoc + python-mediated deletions outside the coarse guard grammar."
+        "detail": "security_review freshness now validated (the fix under review); empty-diff N/A path confirmed non-abusable (phantom completion holds at terminal status, auto-base prevents commit-first emptying). Stop-gate narrowing reasoned acceptable."
       }
     ],
-    "diff_sha256": "c04ed7b29c3a4f0d4974f5122dec682e6ae48078a4fa8b946bd4b2a2e4a7ecba",
-    "attested_at": "2026-07-20T13:31:44"
+    "diff_sha256": "31c6c4e79b0c449dbac7273a15049ffcf2ec5a51103cd5c791224961727a4fef",
+    "attested_at": "2026-07-20T15:05:34"
   },
   "open_risks": [
-    "The live ablation (Wave 4.3) has still never been run — v6 pre-registers the protocol and decision rules but the retention evidence remains outstanding, and the README now says so honestly",
-    "protect_harness covers Write/Edit/apply_patch targets and Bash rm patterns; Bash-mediated edits (sed/heredoc) of the gate scripts remain a documented residual bypass — tamper-evidence, not immutability",
-    "docs/images/evidence-dashboard.png still renders v5.1.0 numbers (annotated 'as of v5.1.0'; regeneration needs matplotlib)"
+    "Wave 4.3 live ablation still outstanding (bench/PROTOCOL.md pre-registered).",
+    "Documented residual limits unchanged (Stop latency budget, Bash-mediated tamper, ran_checks warn-not-fail)."
   ],
   "implementer": "claude-fable-5-orchestrated-workers",
   "validation_contract": {
@@ -331,5 +322,31 @@
       "packages/npm/test/*.test.mjs"
     ],
     "notes": "Release-wide diff; context_map.files uses explicit per-area globs (the intended escape hatch for a repo-spanning release), not single-file mappings."
-  }
+  },
+  "completion_record": {
+    "goal": "Ship v6.0.1: close the two trust-chain holes the Fable/xhigh fifth review found in v6.0.0 — review-freshness now treats an empty post-merge diff as N/A not stale (the shipped tag was failing its own verify), and security_review.diff_sha256 is now validated (was independent_review only, so a security approval survived later code changes at the risk boundary) — plus the Codex Stop timeout, the config-without-task first-contact trap, and malformed-input crash hardening. Closes the loop this time.",
+    "files_changed": [
+      "scripts/quality_loop_reality.py (freshness empty-diff N/A + security_review coverage + scalar-plan hardening)",
+      "scripts/quality_loop.py (detect_risk_floor scalar hardening + non-dict step guard)",
+      "hosts/claude-code/stop_gate.py (active-loop signal requires real task state, not bare config)",
+      "hosts/codex/hooks.json (Stop timeout 30->600)",
+      "evals/run_reality_evals.py + evals/run_hook_evals.py (+3 cases, both-host timeout pin)",
+      "CHANGELOG.md/README/docs (6.0.1 entry, counts 216->219)"
+    ],
+    "right_size_decision": "rung minimal_new_code: two focused gate fixes + host-config + crash hardening; ~184/-49 lines, no new subsystem",
+    "evidence": "219 core gate cases + 35 add-on + 33 node tests green; both majors reproduced-then-fixed by the Fable/xhigh review; this record passes the verify umbrella on the branch after re-attestation",
+    "risks": "post-release the completed record is archived to docs/records/ (established pattern); phantom-completion stays strict",
+    "rollback": "git revert the v6.0.1 merge; npm publish fires only on the GitHub release",
+    "follow_ups": [
+      "Wave 4.3 live ablation still outstanding (bench/PROTOCOL.md pre-registered)",
+      "scaffolding-filename changed_files/pseudo-diff asymmetry (pre-existing, note-level) worth aligning"
+    ],
+    "done_when": [
+      "empty post-merge diff makes review freshness N/A (shipped tag passes its own verify)",
+      "security_review.diff_sha256 is validated at the risk boundary",
+      "219 core gate cases + 35 add-on + 33 node tests green",
+      "Codex Stop timeout covers the verify umbrella; fresh install no longer blocks stop"
+    ]
+  },
+  "bugfix_test_waiver": "Regression tests DID ship with this fix as eval cases under evals/ — the bugfix-test co-presence heuristic's TEST_PATH_MARKERS (test/spec/__tests__) does not recognize CQL's eval-case test location. New/reworked cases: case_empty_diff_freshness_is_na and case_security_review_freshness_checked (evals/run_reality_evals.py) pin the two majors; case_stop_gate_allows_config_without_task + tombstone rework (evals/run_hook_evals.py) pin the stop-gate change. Per CONTRIBUTING.md, eval cases are this repo's regression tests."
 }
