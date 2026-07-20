@@ -936,11 +936,22 @@ def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
     top_entry = re.split(r"\n## ", changelog)[1] if "\n## " in changelog else changelog
     # Matches the headline phrasings only: "<n> cases", "<n> gate cases",
     # "<n> eval cases", "<n> offline cases", "<n> offline gate/eval cases".
-    pattern = re.compile(r"(\d+)\s+(?:offline\s+)?(?:gate\s+|eval\s+)?cases\b", re.IGNORECASE)
+    # Also catches "<n> core cases" — including URL-encoded ("<n>%20core%20cases")
+    # so a shields.io badge cannot drift invisibly — and "| **<n>** |" /
+    # "| <n> |" table cells, the two phrasings the v6 final review found the
+    # plain word-boundary regex could not see.
+    pattern = re.compile(
+        r"(\d+)(?:\s+|%20)(?:offline(?:\s+|%20))?(?:gate(?:\s+|%20)|eval(?:\s+|%20)|core(?:\s+|%20))?cases\b",
+        re.IGNORECASE,
+    )
+    table_pattern = re.compile(r"\|\s*\*{0,2}(\d+)\*{0,2}\s*\|")
     # The add-on suite's own phrasing ("<n> add-on cases"), invisible to the
     # core pattern above and vice versa.
     addon_pattern = re.compile(r"(\d+)(?:-case)?\s+add-on\s+(?:gate\s+|eval\s+)?cases?\b", re.IGNORECASE)
     historical = re.compile(r"\bas of v\d", re.IGNORECASE)
+    # Only lint table cells inside the canonical "Total core gate cases" row —
+    # per-suite rows carry their own (varying) counts that are not the total.
+    total_row = re.compile(r"total\s+core\s+gate\s+cases", re.IGNORECASE)
     mismatches = []
 
     def check_text(text: str, rel: str, allow_trigger: bool) -> None:
@@ -957,6 +968,10 @@ def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
                     continue
                 if n != CANONICAL_GATE_CASES:
                     mismatches.append(f"{rel}: {m.group(0)!r} != {CANONICAL_GATE_CASES}")
+            if total_row.search(line):
+                for m in table_pattern.finditer(line):
+                    if int(m.group(1)) != CANONICAL_GATE_CASES:
+                        mismatches.append(f"{rel}: total-row cell {m.group(0)!r} != {CANONICAL_GATE_CASES}")
 
     for doc in docs:
         rel = str(doc.relative_to(ROOT))

@@ -25,8 +25,9 @@ core suites plus **35 add-on cases** for the control plane.
 - `verify` / `verify-gates` `--base` now defaults to the **merge-base with
   origin/main** (ladder: origin/main → origin/master → main → master; empty
   tree as last resort) instead of `HEAD` — committed-but-unpushed work stays in
-  the diff. Explicit `--base` always wins; `diff-audit`, `run-evidence`, and
-  `attest-review` keep their `HEAD` default.
+  the diff. Explicit `--base` always wins; `diff-audit` and `run-evidence` keep
+  their `HEAD` default, and `attest-review` now auto-resolves the same base as
+  `verify` (so a committed-branch attestation is not permanently stale).
 - The control plane is **no longer installed by default** and is excluded from
   the npm tarball. Opt in from a repo checkout with
   `python3 scripts/install.py --with-control-plane`. `control-*` subcommands are
@@ -188,6 +189,11 @@ protection, control-plane range validation, bench mode allow-list).
 - `ran_checks` is a warn-not-fail signal at medium+ by design (the plan's
   make-ran-checks-real decision): an honest `false` must not block, so an
   approving review without `ran_checks: true` is surfaced as a note.
+- `memory-recall`'s text digest and `brief` cap output to the recall budget;
+  `memory-recall --json` returns whole lesson objects (a char budget cannot
+  truncate structured JSON), so a single over-budget lesson can exceed the
+  budget in the `--json` path. The agent-facing surfaces (text digest, brief)
+  stay capped.
 
 **Evals:** static 11→20, behavioral 44→54, reality 23→40, hook 16→41, memory
 26→32, routing 24→29 core suites; control 27→35 add-on suite. Canonical counts

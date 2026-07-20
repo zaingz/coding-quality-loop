@@ -11,13 +11,13 @@ control plane:
 
 | Suite | Cases | Runner |
 |---|---:|---|
-| Static (intake classifier) | 19 | `quality_loop.py eval-cases evals/cases` |
-| Behavioral (record gates) | 50 | `evals/run_evals.py` |
+| Static (intake classifier) | 20 | `quality_loop.py eval-cases evals/cases` |
+| Behavioral (record gates) | 54 | `evals/run_evals.py` |
 | Memory | 32 | `evals/run_memory_evals.py` |
-| Reality (record ↔ diff) | 33 | `evals/run_reality_evals.py` |
+| Reality (record ↔ diff) | 40 | `evals/run_reality_evals.py` |
 | Routing | 29 | `evals/run_routing_evals.py` |
-| Hook (host shims) | 30 | `evals/run_hook_evals.py` |
-| **Total core gate cases** | **193** | re-run by `.github/workflows/evals.yml` |
+| Hook (host shims) | 41 | `evals/run_hook_evals.py` |
+| **Total core gate cases** | **216** | re-run by `.github/workflows/evals.yml` |
 | Control plane add-on (index, server, ingest) | 35 | `evals/run_control_evals.py` — counted separately: the add-on is installed only via `install.py --with-control-plane` and is not in the npm tarball |
 
 The canonical numbers live in exactly one place — `CANONICAL_GATE_CASES` and

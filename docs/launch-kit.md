@@ -115,7 +115,7 @@ ponytail, and an honest table of what it enforces and what it doesn't.
 > I've been shipping the same lesson to every coding agent I use: fix one thing, prove it,
 > let a second agent check the diff. I packaged that as an open-source Agent Skill —
 > stdlib-only, portable across Claude Code, Codex, and Droid — with
-> executable gates that reject "looks right to me" instead of taking its word. 193
+> executable gates that reject "looks right to me" instead of taking its word. 216
 > offline gate cases keep the gates from drifting. The repo has a quickstart demo, an
 > honest comparison to the other strong skills in this space, and an "enforced vs not
 > enforced" table so you can decide before you install:

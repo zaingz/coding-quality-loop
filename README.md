@@ -13,7 +13,7 @@
 [![version](https://img.shields.io/badge/version-6.0.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-193%20core%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-216%20core%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-routed-111111?style=flat-square)](#install--use-matrix)
@@ -513,7 +513,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all suites green: 20 static + 54 behavioral + 32 memory + 40 reality + 29 routing + 40 hook = 216 gate cases, plus 35 add-on cases for the control plane and the 10-case trigger smoke fixture).
+     and the full eval suite (all suites green: 20 static + 54 behavioral + 32 memory + 40 reality + 29 routing + 41 hook = 216 gate cases, plus 35 add-on cases for the control plane and the 10-case trigger smoke fixture).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules
