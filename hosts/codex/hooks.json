@@ -55,7 +55,7 @@
           {
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/hosts/claude-code/stop_gate.py\"",
-            "timeout": 30,
+            "timeout": 600,
             "statusMessage": "Running Quality Loop stop gate"
           }
         ]

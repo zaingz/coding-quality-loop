@@ -489,13 +489,34 @@ def case_stop_gate_allows_no_record_no_loop(tmp: Path) -> tuple[bool, str]:
 
 
 def case_stop_gate_blocks_deleted_record_with_config(tmp: Path) -> tuple[bool, str]:
-    # Loop artifacts without a record mean the record was deleted mid-loop —
-    # deletion must not lift the gate, and the message must say how to restore.
+    # A record that was committed and then deleted leaves a git tombstone: that
+    # is real evidence a task ran and its record vanished, so the stop must
+    # block and say how to restore. (Bare config is NOT such evidence — see
+    # case_stop_gate_allows_config_without_task: the installer creates the config,
+    # so config-alone must not brick a fresh repo's stops.)
     repo = make_repo(tmp)
     (repo / "quality-loop.config.json").write_text(json.dumps({"enforcement": "advisory"}))
+    (repo / ".quality-loop").mkdir(exist_ok=True)
+    (repo / ".quality-loop" / "agent-record.json").write_text(json.dumps(done_record()))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-m", "record")
+    (repo / ".quality-loop" / "agent-record.json").unlink()  # deleted -> tombstone
     code, out, err = _stop(repo)
     ok = code == 0 and _decision(out) == "block" and "init-record" in out
     return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:200]!r}"
+
+
+def case_stop_gate_allows_config_without_task(tmp: Path) -> tuple[bool, str]:
+    # First-contact: the installer steers users into creating
+    # quality-loop.config.json, so a configured repo with no record and no task
+    # artifacts (no runs/progress/memory, no tombstone) must ALLOW a stop — bare
+    # config is "the loop is installed", not "a task is in flight".
+    repo = make_repo(tmp)
+    (repo / "quality-loop.config.json").write_text(json.dumps({"enforcement": "advisory"}))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-m", "configure loop")
+    code, out, err = _stop(repo)
+    return code == 0 and out.strip() == "", f"exit={code}; out={out.strip()[:160]!r}"
 
 
 def case_stop_gate_allows_manifest_only_install(tmp: Path) -> tuple[bool, str]:
@@ -691,7 +712,8 @@ CASES = [
     ("PreToolUse canonical quality-loop.config.json drives required mode", case_pretool_canonical_config_required),
     ("Stop gate blocks phantom done", case_stop_gate_blocks_phantom_done),
     ("Stop gate allows a repo with no record and no loop artifacts", case_stop_gate_allows_no_record_no_loop),
-    ("Stop gate blocks a deleted record while loop config exists", case_stop_gate_blocks_deleted_record_with_config),
+    ("Stop gate blocks a deleted (tombstoned) record", case_stop_gate_blocks_deleted_record_with_config),
+    ("Stop gate allows a configured repo with no task (first contact)", case_stop_gate_allows_config_without_task),
     ("Stop gate allows a fresh install with only the install manifest", case_stop_gate_allows_manifest_only_install),
     ("Stop gate blocks a git-tombstoned record deletion without config", case_stop_gate_blocks_tombstoned_record_deletion),
     ("Stop hook timeout covers the terminal verify umbrella budget", case_settings_stop_timeout_covers_verify),

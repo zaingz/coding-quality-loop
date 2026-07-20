@@ -45,6 +45,6 @@ and re-run it — the media should stay in sync with the record.
 
 > Last regenerated 2026-07-13 (171 gate cases as of v5.1.0 / 7 suites / 5
 > published eval runs; two routed hosts — Claude Code + Codex). The v6.0.0
-> counts (216 core + a 35-case control add-on) are NOT yet rendered: re-run
+> counts (219 core + a 35-case control add-on) are NOT yet rendered: re-run
 > `python3 docs/images/src/evidence_dashboard.py` (needs matplotlib) so the PNG
 > catches up — the numbers-consistency lint covers this file.

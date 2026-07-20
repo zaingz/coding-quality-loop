@@ -89,14 +89,16 @@ def _record(path: Path) -> dict[str, Any] | None:
 
 
 def _loop_was_active(root: Path) -> bool:
-    """True only on REAL loop state: config, run artifacts, or a git tombstone
-    of a deleted record. The bare .quality-loop/ directory is NOT a signal —
-    every fresh v6 install writes .quality-loop/install-manifest.json, so the
-    directory's existence would block every record-less stop after a normal
-    install, before any task ever ran."""
+    """True only on evidence a TASK actually ran and its record then went
+    missing: run artifacts, or a git tombstone of a deleted record. Neither the
+    bare .quality-loop/ directory (every v6 install writes an install-manifest
+    there) NOR the mere presence of quality-loop.config.json is a signal — the
+    installer steers every new user into creating that config, so treating it as
+    'a task is in flight' would block every record-less stop on a fresh install,
+    the exact first-contact trap v6 set out to remove. An evader who deletes a
+    real record leaves a tombstone (committed record) or run/progress artifacts;
+    a fresh install leaves neither."""
     qdir = root / ".quality-loop"
-    if (root / "quality-loop.config.json").is_file() or (qdir / "config.json").is_file():
-        return True
     if any((qdir / name).exists() for name in ("runs", "progress.md", "memory")):
         return True
     # Deletion tombstone: git still sees a tracked record deleted from the tree.
