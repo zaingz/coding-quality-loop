@@ -412,6 +412,19 @@
         "allow_same_family": {
           "type": "boolean",
           "description": "Explicit escape hatch: accept implementer and fresh_reviewer resolving to the same model FAMILY (never the same model). Without it, check-config fails same-family review on medium+."
+        },
+        "families": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "User-taught model families: {model-id-or-prefix: family}, merged OVER the built-in well-known table so new model names classify without a release. Matched by exact id, then longest prefix, then as extra tokens; an explicit per-block family field still wins. Without an entry, unknown ids make the heterogeneity check report SKIPPED."
+        },
+        "as_of": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "Date (YYYY-MM-DD) this model menu was last reviewed. brief prints a one-line 'model menu may be stale' warning when it is more than 90 days old."
         }
       },
       "additionalProperties": true

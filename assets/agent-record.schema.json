@@ -80,7 +80,8 @@
         "validator": {"type": "string"},
         "fresh_context": {"type": "boolean"},
         "patched": {"type": "boolean"},
-        "verdict": {"type": "string", "enum": ["approve", "approved", "request_changes", "needs_discussion", "reject", "rejected", "fail", "failed", "blocked"]},
+        "ran_checks": {"type": "boolean", "description": "true when the reviewer executed tests/benchmarks themselves (e.g. via run-evidence); false when they only read the recorded evidence"},
+        "verdict": {"type": "string", "enum": ["approve", "request_changes", "needs_discussion", "reject"]},
         "diff_sha256": {"type": "string", "description": "sha256 of the git diff at review time (attest-review); checked for freshness by verify-gates --against-diff"},
         "attested_at": {"type": "string"},
         "findings": {"type": "array", "items": {"type": ["object", "string"]}}
@@ -94,7 +95,8 @@
         "reviewer": {"type": "string"},
         "fresh_context": {"type": "boolean"},
         "patched": {"type": "boolean"},
-        "verdict": {"type": "string", "enum": ["approve", "approved", "request_changes", "needs_discussion", "reject", "rejected", "fail", "failed", "blocked"]},
+        "ran_checks": {"type": "boolean", "description": "true when the reviewer executed tests/benchmarks themselves (e.g. via run-evidence); false when they only read the recorded evidence"},
+        "verdict": {"type": "string", "enum": ["approve", "request_changes", "needs_discussion", "reject"]},
         "diff_sha256": {"type": "string", "description": "sha256 of the git diff at review time (attest-review)"},
         "attested_at": {"type": "string"},
         "findings": {"type": "array", "items": {"type": ["object", "string"]}}
@@ -160,6 +162,8 @@
           "class": {"type": "string"},
           "result": {"type": "string", "enum": ["pass", "fail", "blocked"]},
           "evidence": {"type": ["string", "object", "null"], "description": "A verifiable evidence handle (string) or structured object"},
+          "reason": {"type": "string", "minLength": 1, "description": "Why a result=blocked row could not run (sandbox, missing tool, ...). verify-gates passes blocked rows only when a non-empty reason or rationale is present"},
+          "rationale": {"type": "string", "minLength": 1, "description": "Accepted alias for reason on result=blocked rows"},
           "red_green": {"type": "boolean", "description": "Marks a command to be replayed at base (expect fail) and HEAD (expect pass) by run-evidence --red-green"}
         },
         "additionalProperties": true

@@ -1,0 +1,30 @@
+{
+  "name": "risk-trumps-size-tiny-boundary-forces-heavy-gates",
+  "description": "Risk trumps size (SKILL.md Task Class): a self-declared tiny/low change whose goal touches the login (authn) risk boundary is forced onto the medium+ gates regardless of diff size.",
+  "record": {
+    "task_id": "t-18",
+    "goal": "Fix a typo in the login page error message",
+    "task_class": "tiny",
+    "risk_tier": "low",
+    "acceptance_criteria": ["Error message spelling is corrected"],
+    "verification_plan": ["snapshot test of the login error message"],
+    "minimality_decision": {"rung": "one_liner", "reason": "single string edit"},
+    "plan": ["edit the error string"],
+    "commands_run": [{"cmd": "pytest tests/test_login_page.py", "class": "unit", "result": "pass", "evidence": "2 passed"}],
+    "open_risks": [],
+    "review_findings": [],
+    "implementer": "agent-a",
+    "validation_contract": null,
+    "independent_review": null,
+    "security_review": null,
+    "completion_record": null,
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "high",
+    "floor_markers": ["authn"],
+    "gates_exit": 1,
+    "findings_include": ["downgrades a detected boundary", "security_review"]
+  }
+}

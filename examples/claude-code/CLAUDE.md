@@ -10,7 +10,7 @@ Lifecycle: `PLAN -> EXECUTE -> REVIEW`, each closed by its gate. Sub-steps: `INT
 - **EXECUTE** — one small slice in existing conventions. Smallest sufficient checks first; record exact commands and results. Green tests are necessary, not sufficient. Bug fix = RED then GREEN; never weaken tests.
 - **REVIEW** — medium+: fresh-context subagent in a different model family reviews the diff against the contract. The implementer never self-approves. Security review at risk boundaries. Package: files, right-size decision, evidence, risks, rollback, follow-ups.
 
-Routing: plan on the strongest Anthropic reasoning model, implement on Sonnet 5, review via Codex (GPT-5.6). Apply with `python3 scripts/quality_loop.py setup-models`.
+Routing by capability class: plan/orchestrate on frontier reasoning, implement on strong code-specialized, independent review on strong reasoning in a **different family** (via Codex), map/summarize on fast/cheap. Dated model menu: `assets/routing/README.md`. Apply with `python3 scripts/quality_loop.py setup-models`.
 
 Escalate before: destructive migrations, secrets/credentials, payments/billing, production infra, ambiguous user-facing behavior, or after two failed repair loops.
 

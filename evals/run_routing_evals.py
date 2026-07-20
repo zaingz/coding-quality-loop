@@ -823,6 +823,151 @@ def case_routing_variants_validate(tmp: Path) -> tuple[bool, str]:
     return ok, "; ".join(f"{name}={passed}" for name, passed in results)
 
 
+def case_setup_placeholder_guard(tmp: Path) -> tuple[bool, str]:
+    """setup-models must never write placeholder/inherit ids into agent
+    frontmatter: each is skipped with a per-file reason instead."""
+    target = make_claude_target(tmp)
+    cfg = write_routing_config(tmp / "config.json", "claude-code", {
+        "cheap_fast": {"model": "<cheap-fast-model>"},
+        "strong_reasoning": {"model": "inherit"},
+        "code_specialized": {"model": "haiku"},
+    })
+    originals = {
+        n: (target / ".claude/agents" / f"{n}.md").read_text() for n in AGENT_NAMES
+    }
+    code, out, err = run_cli(
+        "setup-models", "--config", str(cfg), "--host", "claude-code", "--target", str(target)
+    )
+    untouched = all(
+        (target / ".claude/agents" / f"{n}.md").read_text() == originals[n] for n in AGENT_NAMES
+    )
+    no_placeholder_written = all(
+        "<cheap-fast-model>" not in (target / ".claude/agents" / f"{n}.md").read_text()
+        for n in AGENT_NAMES
+    )
+    reasons = out.count("skipped") >= 4 and "placeholder" in out
+    ok = code == 0 and untouched and no_placeholder_written and reasons
+    return ok, f"exit={code}; untouched={untouched}; no_placeholder={no_placeholder_written}; reasons={reasons}"
+
+
+UNKNOWN_FAMILY_ROUTING = {
+    "host": "claude-code",
+    "host_models": {
+        "claude-code": {
+            "cheap_fast": {"model": "acme-mini-1"},
+            "strong_reasoning": {"model": "acme-reasoner-1"},
+            "code_specialized": {"model": "acme-coder-1"},
+        }
+    },
+    "agents": dict(DEFAULT_AGENTS),
+    "main_session": {"host": "claude-code", "class": "code_specialized"},
+}
+
+
+def case_families_config_unskips_enforcement(tmp: Path) -> tuple[bool, str]:
+    """model_routing.families teaches families for unknown ids: without it the
+    check silently skips (exit 0); a same-family mapping makes check-config
+    fail; distinct families stay clean; malformed values are rejected."""
+    def check(routing: dict) -> tuple[int, str]:
+        cfg = load_example()
+        cfg["model_routing"] = json.loads(json.dumps(routing))
+        p = tmp / f"cfg-{len(list(tmp.iterdir()))}.json"
+        p.write_text(json.dumps(cfg), encoding="utf-8")
+        code, _, err = run_cli("check-config", str(p))
+        return code, err
+
+    code1, err1 = check(UNKNOWN_FAMILY_ROUTING)
+    skipped_silently = code1 == 0 and "heterogeneity" not in err1
+
+    same = json.loads(json.dumps(UNKNOWN_FAMILY_ROUTING))
+    same["families"] = {"acme-": "acme"}
+    code2, err2 = check(same)
+    enforced = code2 == 1 and "same model family" in err2 and "model_routing.families" in err2
+
+    hetero = json.loads(json.dumps(UNKNOWN_FAMILY_ROUTING))
+    hetero["families"] = {"acme-coder": "acme", "acme-reasoner": "beta", "acme-mini": "acme"}
+    code3, err3 = check(hetero)
+    distinct_clean = code3 == 0 and "heterogeneity" not in err3
+
+    allowed = json.loads(json.dumps(same))
+    allowed["allow_same_family"] = True
+    code4, err4 = check(allowed)
+    escape_ok = code4 == 0
+
+    bad = json.loads(json.dumps(UNKNOWN_FAMILY_ROUTING))
+    bad["families"] = {"acme-": ""}
+    code5, err5 = check(bad)
+    bad_flagged = code5 == 1 and "families" in err5
+
+    ok = skipped_silently and enforced and distinct_clean and escape_ok and bad_flagged
+    return ok, (
+        f"skip(exit={code1}); enforced(exit={code2},flagged={enforced}); "
+        f"distinct(exit={code3}); allow(exit={code4}); bad_value(exit={code5},flagged={bad_flagged})"
+    )
+
+
+def case_brief_heterogeneity_status_line(tmp: Path) -> tuple[bool, str]:
+    """brief prints a loud heterogeneity status line: SKIPPED names the
+    unknown-family id and the model_routing.families fix; a families entry
+    flips it to verified (<famA> vs <famB>)."""
+    target = tmp / "project"
+    target.mkdir()
+    cfg1 = tmp / "unknown.json"
+    cfg1.write_text(json.dumps({"model_routing": UNKNOWN_FAMILY_ROUTING}), encoding="utf-8")
+    code1, out1, _ = run_cli("brief", "--config", str(cfg1), "--cwd", str(target))
+    skipped_loud = (
+        "reviewer heterogeneity: SKIPPED" in out1
+        and "unknown family for acme-" in out1
+        and "add model_routing.families" in out1
+    )
+    taught = json.loads(json.dumps(UNKNOWN_FAMILY_ROUTING))
+    taught["families"] = {"acme-coder": "acme", "acme-reasoner": "beta", "acme-mini": "acme"}
+    cfg2 = tmp / "taught.json"
+    cfg2.write_text(json.dumps({"model_routing": taught}), encoding="utf-8")
+    code2, out2, _ = run_cli("brief", "--config", str(cfg2), "--cwd", str(target))
+    verified = "reviewer heterogeneity: verified (acme vs beta)" in out2
+    ok = code1 == 0 and code2 == 0 and skipped_loud and verified
+    return ok, f"skipped_loud={skipped_loud}; verified={verified}"
+
+
+def case_routing_variants_carry_as_of(tmp: Path) -> tuple[bool, str]:
+    """Static: every shipped routing variant carries a parseable as_of date."""
+    import re as _re
+    variants_dir = ROOT / "assets" / "routing"
+    variant_files = sorted(variants_dir.glob("*.json"))
+    if len(variant_files) < 3:
+        return False, f"expected >=3 variants, found {len(variant_files)}"
+    missing = []
+    for vf in variant_files:
+        data = json.loads(vf.read_text(encoding="utf-8"))
+        as_of = data.get("as_of")
+        if not isinstance(as_of, str) or not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", as_of):
+            missing.append(vf.name)
+    return (not missing), (f"variants_missing_as_of={missing}" if missing else "all variants carry as_of")
+
+
+def case_brief_warns_on_stale_as_of(tmp: Path) -> tuple[bool, str]:
+    """brief prints one 'model menu may be stale' line when model_routing.as_of
+    is >90 days old, and stays quiet on a recent as_of."""
+    from datetime import date as _date
+    target = tmp / "project"
+    target.mkdir()
+    stale = json.loads(json.dumps(UNKNOWN_FAMILY_ROUTING))
+    stale["as_of"] = "2025-01-01"
+    cfg1 = tmp / "stale.json"
+    cfg1.write_text(json.dumps({"model_routing": stale}), encoding="utf-8")
+    code1, out1, _ = run_cli("brief", "--config", str(cfg1), "--cwd", str(target))
+    warned = code1 == 0 and out1.count("model menu may be stale") == 1
+    fresh = json.loads(json.dumps(UNKNOWN_FAMILY_ROUTING))
+    fresh["as_of"] = _date.today().isoformat()
+    cfg2 = tmp / "fresh.json"
+    cfg2.write_text(json.dumps({"model_routing": fresh}), encoding="utf-8")
+    code2, out2, _ = run_cli("brief", "--config", str(cfg2), "--cwd", str(target))
+    quiet = code2 == 0 and "model menu may be stale" not in out2
+    ok = warned and quiet
+    return ok, f"warned={warned}; quiet_when_fresh={quiet}"
+
+
 CASES = [
     ("claude-code rewrite applies preset models", case_claude_code_rewrite),
     ("idempotency: second run reports unchanged", case_idempotency),
@@ -848,6 +993,11 @@ CASES = [
     ("topology validation rejects malformed host/class/main_session/family fields", case_topology_validation),
     ("brief multi-host: per-host lines, print-only label, main session, drift", case_brief_multihost),
     ("shipped routing variants are check-config-clean with floors held", case_routing_variants_validate),
+    ("setup-models skips placeholder/inherit models with a per-file reason", case_setup_placeholder_guard),
+    ("model_routing.families un-skips unknown ids and enforcement fires", case_families_config_unskips_enforcement),
+    ("brief prints a loud heterogeneity status line (SKIPPED -> verified)", case_brief_heterogeneity_status_line),
+    ("every shipped routing variant carries an as_of date", case_routing_variants_carry_as_of),
+    ("brief warns once when model_routing.as_of is >90 days old", case_brief_warns_on_stale_as_of),
 ]
 
 

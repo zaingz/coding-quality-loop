@@ -15,6 +15,8 @@ python3 scripts/quality_loop.py check-config quality-loop.config.json
 
 Floors the knob can never lower — two enforced by `check-config` on any config: the reviewer resolves to a **different model family** than the implementer (`allow_same_family` stays false), and reasoning effort above `high` is rejected without `allow_overthink` (plus PLAN/ORCHESTRATE must carry the `strong_reasoning` class). Two held by construction and pinned by eval (`evals/run_routing_evals.py`): the strong-tier model choice for `strong_reasoning`, and the security reviewer staying on it.
 
+Each variant carries an `"as_of": "YYYY-MM-DD"` field naming when this menu was last reviewed; once your pasted `model_routing` block's `as_of` is more than 90 days old, `brief` prints a one-line "model menu may be stale" warning.
+
 ## Model menu (as of 2026-07-12 — prices move, re-check before trusting)
 
 List prices per MTok in/out, standard tier. Cheaper models typically spend 2–4x the tokens per accepted change, so steer by **cost per accepted completion record** (`models_used[].cost_usd` over records with an approving review), never by price per token.

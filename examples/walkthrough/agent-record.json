@@ -47,6 +47,7 @@
     "reviewer": "fresh-reviewer-agent",
     "fresh_context": true,
     "patched": false,
+    "ran_checks": true,
     "verdict": "approve",
     "findings": []
   },
@@ -99,6 +100,6 @@
   "review_findings": [
     "Fresh-context review: diff matches contract; rounding moved to total; regression test covers the reported case; no API change. Verdict: approve."
   ],
-  "next_action": "Package PR using assets/pr-summary-template.md",
+  "next_action": "Package using assets/completion-record.md",
   "status": "package"
 }

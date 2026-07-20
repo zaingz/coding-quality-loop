@@ -1,1 +1,0 @@
-{"id":"01-bugfix-rounding","kind":"bugfix","prompt":"Fix invoice total rounding so the summed total rounds once, not each line item.","hidden_tests":["single-line unchanged","multi-line total rounds once","negative discount handled"],"trap_flags":[]}

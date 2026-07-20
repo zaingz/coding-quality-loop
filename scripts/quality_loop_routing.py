@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -115,21 +116,52 @@ def is_placeholder_model(model: Any) -> bool:
     return False
 
 
-def model_family(model: Any, declared: Any = None) -> str | None:
+def merged_families(section: Any) -> dict[str, str]:
+    """Normalized ``model_routing.families`` entries ({id-or-prefix: family},
+    lowercased), for use as ``model_family``'s ``extra`` table. {} when absent
+    or malformed -- user config can teach new model names without a release."""
+    if not isinstance(section, dict):
+        return {}
+    families = section.get("families")
+    if not isinstance(families, dict):
+        return {}
+    return {
+        k.strip().lower(): v.strip().lower()
+        for k, v in families.items()
+        if isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip()
+    }
+
+
+def model_family(model: Any, declared: Any = None, extra: Any = None) -> str | None:
     """Best-effort model family for heterogeneity checks.
 
-    An explicit declared family wins. Otherwise the id is lowercased, split on
-    non-alphanumerics, and token-matched against WELL_KNOWN_FAMILIES so aliases
-    (``sonnet``) and channel ids (``anthropic/claude-sonnet-5``) meet in the
-    same family. Placeholder, unknown, or ambiguous (tokens matching more than
-    one family) ids return None -- callers must skip, never fail.
+    An explicit declared family wins. ``extra`` (a merged_families table from
+    ``model_routing.families``) is consulted next by exact id then longest
+    prefix, and its entries are merged OVER the built-ins for the token pass.
+    Otherwise the id is lowercased, split on non-alphanumerics, and
+    token-matched against WELL_KNOWN_FAMILIES so aliases (``sonnet``) and
+    channel ids (``anthropic/claude-sonnet-5``) meet in the same family.
+    Placeholder, unknown, or ambiguous (tokens matching more than one family)
+    ids return None -- callers must skip, never fail.
     """
     if isinstance(declared, str) and declared.strip():
         return declared.strip().lower()
     if is_placeholder_model(model):
         return None
-    tokens = re.split(r"[^a-z0-9]+", model.strip().lower())
-    families = {WELL_KNOWN_FAMILIES[t] for t in tokens if t in WELL_KNOWN_FAMILIES}
+    s = model.strip().lower()
+    table = WELL_KNOWN_FAMILIES
+    if isinstance(extra, dict) and extra:
+        norm = {
+            str(k).strip().lower(): str(v).strip().lower()
+            for k, v in extra.items()
+            if isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip()
+        }
+        for key in sorted(norm, key=len, reverse=True):  # longest prefix wins
+            if s == key or s.startswith(key):
+                return norm[key]
+        table = {**WELL_KNOWN_FAMILIES, **norm}
+    tokens = re.split(r"[^a-z0-9]+", s)
+    families = {table[t] for t in tokens if t in table}
     if len(families) == 1:
         return families.pop()
     return None
@@ -156,6 +188,59 @@ def _agent_entry(value: Any) -> dict[str, Any] | None:
             return None
         return {"host": host, "class": cls}
     return None
+
+
+def _parse_iso_date(value: Any) -> date | None:
+    try:
+        return date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _families_heterogeneity(section: Any) -> list[str]:
+    """Same-family errors that only a ``model_routing.families`` entry reveals.
+
+    The core heterogeneity check (quality_loop.py) silently skips ids whose
+    family the built-in table cannot classify; a families entry un-skips them.
+    Guarded to fire only when the built-in lookup would have skipped, so it
+    never duplicates the core check's errors.
+    """
+    extra = merged_families(section)
+    if not extra:
+        return []
+    topo = resolve_routing({"model_routing": section})
+    ms = topo["main_session"]
+    rev_entry = topo["agents"].get("quality-loop-reviewer")
+    if not ms or not rev_entry:
+        return []
+    impl_block = class_block(topo["host_models"], ms.get("host"), ms.get("class"))
+    impl_model = ms.get("model") or impl_block.get("model")
+    impl_declared = impl_block.get("family") if not ms.get("model") else None
+    rev_block = class_block(topo["host_models"], rev_entry.get("host"), rev_entry.get("class"))
+    rev_model = rev_block.get("model")
+    rev_declared = rev_block.get("family")
+    if is_placeholder_model(impl_model) or is_placeholder_model(rev_model):
+        return []
+    if impl_model.strip().lower() == rev_model.strip().lower():
+        return []  # the core check already fails same-model configs
+    builtin_skipped = (
+        model_family(impl_model, impl_declared) is None
+        or model_family(rev_model, rev_declared) is None
+    )
+    impl_family = model_family(impl_model, impl_declared, extra)
+    rev_family = model_family(rev_model, rev_declared, extra)
+    if (
+        builtin_skipped
+        and impl_family and rev_family and impl_family == rev_family
+        and section.get("allow_same_family") is not True
+    ):
+        return [
+            f"reviewer heterogeneity: implementer ({impl_model!r}) and fresh_reviewer "
+            f"({rev_model!r}) resolve to the same model family {impl_family!r} via "
+            f"model_routing.families; use a different family for review, or set "
+            f"\"allow_same_family\": true to accept the risk explicitly"
+        ]
+    return []
 
 
 def validate_model_routing(section: Any) -> list[str]:
@@ -270,6 +355,26 @@ def validate_model_routing(section: Any) -> list[str]:
     allow_same_family = section.get("allow_same_family")
     if allow_same_family is not None and not isinstance(allow_same_family, bool):
         errors.append("model_routing.allow_same_family must be a boolean")
+    families = section.get("families")
+    if families is not None:
+        if not isinstance(families, dict):
+            errors.append(
+                "model_routing.families must be an object mapping model-id-or-prefix -> family"
+            )
+        else:
+            for fkey, fval in families.items():
+                if not isinstance(fkey, str) or not fkey.strip():
+                    errors.append(
+                        "model_routing.families keys must be non-empty model-id-or-prefix strings"
+                    )
+                elif not isinstance(fval, str) or not fval.strip():
+                    errors.append(
+                        f"model_routing.families.{fkey} must be a non-empty family string"
+                    )
+    as_of = section.get("as_of")
+    if as_of is not None and _parse_iso_date(as_of) is None:
+        errors.append(f"model_routing.as_of must be a YYYY-MM-DD date string, got {as_of!r}")
+    errors.extend(_families_heterogeneity(section))
     if isinstance(host_models, dict) and isinstance(agents, dict):
         for aname, aval in agents.items():
             entry = _agent_entry(aval)
@@ -313,6 +418,7 @@ def resolve_routing(
       - ``main_session``: ``{"host", "class", "model"}`` or None -- a declaration of
         where the implementer runs; nothing is ever rewritten for it.
       - ``allow_same_family``: bool escape hatch for the family heterogeneity check.
+      - ``families``: normalized user family table (see ``merged_families``).
       - ``hosts_in_use``: hosts (SUPPORTED_HOSTS order) with at least one resolved
         agent or the main session.
     """
@@ -322,6 +428,7 @@ def resolve_routing(
         "agents": {},
         "main_session": None,
         "allow_same_family": False,
+        "families": {},
         "hosts_in_use": [],
     }
     section = config.get("model_routing", {})
@@ -378,6 +485,7 @@ def resolve_routing(
         "agents": agents,
         "main_session": main_session,
         "allow_same_family": section.get("allow_same_family") is True,
+        "families": merged_families(section),
         "hosts_in_use": [h for h in SUPPORTED_HOSTS if h in used],
     }
 
@@ -546,9 +654,11 @@ def _setup_files_host(
         thinking = cblock.get("thinking")
         if thinking and thinking not in spec["supported_thinking"]:
             thinking = None
-        if not model or not isinstance(model, str):
+        if is_placeholder_model(model):
+            # null/empty/inherit/<class>-style ids must never land in frontmatter.
             results.append(
-                {"agent": aname, "status": "skipped", "reason": "model is null/empty -- fill in host_models"}
+                {"agent": aname, "status": "skipped",
+                 "reason": f"model {model!r} is a placeholder -- fill in host_models with a real model id"}
             )
             continue
         path = agent_dir / f"{aname}.md"
@@ -796,6 +906,83 @@ def cmd_setup_models(args: Any) -> int:
 # Brief integration
 # ---------------------------------------------------------------------------
 
+def heterogeneity_status(config: Any) -> dict[str, Any]:
+    """One-line reviewer-heterogeneity status for brief and check-config.
+
+    Loud degradation: instead of silently skipping, the returned ``line`` says
+    'verified (<famA> vs <famB>)', names the unknown-family id that caused a
+    SKIP (and the model_routing.families fix), or flags a same-model/family
+    conflict. Never raises on malformed config; degrades to a SKIPPED line.
+    """
+    section = config.get("model_routing") if isinstance(config, dict) else None
+    if not isinstance(section, dict):
+        return {"status": "skipped", "line": "reviewer heterogeneity: SKIPPED — model_routing not configured"}
+    topo = resolve_routing({"model_routing": section})
+    extra = topo["families"]
+    impl_class = rev_class = None
+    steps = config.get("steps") if isinstance(config.get("steps"), list) else []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        if step.get("step") == "IMPLEMENT_SLICE":
+            impl_class = step.get("model_class")
+        elif step.get("step") == "REVIEW":
+            rev_class = step.get("model_class")
+    host_models = topo["host_models"]
+    ms = topo["main_session"]
+    if ms:
+        impl_block = class_block(host_models, ms.get("host"), ms.get("class") or impl_class)
+        impl_model = ms.get("model") or impl_block.get("model")
+        impl_declared = impl_block.get("family") if not ms.get("model") else None
+    else:
+        impl_block = class_block(host_models, topo["default_host"], impl_class or "code_specialized")
+        impl_model = impl_block.get("model")
+        impl_declared = impl_block.get("family")
+    rev_entry = topo["agents"].get("quality-loop-reviewer")
+    if rev_entry:
+        rev_block = class_block(host_models, rev_entry.get("host"), rev_entry.get("class"))
+    else:
+        rev_block = class_block(host_models, topo["default_host"], rev_class or "strong_reasoning")
+    rev_model = rev_block.get("model")
+    rev_declared = rev_block.get("family")
+    if is_placeholder_model(impl_model) or is_placeholder_model(rev_model):
+        leg = "implementer" if is_placeholder_model(impl_model) else "reviewer"
+        return {
+            "status": "skipped",
+            "line": f"reviewer heterogeneity: SKIPPED — {leg} model is a placeholder; fill host_models",
+        }
+    if impl_model.strip().lower() == rev_model.strip().lower():
+        return {
+            "status": "same-model",
+            "line": f"reviewer heterogeneity: FAILED — implementer and reviewer resolve to the same model ({impl_model}); run check-config",
+        }
+    impl_family = model_family(impl_model, impl_declared, extra)
+    rev_family = model_family(rev_model, rev_declared, extra)
+    for family, model_id in ((impl_family, impl_model), (rev_family, rev_model)):
+        if family is None:
+            return {
+                "status": "skipped",
+                "line": (
+                    f"reviewer heterogeneity: SKIPPED — unknown family for {model_id}; "
+                    f"add model_routing.families to keep this check alive"
+                ),
+            }
+    if impl_family == rev_family:
+        if topo["allow_same_family"]:
+            return {
+                "status": "same-family-allowed",
+                "line": f"reviewer heterogeneity: same family ({impl_family}) — accepted via allow_same_family",
+            }
+        return {
+            "status": "same-family",
+            "line": f"reviewer heterogeneity: FAILED — implementer and reviewer share family {impl_family!r}; run check-config",
+        }
+    return {
+        "status": "verified",
+        "line": f"reviewer heterogeneity: verified ({impl_family} vs {rev_family})",
+    }
+
+
 def brief_routing_info(cwd: Path, config_path: Path | None = None) -> dict[str, Any]:
     if config_path is None:
         config_path = _find_config(cwd)
@@ -869,6 +1056,13 @@ def brief_routing_info(cwd: Path, config_path: Path | None = None) -> dict[str, 
             cblock = {}
         model = ms.get("model") or cblock.get("model") or "(not set)"
         lines.append(f"  main session (implementer): host={ms.get('host')} model={model}")
+    het = heterogeneity_status(config)
+    lines.append("  " + het["line"])
+    section = config.get("model_routing") if isinstance(config.get("model_routing"), dict) else {}
+    as_of = section.get("as_of")
+    as_of_date = _parse_iso_date(as_of) if isinstance(as_of, str) else None
+    if as_of_date and (date.today() - as_of_date).days > 90:
+        lines.append(f"  warning: model menu may be stale (as_of {as_of}, >90 days old)")
     drift: list[str] = []
     for h in hosts:
         spec = HOSTS.get(h, {})
@@ -885,8 +1079,8 @@ def brief_routing_info(cwd: Path, config_path: Path | None = None) -> dict[str, 
             if not isinstance(cblock, dict):
                 continue
             expected = cblock.get("model")
-            if not expected or not isinstance(expected, str):
-                continue
+            if is_placeholder_model(expected):
+                continue  # setup-models never writes placeholders, so they cannot drift
             path = agent_dir / f"{aname}.md"
             if not path.is_file():
                 continue
@@ -902,6 +1096,7 @@ def brief_routing_info(cwd: Path, config_path: Path | None = None) -> dict[str, 
         "host": default_host or hosts[0],
         "hosts": hosts,
         "classes": classes,
+        "heterogeneity": het,
         "drift": drift,
         "lines": lines,
     }

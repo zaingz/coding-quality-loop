@@ -34,6 +34,10 @@ Select via `assets/quality-loop.config.example.json` -> `memory`.
 
 - Default (checked-in): `.quality-loop/memory/lessons.jsonl` + a <=40-line `MEMORY.md`
   index (the only surface a host may auto-load).
+- Row shape (one JSON object per line): `id`, `created`, `source_task_id`,
+  `kind` (`failure_mode|convention|gotcha|preference`), `risk_tier`, `scope_globs`,
+  `keywords`, `lesson`, `hits`. Lesson text is whitespace-collapsed and secret-redacted
+  before write; malformed or empty rows are skipped on load, never fatal.
 - Override (machine-local): `memory.location="local"` -> `~/.quality-loop/<project-slug>/`.
 - Global (cross-project): `~/.quality-loop/global/lessons.jsonl` — user-level conventions
   and preferences that apply across all projects. Recall merges project + global lessons

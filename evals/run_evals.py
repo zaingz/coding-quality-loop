@@ -1215,6 +1215,87 @@ def case_v41_record_fixture_passes(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; {(out + err).strip()!r}"
 
 
+def case_reviewer_contract_surfaces_agree(tmp: Path) -> tuple[bool, str]:
+    """Drift lint: the reviewer contract (verdict enum + ran_checks) must appear
+    consistently in the canonical prompt card, the security prompt card, the two
+    .claude agents, the two droid copies, and the record schema — so the
+    surfaces cannot silently diverge again."""
+    verdicts = ("approve", "request_changes", "needs_discussion", "reject")
+    md_surfaces = [
+        ROOT / "assets" / "prompts" / "reviewer.md",
+        ROOT / "assets" / "prompts" / "security-reviewer.md",
+        ROOT / ".claude" / "agents" / "quality-loop-reviewer.md",
+        ROOT / ".claude" / "agents" / "quality-loop-security-reviewer.md",
+        ROOT / "examples" / "droid" / ".factory" / "droids" / "quality-loop-reviewer.md",
+        ROOT / "examples" / "droid" / ".factory" / "droids" / "quality-loop-security-reviewer.md",
+    ]
+    problems = []
+    for path in md_surfaces:
+        rel = path.relative_to(ROOT)
+        if not path.is_file():
+            problems.append(f"{rel}: MISSING")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for verdict in verdicts:
+            if verdict not in text:
+                problems.append(f"{rel}: verdict {verdict!r} absent")
+        if "ran_checks" not in text:
+            problems.append(f"{rel}: ran_checks absent")
+
+    schema = json.loads((ROOT / "assets" / "agent-record.schema.json").read_text(encoding="utf-8"))
+    for key in ("independent_review", "security_review"):
+        props = schema["properties"][key]["properties"]
+        enum = props.get("verdict", {}).get("enum")
+        if enum != list(verdicts):
+            problems.append(f"schema.{key}.verdict enum is {enum!r}, want {list(verdicts)!r}")
+        if props.get("ran_checks", {}).get("type") != "boolean":
+            problems.append(f"schema.{key}.ran_checks missing or not boolean")
+    reason = schema["properties"]["commands_run"]["items"]["properties"]
+    if "reason" not in reason or "rationale" not in reason:
+        problems.append("schema.commands_run items missing reason/rationale (blocked-row escape hatch)")
+
+    ok = not problems
+    return ok, ("all surfaces agree" if ok else f"drift={problems}")
+
+
+def case_paper_trail_is_four_artifacts(tmp: Path) -> tuple[bool, str]:
+    """The medium paper trail is exactly contract / plan / completion record /
+    progress (plus the context map): the merged contract exists, the folded
+    standalone templates stay deleted, and the completion-record template is a
+    blank current-lifecycle template, not the stale filled v2.4.0 record."""
+    assets = ROOT / "assets"
+    must_exist = ["contract.md", "plan.md", "completion-record.md", "progress.md", "context-map.md"]
+    must_not_exist = [
+        "task-contract-template.md",
+        "validation-contract.md",
+        "pr-summary-template.md",
+        "decision-log.md",
+        "execution-log.md",
+    ]
+    problems = []
+    for name in must_exist:
+        if not (assets / name).is_file():
+            problems.append(f"assets/{name}: MISSING")
+    for name in must_not_exist:
+        if (assets / name).exists():
+            problems.append(f"assets/{name}: should be deleted (folded into the 4-artifact trail)")
+
+    contract = (assets / "contract.md").read_text(encoding="utf-8") if (assets / "contract.md").is_file() else ""
+    if "proving" not in contract.lower():
+        problems.append("assets/contract.md: no per-criterion proving-command pairing")
+
+    record = (assets / "completion-record.md").read_text(encoding="utf-8") if (assets / "completion-record.md").is_file() else ""
+    for stale in ("context-check", "verify-phases", "trace-audit", "archive/v240"):
+        if stale in record:
+            problems.append(f"assets/completion-record.md: stale reference {stale!r}")
+    for section in ("Goal", "Files Changed", "Evidence", "Rollback", "Follow-ups"):
+        if section not in record:
+            problems.append(f"assets/completion-record.md: missing section {section!r}")
+
+    ok = not problems
+    return ok, ("4-artifact trail intact" if ok else f"problems={problems}")
+
+
 CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
     ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
@@ -1264,6 +1345,8 @@ CASES = [
     (">=3 ACs sharing one proving_command draws an advisory note only", case_shared_proving_command_warns),
     ("e2e/security/format/migration_dry_run count as executable evidence", case_new_exec_classes_count),
     ("blocking verify-gates findings print as error:, not warning:", case_blocking_findings_print_as_error),
+    ("reviewer contract (verdict enum + ran_checks) agrees across prompt/agents/schema", case_reviewer_contract_surfaces_agree),
+    ("paper trail is four artifacts (contract/plan/record/progress)", case_paper_trail_is_four_artifacts),
 ]
 
 

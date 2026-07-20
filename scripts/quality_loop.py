@@ -106,15 +106,13 @@ COMMAND_CLASSES = {
     "build",
     "migration_dry_run",
 }
-APPROVING_VERDICTS = {"approve", "approved"}
+# Pinned to the 4-value enum in assets/agent-record.schema.json (v6): the
+# schema, the prompt cards, and the engine accept exactly the same verdicts.
+APPROVING_VERDICTS = {"approve"}
 NON_APPROVING_VERDICTS = {
     "request_changes",
     "needs_discussion",
-    "fail",
-    "failed",
-    "blocked",
     "reject",
-    "rejected",
 }
 REVIEW_VERDICTS = APPROVING_VERDICTS | NON_APPROVING_VERDICTS
 BLOCKING_SEVERITIES = {"blocking", "blocker"}
@@ -594,7 +592,10 @@ def check_record(args: argparse.Namespace) -> int:
             continue
         verdict = str(review.get("verdict", "")).lower()
         if verdict not in REVIEW_VERDICTS:
-            errors.append(f"{review_key}.verdict must be a recognized review verdict")
+            errors.append(
+                f"{review_key}.verdict must be one of "
+                f"{sorted(REVIEW_VERDICTS)} (got {review.get('verdict')!r})"
+            )
 
     if status in POST_INTAKE_STATUSES:
         if not record.get("acceptance_criteria"):
@@ -1325,8 +1326,8 @@ def _reviewer_heterogeneity(
         )
         return errors
 
-    impl_family = qlroute.model_family(impl_resolved, impl_declared_family)
-    rev_family = qlroute.model_family(rev_resolved, rev_block.get("family"))
+    impl_family = qlroute.model_family(impl_resolved, impl_declared_family, topo["families"])
+    rev_family = qlroute.model_family(rev_resolved, rev_block.get("family"), topo["families"])
     if (
         impl_family and rev_family and impl_family == rev_family
         and not topo["allow_same_family"]
@@ -1429,6 +1430,11 @@ def check_config(args: argparse.Namespace) -> int:
 
     errors.extend(_reviewer_heterogeneity(profiles, steps, routing))
 
+    if routing is not None:
+        # Loud degradation: say whether heterogeneity was verified, skipped
+        # (and why), or conflicted — a silent skip is indistinguishable from a
+        # pass and decays the gate as model names churn.
+        print(qlroute.heterogeneity_status(config)["line"])
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
@@ -1516,21 +1522,12 @@ def cmd_brief(args: argparse.Namespace) -> int:
     goal = record_summary.get("goal", "") if isinstance(record_summary, dict) else ""
     risk = record_summary.get("risk_tier", "low") if isinstance(record_summary, dict) else "low"
     risk = risk if risk in RISK_TIERS else "low"
-    if not global_lessons:
-        selected_project = qlmem.recall(project_lessons, goal or "", [], risk, budget)
-        selected_global: list[dict[str, Any]] = []
-        project_budget = budget
-        global_budget = 0
-    else:
-        project_budget = max(1, int(budget * 0.6))
-        global_budget = max(1, budget - project_budget)
-        selected_project = qlmem.recall(project_lessons, goal or "", [], risk, project_budget)
-        selected_global = qlmem.recall(global_lessons, goal or "", [], risk, global_budget)
-    selected = selected_project + selected_global
-    if selected_global:
-        lessons_text = qlmem.format_digest(selected_project, project_budget) + "\n[global] " + qlmem.format_digest(selected_global, global_budget)
-    else:
-        lessons_text = qlmem.format_digest(selected_project, budget)
+    pairs = qlmem.recall_pool(project_lessons, global_lessons, goal or "", [], risk, budget)
+    selected = [l for l, _ in pairs]
+    lessons_text = "\n".join(
+        qlmem.render_line(l, global_=g, mark_provenance=True) for l, g in pairs
+    ) or "none"
+    outcome_notes = qlmem.outcome_lines(project_lessons)
 
     sections: list[str] = []
     if record_summary and "error" not in record_summary:
@@ -1547,6 +1544,8 @@ def cmd_brief(args: argparse.Namespace) -> int:
         sections.append(f"## Last record\n{record_summary['error']}")
     else:
         sections.append("## Last record\nnone found")
+    if outcome_notes:
+        sections.append("## Shipped outcomes\n" + "\n".join(outcome_notes))
 
     if run_summary:
         steps_str = " -> ".join(run_summary["steps"][-8:])
@@ -2112,10 +2111,11 @@ def main() -> int:
     p_mrecall.add_argument("--goal", default="")
     p_mrecall.add_argument("--files", default="")
     p_mrecall.add_argument("--risk", choices=sorted(RISK_TIERS), default="low")
-    p_mrecall.add_argument("--budget", type=int, default=1500)
+    p_mrecall.add_argument("--budget", type=int, default=None, help="Char budget (default: memory.recall_budget_chars from config, else 1500)")
     p_mrecall.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_mrecall.add_argument("--json", action="store_true")
-    p_mrecall.add_argument("--no-bump", action="store_true", help="Read-only: do not increment hit counts or rewrite the store")
+    p_mrecall.add_argument("--bump", action="store_true", help="Increment hit counts for recalled lessons (RETROSPECT-time opt-in; recall is read-only by default)")
+    p_mrecall.add_argument("--no-bump", action="store_true", help=argparse.SUPPRESS)  # deprecated: recall is read-only by default since v6
     p_mrecall.set_defaults(func=qlmem.cmd_recall)
 
     p_mcommit = sub.add_parser("memory-commit", help="Distill an agent record into durable lessons")
@@ -2125,6 +2125,8 @@ def main() -> int:
     p_mcommit.add_argument("--scope", help="Override scope glob, e.g. 'src/payments/**'")
     p_mcommit.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_mcommit.add_argument("--global", dest="global_store", action="store_true", help="Write to the cross-project global store (~/.quality-loop/global/)")
+    p_mcommit.add_argument("--outcome", choices=sorted(qlmem.OUTCOMES), help="Record a shipped-work outcome (surfaced by brief next session)")
+    p_mcommit.add_argument("--note", help="Short context for --outcome (e.g. what regressed and why)")
     p_mcommit.set_defaults(func=qlmem.cmd_commit)
 
     p_mprune = sub.add_parser("memory-prune", help="Dedup + cap the lessons ledger")

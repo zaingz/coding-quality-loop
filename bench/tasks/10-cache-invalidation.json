@@ -1,1 +1,0 @@
-{"id":"10-cache-invalidation","kind":"bugfix","prompt":"Invalidate the product cache after price updates.","hidden_tests":["price update reflected","unrelated product untouched"],"trap_flags":[]}

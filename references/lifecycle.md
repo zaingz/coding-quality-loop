@@ -26,8 +26,8 @@ PLAN -> EXECUTE -> REVIEW
 
 Every sub-step inherits one of the three phases above; nothing is unlabeled. The sub-step
 machine names below correspond to the record's `status` values (lowercased) — and `status`,
-not any phase field, is what the gates key off. The names are stable across the v3.x line, so
-existing records, configs, and automation keep working. Each sub-step maps onto a phase as
+not any phase field, is what the gates key off. The names are stable — existing records,
+configs, and automation keep working across releases. Each sub-step maps onto a phase as
 shown:
 
 | Phase | Canonical sub-step | Machine name | Primary artifact |
@@ -58,8 +58,14 @@ INTAKE
   -> VERIFY
   -> REVIEW
   -> PACKAGE
-  -> DONE | ITERATE | ESCALATE
+  -> RETROSPECT
+  -> done | iterating | escalated
 ```
+
+The three terminals are record `status` values from the schema enum
+(`assets/agent-record.schema.json`): `done` closes the loop, `iterating` returns to an earlier
+step for another slice or repair, and `escalated` is the human-input valve (requires a
+non-empty `escalation_reason`).
 
 ## Task Classes
 
@@ -102,6 +108,10 @@ For medium/mission work, write down what "done" means before implementing. Exit 
 `validation-contract.md` pairs every acceptance criterion with the concrete check that proves
 it, lists invariants/non-goals, names regression risks, and flags any risk boundary touched
 (which triggers a security review). Tiny/small tasks may fold this into the task contract.
+Machine form: at medium+ (or `security_sensitive`) each `acceptance_criteria` entry in the
+record must be an object `{"criterion": ..., "proving_command": ...}` whose `proving_command`
+matches a pass-labeled `commands_run` entry — `verify-gates` blocks bare string criteria there;
+strings stay valid at low risk.
 
 ### PLAN
 

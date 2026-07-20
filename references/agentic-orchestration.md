@@ -4,14 +4,14 @@ The Coding Quality Loop is **orchestrator-first**. The main session is the **orc
 it reasons, holds the state machine, and makes *every* decision — task class, context map,
 validation contract, right-size rung, plan, model routing, the verdict on findings, and the
 stop-if-unsafe call. Everything else is a **worker**: a bounded, stateless task that receives a
-**brief, not context** — goal, contract slice, files, commands, done-check, one screen max. A
+**brief, not context** (canonical definition: SKILL.md §Orchestrator Layer). A
 worker never sees the skill, the references, or the repository tour; it does the one job in the
 brief and hands back a result the orchestrator judges.
 
 This file defines the routing model; its machine-readable form is
 `assets/quality-loop.config.example.json`. Phases and sub-steps are canonical in
-`references/lifecycle.md`; task classes and roles are canonical in **SKILL.md** (§Task Classes,
-§Roles). This file adds only the routing surface.
+`references/lifecycle.md`; task classes are canonical in **SKILL.md** (§Task Class); the
+canonical role table is **§Role architecture** below. This file adds only the routing surface.
 
 ## The routed loop: two hosts, two vendors
 
@@ -24,12 +24,15 @@ the same model family, so "one model grading its own work" cannot happen by acci
 
 Other hosts (Cursor, Pi, Droid, standalone git/GitHub) are **install targets**: the skill and
 gates drop into them cleanly and `setup-models` can wire their model frontmatter, but they sit
-*outside* the v5 routed loop. Use them to run the loop under a single host; reach for the routed
-two-vendor split when you want enforced review independence.
+*outside* the routed kernel. Droid is a supported install target outside the routed kernel;
+delegation to Droid is allowed only when an explicit harness routes it. Use install targets to
+run the loop under a single host; reach for the routed two-vendor split when you want enforced
+review independence.
 
 ## Brief, not context
 
-The orchestrator's core discipline is what it withholds. A worker brief is one screen:
+The orchestrator's core discipline is what it withholds. The canonical one-line definition
+lives in SKILL.md §Orchestrator Layer; expanded, a worker brief is one screen:
 
 - **Goal** — the single outcome this worker owns.
 - **Contract slice** — only the acceptance criteria and constraints this task touches.
@@ -51,12 +54,15 @@ written at the moment of delegation (not reconstructed afterward). One object pe
 ```json
 {"ts": "2026-07-13T10:00:00Z", "task_id": "T-42", "role": "reviewer",
  "host": "codex", "model": "gpt-5", "brief_summary": "review the slice diff",
- "expected_agent_name": "reviewer"}
+ "expected_agent_name": "reviewer", "session_id": "<worker session id, when known>"}
 ```
 
 `expected_agent_name` is the name the worker's session will report (the profile/agent handle
 the host runs under); the control plane uses it to join the delegation to the session it ran
-in and attribute exact token spend. This is the only record of *who was asked to do what,
+in and attribute exact token spend. A row MAY also carry an optional `session_id` — the
+worker's session id, recorded at the moment of hand-off when the spawning harness knows it;
+when present the control plane joins directly by that id and skips the fuzzy time-window
+match entirely. This is the only record of *who was asked to do what,
 when, and on which model* — the transcripts show what a session did, but only the orchestrator
 knows it was a deliberate hand-off. The ledger is metadata only (never the brief's full text),
 lives under `.quality-loop/` so it is excluded from the review attestation hash, and a
@@ -108,12 +114,12 @@ and class grow (tiny/small need none of the specialist roles).
 | `implementer` | `implementer` | One bounded task from a one-screen brief: no speculative abstraction, no unrelated cleanup, smallest meaningful test, a coherent slice. | no |
 | `validator` | `fresh_reviewer` | Fresh context, **different vendor**; does **not** implement. Checks acceptance criteria, behavior contract, regression risk, edge cases, and evidence against the validation contract. | **yes** |
 | `simplicity_reviewer` | `minimality_reviewer` | Deletion / reuse / stdlib / native / dependency / abstraction review — the right-size gate as a reviewer, run before plan and before review. | optional |
-| `security_reviewer` | (boundary only) | Reviews changes at risk boundaries: auth, permissions, secrets, payments, PII, migrations, upload/download, network, shell, dependency changes. | **yes** |
+| `security_reviewer` | (boundary only) | Reviews changes at any risk boundary (canonical list: SKILL.md §Task Class). | **yes** |
 | `policy_guard` | `policy_guard` | Deterministic safety blocks. Never a model. | enforced |
 
 The `orchestrator` is the main session itself. `security_reviewer` is a boundary role, not a
-per-step profile — wire it in at risk boundaries for medium/mission work (canonical role table:
-SKILL.md §Roles).
+per-step profile — wire it in at risk boundaries for medium/mission work. The table above is
+the canonical role table.
 
 ## Default step-to-agent matrix
 
@@ -134,7 +140,7 @@ machine-name step belongs to; see `references/lifecycle.md` for the full mapping
 
 Profiles are named by role, not vendor; map each to whatever your host provides. The
 `security_reviewer` is a boundary role, not a per-step profile — wire it in at risk boundaries
-(canonical role table: SKILL.md §Roles).
+(canonical role table: §Role architecture above).
 
 ### Model capability glossary
 
@@ -165,10 +171,11 @@ their reviews get noisier rather than sharper. `check-config` rejects `xhigh`/`m
 explicit, greppable escape hatch for a genuinely ambiguous, architecture-sensitive one-off,
 never a default and never bulk work.
 
-A higher-level harness may own effort routing instead of `model_routing`. Agent-os does this
-explicitly: planning uses max, review/read/computer-use use xhigh, and execution uses high.
-Keep CQL routing host-neutral in that topology; `check-config` cannot apply or verify an
-external wrapper's effort pin, so the wrapper and supervisor must verify it directly.
+A higher-level harness may own effort routing instead of `model_routing`. One user's agent-os
+setup (not shipped; see `docs/cross-cli-recipe.md` §One user's setup) does this explicitly:
+planning uses max, review/read/computer-use use xhigh, and execution uses high. Keep CQL
+routing host-neutral in that topology; `check-config` cannot apply or verify an external
+wrapper's effort pin, so the wrapper and supervisor must verify it directly.
 
 ### Enforced heterogeneity
 
@@ -183,9 +190,9 @@ on a different CLI is not by itself model diversity. `"allow_same_family": true`
 explicit, greppable escape hatch for same-family (never same-model) setups. `verify-gates`
 additionally string-compares reviewer ≠ implementer on the record.
 
-Agent-os intentionally uses GPT-5.6 Sol in separate Droid implementation and Codex review
-sessions. That external same-model route is not model heterogeneity and must never be reported
-as if `check-config` proved it. Its independence comes from fresh context, separate hosts, a
+The same agent-os setup intentionally uses GPT-5.6 Sol in separate Droid implementation and
+Codex review sessions. That external same-model route is not model heterogeneity and must
+never be reported as if `check-config` proved it. Its independence comes from fresh context, separate hosts, a
 non-editing reviewer, deterministic gates, and supervisor verification; CQL `model_routing`
 stays host-neutral for this explicit harness-level exception.
 
@@ -280,33 +287,9 @@ declared file scopes; if scopes can collide, run serially rather than race the w
 Review at milestone boundaries with fresh context; keep the mission record compact. (Pattern:
 [Factory Missions](https://factory.ai/news/missions-architecture).) Claude Code ships subagents,
 agent teams, and dynamic workflows that wire this host-natively — the package supplies the
-routing data and prompt cards; the host runs the delegation.
-
-**What the research confirms.** Cognition's April 2026 update ("Multi-Agents: What's Actually
-Working") validates the core bet: multi-agent systems work best when **writes stay
-single-threaded** and the extra agents **contribute intelligence rather than actions**; their
-clean-context reviewer catches ~2 bugs per PR, 58% severe — exactly the `fresh_reviewer`
-pattern. Anthropic's "Effective harnesses for long-running agents" (Nov 2025) shows
-longitudinal continuity is files and prompts — a progress file, a feature list, and git as
-memory — not machinery. See https://cognition.com/blog/multi-agents-working and
-https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents.
-
-## History: the advisor / Smart Friend topology (v3–v4)
-
-Before v5, the loop's default below high-risk was the **advisor pattern**: a cheap executor
-drove the entire loop and consulted a stronger reasoning model *only at reasoning walls*
-(Anthropic's advisor strategy; Cognition's "smart friend" finding). The advisor received a fork
-of the executor's context and returned reasoning, never code or tool calls, capped at
-`max_uses` ≈ 3. It assumed a strong executor and broke down with a weak primary.
-
-v5 inverts this: instead of a weak driver consulting upward at walls, the **strong model
-orchestrates from the top** and workers never consult upward — they receive a brief and return a
-result. The advisor was also only ever an **API-level primitive inside one `/v1/messages`
-request**, not something a CLI harness can wire, which limited it to teams working at the API
-layer. The orchestrator-first topology is host-native (subagents and agent teams), so it is the
-default in v5 and the advisor is retained only as this note. The optional `advisor` block in the
-config remains for teams that still want the consult, but it is no longer the recommended
-default.
+routing data and prompt cards; the host runs the delegation. The research grounding for this
+topology (single-threaded writes, clean-context reviewer, files-as-continuity) is cited in
+`references/philosophy.md` §Inspirations.
 
 ## Cross-CLI recipe
 

@@ -1,5 +1,6 @@
 {
   "description": "Routing variant: balanced (as_of 2026-07-12). Default. Opus 4.8 judgment on plan/minimality, Sonnet 5 implementation, GPT-5.6 Sol cross-family review via Codex. Anthropic + OpenAI only, two hosts. Paste over the model_routing section of quality-loop.config.json, then run setup-models and check-config.",
+  "as_of": "2026-07-12",
   "host": "claude-code",
   "host_models": {
     "claude-code": {

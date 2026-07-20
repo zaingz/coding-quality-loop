@@ -5,18 +5,20 @@ or an explicit **advisory** label. This is the trust artifact that says where th
 machine stops and the human/host begins.
 
 `verify-gates` reads the record; `verify-gates --against-diff` and `diff-audit`
-read git; `run-evidence` re-executes commands. Host hooks remain a documented
-integration point, not a shipped dependency.
+read git; `run-evidence` re-executes commands. Blocking findings print with an
+`error:` prefix and advisories with `note:` (`warning:` is no longer emitted);
+exit codes are the machine contract. Shipped host hooks (PreToolUse / Stop)
+enforce the deterministic blocks at tool time.
 
 | Hard Rule | Deterministic owner | Advisory where not deterministic |
 |---|---|---|
 | Understand before editing | `verify-gates` (repo_map gate) + `--against-diff` (scope integrity) | context-map quality is advisory |
-| Write down "done" first | `verify-gates` (validation_contract required for non-trivial) | contract substance is advisory |
-| Prefer existing code | `verify-gates` (minimality_decision required) | rung choice is advisory |
+| Write down "done" first | `verify-gates` (validation_contract required for non-trivial; at medium+ each acceptance criterion must be an object with a `proving_command` matching a pass-labeled `commands_run` entry — enforced in `verify-gates` itself, so it fires at the host Stop gate) | contract substance is advisory; >=3 criteria sharing one proving_command is advisory |
+| Prefer existing code | `verify-gates` (minimality_decision required) | rung choice is advisory; "possible under-fanning" (medium+ with >300 added LOC, >=90% in one new source file) is advisory in `verify` |
 | Implementer cannot be the final validator | `verify-gates` (reviewer != implementer string-compare) + `check-config` (model heterogeneity on medium+) | fresh_context is self-attested |
-| No success claim without evidence | `verify-gates` (evidence handle required) + `run-evidence` (re-execution) + `--against-diff` (phantom completion) | evidence substance beyond re-execution is advisory |
-| Don't game the tests | `--against-diff` (bugfix-test co-presence) + `run-evidence --red-green` + `diff-audit` (test-weakening) | test coverage of the contract is advisory |
-| Stop at risk boundaries | `detect_risk_floor` (text scan) + `--against-diff` (diff-derived path floor) | whether to escalate to a human is advisory |
+| No success claim without evidence | `verify-gates` (evidence handle required; blocked `commands_run` rows must carry a non-empty `reason`/`rationale` — a bare blocked row blocks) + `run-evidence` (re-execution) + `--against-diff` (phantom completion) | evidence substance beyond re-execution is advisory |
+| Don't game the tests | `--against-diff` (bugfix-test co-presence; net test-declaration/assertion loss — deleted or gutted tests, netted diff-level so moves stay green — blocks at medium+) + `run-evidence --red-green` + `diff-audit` (test-weakening blocking; test shrinkage advisory) | test coverage of the contract is advisory |
+| Stop at risk boundaries | `detect_risk_floor` (text scan of goal/criteria/plan; object ACs contribute `criterion` text only) + `--against-diff` (diff-derived path floor) | whether to escalate to a human is advisory |
 | Delete when deletion is simplest | `verify-gates` (minimality_decision.rung) | whether deletion was considered is advisory |
 
 Records may carry optional `diff_sha256` (attest-review), `files_changed`
@@ -33,3 +35,10 @@ check is **externally owned**: a git hook or CI step compares the printed
 hashes (or hashes the files directly) against the pinned release. Attestation
 hashes exclude `.quality-loop/` so record-only follow-up commits do not stale
 an attested review; any code edit after attestation still requires re-attesting.
+
+The shipped PreToolUse hook adds a runtime layer: with `protect_harness` on
+(default true in the canonical root `quality-loop.config.json`), edits to the
+helper scripts, hook shims, the active record, or the canonical config — and
+`rm` of the record/config — are denied at tool time. This is tamper evidence,
+not immutability: it raises the cost of the quiet soften-the-gate move; the
+externally owned hash comparison remains the backstop.
