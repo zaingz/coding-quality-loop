@@ -7,6 +7,8 @@ import argparse
 import json
 import os
 import shutil
+import re
+import shlex
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -211,6 +213,16 @@ def install_claude(target: Path, dry_run: bool) -> list[str]:
     ]
     install_skill_bundle(target / ".claude" / "skills" / "coding-quality-loop", dry_run)
     incoming = _strip_control_plane_hooks(load_json(ROOT / "hosts" / "claude-code" / "settings.json"))
+    # Hosts without `python3` on PATH (Windows, minimal images) get the resolved
+    # absolute interpreter written into the hook JSON so the gates still fire —
+    # the fix must land at this launcher layer, not just the shims. When
+    # `python3` IS on PATH the portable literal is kept: settings.json is often
+    # committed and shared, and a machine-specific absolute path would silently
+    # disable the gates for every other clone (re-run install per machine if
+    # your interpreter setup differs).
+    launcher = _launcher_interpreter()
+    if launcher:
+        _rewrite_python_launcher(incoming, launcher)
     dest = target / ".claude" / "settings.json"
     write_json(dest, merge_hooks(load_json(dest), incoming), dry_run)
     for event in (incoming.get("hooks") or {}):
@@ -255,10 +267,29 @@ def install_agents_md(target: Path, dry_run: bool) -> str:
 def install_codex(target: Path, dry_run: bool) -> list[str]:
     report = ["Codex: advisory project hooks in .codex/hooks.json; user must trust via /hooks"]
     incoming = _strip_control_plane_hooks(load_json(ROOT / "hosts" / "codex" / "hooks.json"))
+    # Same policy as the Claude hooks: keep the portable `python3` literal when
+    # it is on PATH; swap in the resolved interpreter only where python3 is
+    # absent. The POSIX $(git rev-parse ...) part is inherent to the Codex
+    # format and is left as-is (see the non-POSIX warning).
+    launcher = _launcher_interpreter()
+    if launcher:
+        _rewrite_python_launcher(incoming, launcher)
     dest = target / ".codex" / "hooks.json"
     write_json(dest, merge_hooks(load_json(dest), incoming), dry_run)
     for event in (incoming.get("hooks") or {}):
         _record_hook_group(".codex/hooks.json", event)
+    if os.name != "posix":
+        report.append(
+            "Codex: WARNING — the Codex hooks resolve the repo root via a POSIX "
+            "$(git rev-parse --show-toplevel) substitution; on this non-POSIX platform they may "
+            "not fire. Run Codex from a POSIX shell (WSL/Git Bash) or wire the hooks by hand."
+        )
+    if not _is_git_repo(target):
+        report.append(
+            "Codex: WARNING — the target is not a git repository, so every wired hook's "
+            "$(git rev-parse --show-toplevel) will fail at runtime. Run `git init` in the target "
+            "before relying on the Codex hooks."
+        )
     report.append(install_agents_md(target, dry_run))
     return report
 
@@ -335,6 +366,68 @@ def _resolve_python() -> str:
         if shutil.which(candidate):
             return candidate
     return "python3"  # last-resort; subprocess will surface a clear error
+
+
+def _launcher_interpreter() -> str | None:
+    """Interpreter to write into hook JSON, or None to keep the portable
+    ``python3`` literal. Only substitute when ``python3`` is genuinely absent
+    from PATH (the Windows/minimal-image case): hook settings are often
+    committed and shared, and a machine-specific absolute path in a shared
+    file silently disables the gates on every other machine."""
+    if shutil.which("python3"):
+        return None
+    return _resolve_python()
+
+
+def _shell_quote(path: str) -> str:
+    """Quote an interpreter path for embedding in a Codex hook's shell command
+    string. Uses shlex.quote so a path with spaces, quotes, or other shell
+    metacharacters (e.g. a Windows 'C:\\Program Files\\...' install) is escaped
+    correctly, not just wrapped in double quotes."""
+    return shlex.quote(path)
+
+
+def _rewrite_python_launcher(obj: Any, interpreter: str) -> None:
+    """In-place: replace the literal ``python3`` launcher in hook commands with
+    the resolved interpreter so hosts where ``python3`` is absent from PATH
+    (Windows, minimal images) still fire the gates. Two hook shapes are handled:
+
+      - Claude Code: ``{"command": "python3", "args": [...]}`` — the command is
+        exec'd directly, so the interpreter path is dropped in verbatim.
+      - Codex: ``{"command": "python3 \"$(git rev-parse ...)/x.py\" ..."}`` — the
+        whole invocation is a single shell string; only the leading ``python3``
+        token is swapped (quoted), leaving the POSIX ``$(...)`` substitution the
+        Codex format inherently requires intact.
+    """
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key == "command" and isinstance(value, str):
+                if value == "python3":
+                    obj[key] = interpreter
+                elif value.startswith("python3 "):
+                    obj[key] = _shell_quote(interpreter) + value[len("python3"):]
+            else:
+                _rewrite_python_launcher(value, interpreter)
+    elif isinstance(obj, list):
+        for item in obj:
+            _rewrite_python_launcher(item, interpreter)
+
+
+def _is_git_repo(target: Path) -> bool:
+    """True when ``target`` is inside a git work tree. Used to warn before wiring
+    Codex hooks, whose $(git rev-parse --show-toplevel) dies at runtime outside
+    a repo."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(target), "rev-parse", "--is-inside-work-tree"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return proc.returncode == 0 and proc.stdout.strip() == "true"
 
 
 def install_git(target: Path, dry_run: bool) -> list[str]:
@@ -448,21 +541,30 @@ def _existing_backup(path: Path) -> Path | None:
     return None
 
 
-def _incoming_hook_groups() -> dict[str, list[dict[str, Any]]]:
-    """Union of the hook groups this installer can merge, by event, from both
-    host configs — used by uninstall to recognise which groups are ours."""
-    merged: dict[str, list[dict[str, Any]]] = {}
+def _quality_loop_hook_markers() -> set[str]:
+    """The stable identity of our hook groups: the ``hosts/<host>/<shim>.py``
+    script paths the shipped host configs reference. Uninstall matches groups
+    by these markers rather than by dict equality, so a group written with an
+    interpreter that has since moved (python upgrade, different machine) is
+    still recognised as ours and removed instead of orphaned."""
+    markers: set[str] = set()
     for rel in (("hosts", "claude-code", "settings.json"), ("hosts", "codex", "hooks.json")):
         try:
-            data = load_json(ROOT.joinpath(*rel))
+            raw = json.dumps(load_json(ROOT.joinpath(*rel)))
         except (json.JSONDecodeError, OSError):
             continue
-        for event, groups in (data.get("hooks") or {}).items():
-            merged.setdefault(event, [])
-            for group in groups:
-                if group not in merged[event]:
-                    merged[event].append(group)
-    return merged
+        markers.update(re.findall(r"hosts/[\w.-]+/[\w.-]+\.py", raw))
+    # control_plane.py groups are stripped at install time for non-control
+    # installs, but a --with-control-plane install writes them — always ours.
+    markers.add("hosts/claude-code/control_plane.py")
+    return markers
+
+
+def _is_quality_loop_group(group: dict[str, Any], markers: set[str]) -> bool:
+    """A hook group is ours iff it invokes one of our shipped shim scripts,
+    whatever interpreter token or absolute path prefix it was written with."""
+    text = json.dumps(group)
+    return any(marker in text for marker in markers)
 
 
 def _remove_agents_section(path: Path, rel: str, dry_run: bool) -> list[str]:
@@ -540,7 +642,7 @@ def uninstall(target: Path, dry_run: bool) -> tuple[int, list[str]]:
         )
     handled: set[str] = set()
     removed_paths: list[Path] = []
-    incoming = _incoming_hook_groups()
+    hook_markers = _quality_loop_hook_markers()
 
     # 1) Reverse merged hook groups (or restore the pre-install backup wholesale).
     by_file: dict[str, list[str]] = {}
@@ -576,7 +678,10 @@ def uninstall(target: Path, dry_run: bool) -> tuple[int, list[str]]:
             current = hooks.get(key)
             if not isinstance(current, list):
                 continue
-            remaining = [g for g in current if g not in incoming.get(key, [])]
+            remaining = [
+                g for g in current
+                if not (isinstance(g, dict) and _is_quality_loop_group(g, hook_markers))
+            ]
             if remaining != current:
                 changed = True
                 if remaining:
@@ -729,6 +834,7 @@ def main() -> int:
         )
     footer = [
         "Core gates remain scripts/quality_loop.py; host hooks are advisory unless your host config requires them.",
+        'Step 0 — commit the install so it stays out of your task diff: git add -A && git commit -m "chore: install coding-quality-loop"',
         "Next: copy assets/quality-loop.config.example.json to quality-loop.config.json, set model_routing, run: python3 scripts/quality_loop.py setup-models",
     ]
     if args.json:

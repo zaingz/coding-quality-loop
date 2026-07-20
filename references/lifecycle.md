@@ -37,7 +37,7 @@ shown:
 | PLAN | SPEC / VALIDATION CONTRACT | `INTAKE`+`PLAN` | `validation-contract.md` |
 | PLAN | RIGHT-SIZE GATE | `MINIMALITY_GATE` | minimality decision |
 | PLAN | PLAN | `PLAN` | `plan.md` |
-| EXECUTE | IMPLEMENT IN SMALL SLICES | `IMPLEMENT_SLICE` | diff + `execution-log.md` |
+| EXECUTE | IMPLEMENT IN SMALL SLICES | `IMPLEMENT_SLICE` | diff + progress bullets |
 | EXECUTE | VERIFY | `VERIFY` | command evidence |
 | REVIEW | INDEPENDENT REVIEW | `REVIEW` | review verdict |
 | REVIEW | SHIP / HANDOFF | `PACKAGE` | `completion-record.md` |
@@ -172,6 +172,13 @@ Do not list required unfinished acceptance criteria as follow-ups. If they are r
 
 Non-trivial tasks exit only with a `completion-record.md` containing verification evidence —
 the shipping gate. No completion record → not done.
+
+**Teardown.** PACKAGE archives the record to `docs/records/vX.Y.Z-agent-record.json` and removes
+the live file, so the working tree carries no in-flight record between tasks. A record left
+identical to its content at the resolved base ref (nothing locally in flight) is treated as
+closed: the Stop gate allows the stop and does not re-verify it. Closure requires an explicit
+base (`QUALITY_LOOP_BASE` or the config `base` key) or an `origin/*` ref — a solo no-origin repo
+is never "closed", so the full gate still runs there. Phantom-completion detection stays CI's job.
 
 ### RETROSPECTIVE / SKILL UPDATE
 

@@ -15,9 +15,12 @@ jobs:
       # its OWN pinned copy of the gate scripts (via GITHUB_ACTION_PATH), never
       # the scripts in the checkout under review — so a softened local
       # quality_loop.py cannot defeat CI. That pinned copy is the trust anchor;
-      # an unpinned/floating ref would surrender it.
-      - uses: zaingz/coding-quality-loop@v6.0.0
+      # an unpinned/floating ref would surrender it. The release process bumps
+      # this @vX.Y.Z pin on every tagged release.
+      - uses: zaingz/coding-quality-loop@v6.1.0
         with:
-          record: agent-record.json
+          # Canonical record path; the action falls back to a root-level
+          # agent-record.json when this is absent.
+          record: .quality-loop/agent-record.json
           base: origin/${{ github.base_ref || 'main' }}
           red-green: "false"

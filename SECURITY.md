@@ -36,7 +36,35 @@ This project's security surface is small on purpose, but it is not zero:
 
 - **Sandbox escape from `run-evidence`.** By design, `run-evidence` is not a sandbox. It
   is a repo-authored allowlist runner with the same trust model as CI. If your repo's
-  allowlist runs untrusted code, that is a repo configuration bug, not a CQL bug.
+  allowlist runs untrusted code, that is a repo configuration bug, not a CQL bug. State it
+  plainly: at a terminal Stop the Claude Code hook runs the full `verify` umbrella, which
+  **auto-executes** the record's allowlisted `commands_run` strings through a shell — no
+  prompt, no confirmation. Anything you put on `.quality-loop/allowed-commands` will run at
+  Stop, so treat that allowlist with the same care as a CI step.
+- **Merge-base evasion.** The base that every diff-derived gate (risk floor, secrets, scope,
+  shrinkage) compares against is a **CI-anchored** guarantee, not a local one. Locally, an
+  agent that rewrites refs (e.g. `git update-ref`) can move the resolved base and blind those
+  gates, and no gate reads the reflog to catch it — a moved base can also satisfy the Stop
+  gate's closed-record predicate. Commit-first evasion is caught in CI, where the base is
+  fixed; the local run is a convenience, not the anti-evasion boundary.
+- **Install-manifest trust.** Paths listed in `.quality-loop/install-manifest.json` are
+  exempt from scope-integrity as scaffolding, by membership only (no hashes). The manifest
+  is checkout data — including in CI, where the action runs pinned scripts over the
+  checkout's manifest. Membership exempts **only paths matching CQL's own shipped shapes**
+  (`quality_loop_core._is_cql_shipped_shape`: the skill/host/prompt/routing prefixes, the
+  known scaffolding filenames, or any path containing `quality-loop`/`quality_loop`), so a
+  doctored manifest cannot exempt an arbitrary consumer source file (`src/…` stays flagged).
+  The residual: an attacker can still exempt a backdoor by *naming* it into a CQL shape
+  (e.g. `src/quality_loop_evil.py`) and listing it. Same trust model as the allowlist:
+  review what lands in `.quality-loop/`.
+- **Missing-record CI bypass.** The GitHub Action defaults `allow-missing-record: true`: a
+  loop-configured checkout (has `.quality-loop/` or `quality-loop.config.json`) that ships
+  **no record** for a PR runs `diff-audit` only and passes with a loud warning — a
+  deliberate green path for docs/dependabot lanes. This is a real bypass of the record
+  gates (terminal status, AC coverage, evidence replay, review freshness): deleting the
+  record makes a PR take the soft path. Close it for feature work by setting
+  `allow-missing-record: false` (hard-fails a record-less loop-configured PR) or a
+  required-record branch-protection check.
 - **Reviewer identity forgery.** Identity is string-compared and freshness is
   self-attested. `attest-review --against-diff` makes review freshness checkable, but
   cannot prove the reviewer *read* the diff. Treat this as a design boundary.

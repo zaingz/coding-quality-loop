@@ -24,20 +24,46 @@ async function pathExists(p) {
 }
 
 /**
- * Locate the vendored skill files. In a published tarball this is dist/skill.
- * During local development we fall back to the repo root (two levels up from
- * packages/npm/), so the CLI is runnable without a prepack step.
+ * Locate the vendored skill files.
+ *
+ * Source-checkout dev takes precedence: when the repo root (two levels up from
+ * packages/npm/) is the ACTUAL CQL repo, use its live scripts — otherwise a
+ * stale, gitignored dist/skill built by a previous prepack would shadow current
+ * sources, so `cql` and the integration tests would exercise old code (the
+ * v6.1.0 review caught exactly this: an evidence row that only passed after an
+ * unrecorded dist refresh).
+ *
+ * The probe is guarded by a CQL-specific marker (packages/npm/package.json with
+ * name === "coding-quality-loop"), NOT the generic scripts/install.py — in a
+ * published install PACKAGE_ROOT is <proj>/node_modules/coding-quality-loop, so
+ * resolve(..,"..","..") is the CONSUMER's project root, which could itself have
+ * a scripts/install.py. When the marker is absent (a normal tarball install) we
+ * fall to dist/skill, which the tarball ships.
  */
+async function isCqlRepoRoot(root) {
+  try {
+    const pkg = JSON.parse(
+      await readFile(join(root, "packages", "npm", "package.json"), "utf8"),
+    );
+    return pkg && pkg.name === "coding-quality-loop";
+  } catch {
+    return false;
+  }
+}
+
 export async function resolveSkillRoot() {
+  const repoRoot = resolve(PACKAGE_ROOT, "..", "..");
+  if (
+    (await isCqlRepoRoot(repoRoot)) &&
+    (await pathExists(join(repoRoot, "scripts", "install.py")))
+  ) {
+    return repoRoot;
+  }
   if (await pathExists(join(DIST_SKILL, "scripts", "install.py"))) {
     return DIST_SKILL;
   }
-  const repoRoot = resolve(PACKAGE_ROOT, "..", "..");
-  if (await pathExists(join(repoRoot, "scripts", "install.py"))) {
-    return repoRoot;
-  }
   throw new Error(
-    "Skill files not found. Expected dist/skill/ (published) or the repo root (local dev).",
+    "Skill files not found. Expected the CQL repo root (local dev) or dist/skill/ (published).",
   );
 }
 

@@ -13,6 +13,10 @@ Decision table (evaluated top to bottom):
   - stop_hook_active                            -> allow (never re-block our own stop)
   - record unreadable                           -> BLOCK (corruption must not lift the gate)
   - escalated + non-empty escalation_reason     -> allow (explicit, auditable pause)
+  - status in {package, done} + record CLOSED   -> allow (merged/archived record: unchanged
+      (== base, no local modifications)            from base with nothing in flight; skips the
+                                                   verify umbrella so a cloned/merged done record
+                                                   does not re-execute its commands at every Stop)
   - status in {package, done}                   -> run `verify` umbrella; block on failure
   - {verify, review, retrospect, reasonless escalated}
       + dirty tree                              -> run `verify-gates`; block on failure
@@ -116,6 +120,87 @@ def _loop_was_active(root: Path) -> bool:
     return proc.returncode == 0 and any("D" in line[:2] for line in proc.stdout.splitlines())
 
 
+def _resolve_base_ref(root: Path) -> str | None:
+    """The base ref the closed-record check compares against: QUALITY_LOOP_BASE
+    when set, else the config `base` key (both are explicit operator choices),
+    else the first existing ORIGIN ref (origin/main -> origin/master). Local
+    main/master are deliberately NOT closure-eligible: in a solo no-origin repo
+    the current branch is trivially byte-identical to itself, which would make
+    every committed terminal record 'closed' and skip the umbrella in the one
+    environment with no CI anchor. None when nothing resolves, which keeps the
+    record 'not closed' so the full gate still runs — a solo author is not a
+    teammate on a clone."""
+    env = os.environ.get("QUALITY_LOOP_BASE")
+    if env:
+        return env
+    try:
+        cfg = json.loads((root / "quality-loop.config.json").read_text(encoding="utf-8"))
+        cfg_base = cfg.get("base")
+        if isinstance(cfg_base, str) and cfg_base.strip():
+            return cfg_base.strip()
+    except (OSError, ValueError):
+        pass
+    for ref in ("origin/main", "origin/master"):
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", ref + "^{commit}"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except OSError:
+            return None
+        if proc.returncode == 0:
+            return ref
+    return None
+
+
+def _record_is_closed(root: Path, record: Path) -> bool:
+    """True when the terminal-status record is a merged/archived artifact rather
+    than an active task: it has NO uncommitted local modifications AND its
+    committed content is byte-identical to its content at the resolved base.
+
+    This kills the cloned-repo trap — a teammate who clones a repo whose `done`
+    record is already committed and merged would otherwise have the Stop hook
+    re-execute every recorded command on a machine that did no work. Any local
+    change to the record (dirty), an untracked record, or a record that differs
+    from base keeps the full verify-umbrella behavior. Fails to 'not closed'
+    (safe: keep gating) whenever git cannot answer."""
+    try:
+        rel = record.resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return False
+
+    def _git(*args: str) -> subprocess.CompletedProcess[str] | None:
+        try:
+            return subprocess.run(
+                ["git", "-C", str(root), *args],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except OSError:
+            return None
+
+    # 1. No uncommitted modification of the record (tracked + clean). Any output
+    #    (untracked '??', modified ' M', staged) means the task is in flight.
+    status = _git("status", "--porcelain", "--", rel)
+    if status is None or status.returncode != 0 or status.stdout.strip():
+        return False
+    base = _resolve_base_ref(root)
+    if not base:
+        return False
+    head_blob = _git("show", f"HEAD:{rel}")
+    base_blob = _git("show", f"{base}:{rel}")
+    if head_blob is None or base_blob is None:
+        return False
+    if head_blob.returncode != 0 or base_blob.returncode != 0:
+        return False
+    return head_blob.stdout == base_blob.stdout
+
+
 def _tree_is_dirty(root: Path) -> bool:
     """Cheap working-tree diff check: any tracked change or untracked (non-ignored)
     file. Mirrors the change set `verify-gates --against-diff` reasons over.
@@ -202,7 +287,7 @@ def main() -> int:
             return _block(
                 "Quality Loop was active here (config or loop state exists) "
                 "but no agent record was found — the record may have been deleted mid-loop. Restore it "
-                "(e.g. git checkout -- .quality-loop/agent-record.json) or recreate it with "
+                "(e.g. git restore --source=HEAD -- .quality-loop/agent-record.json) or recreate it with "
                 "python3 scripts/quality_loop.py init-record --goal \"<goal>\" before stopping."
             )
         return 0
@@ -221,6 +306,21 @@ def main() -> int:
         # other non-terminal status — gated below when the tree is dirty.
 
     if status in TERMINAL_GATED_STATUSES:
+        if _record_is_closed(root, record) and not _tree_is_dirty(root):
+            # Merged/archived record AND a clean working tree: this task is
+            # CLOSED. Allow the stop and skip the verify umbrella so a cloned/
+            # merged `done` record does not re-execute its recorded commands
+            # here. The whole-tree check matters: an unchanged committed record
+            # with NEW source edits is a fresh task riding a stale record, and
+            # must run the full gate, not stop free.
+            print(
+                "quality-loop: record is at a terminal status, unchanged from the base, and the "
+                "working tree is clean — treating the task as CLOSED and allowing the stop "
+                "(skipping verify re-execution). A record that differs from base, or any local "
+                "modification anywhere in the tree, still runs the full gate.",
+                file=sys.stderr,
+            )
+            return 0
         rc, detail = _run_gates(root, record, terminal=True)
         if rc == 0:
             return 0

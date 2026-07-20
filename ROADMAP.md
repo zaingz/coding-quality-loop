@@ -6,7 +6,53 @@
 
 Last updated: 2026-07-20.
 
-## Now — landed in v6.0.0 (the trust-chain release)
+## Now — landed in v6.1.0 (the field-truth release)
+
+Executed against [`docs/improvement-plan-v6.0.1-2026-07-20.md`](docs/improvement-plan-v6.0.1-2026-07-20.md)
+(a same-day second review round: 13 dual-verified majors, then two fresh-context
+reviews — Fable xhigh and Codex — whose blocking findings were fixed before
+release); see `CHANGELOG.md` §6.1.0. One plan item is deliberately **not** claimed
+done: Wave 4.2's six live `§6.2` benchmark runs need `claude -p` over an afternoon
+(an operator action, not a code change). Its enabling deliverable — the committed
+micro-task spec — landed; the runs themselves are the named next milestone below.
+
+- ✅ **One truth per thing.** One canonical record path
+  (`.quality-loop/agent-record.json` — the documented root path structurally
+  failed review freshness); the config version pin renamed to what it is
+  (schema lineage, with an eval pinning it against drift); the reviewer
+  checklist emits the schema's actual 4-value verdict enum; hand-copied
+  canonical lists replaced with pointers; one heterogeneity resolver instead
+  of three (display can no longer claim "verified" where enforcement bailed).
+- ✅ **First contact survives repos that are not this repo.** Onboarding leads
+  with a 10-second green walkthrough; demo goals no longer trip the payments
+  floor on the word "checkout"; no-origin/develop-default repos diff against
+  the best local baseline (merge-base with local main when diverged, else HEAD)
+  instead of the empty tree (empty tree kept only under the CI anchor);
+  install-manifest paths count as scaffolding; a `git commit` step 0 in every
+  printed next-steps block; Windows hooks launch the resolved interpreter
+  (npm-smoke now proves a hook fires on all three OSes); a closed record
+  (byte-identical to its content at the resolved base ref) no longer blocks every clone at every
+  Stop; `action.yml` has a green path for record-less PRs and is dogfooded in
+  this repo's CI; and `.claude/settings.json` is committed, so the Stop gate
+  and guard fire during CQL's own development for the first time.
+- ✅ **Adaptability without a second program.** Exactly three gate-config keys
+  (`base`, `tests.path_markers`, `high_risk_paths`); test-weakening/shrinkage
+  lexicons extended to Go, Rust, Java, Ruby, C# (Hard Rule 6 was silently
+  inert outside Python/JS); waivers must cite a recorded passing command;
+  bare-`*` allowlist lines authorize nothing; guard/stop-gate remedies no
+  longer contradict each other; claims sharpened to what is enforced
+  (merge-base anti-evasion is CI-anchored; Stop auto-executes allowlisted
+  commands).
+- ✅ **Measurement unblocked at the cheapest price.** `bench/PROTOCOL.md`
+  amended before any run (discriminating-power precondition, judges
+  cross-family from the arm's model, MDE note, no deletion on judge-noise
+  nulls); the §6.2 micro-task spec committed at
+  [`bench/tasks/14-micro-bugfix.json`](bench/tasks/14-micro-bugfix.json); the
+  cannot-fail trigger fixture deleted; ~1.6 MB of dated eval archives moved to
+  `archive/eval-runs/`; first review-yield memo computed from data already in
+  git ([`docs/review-yield-2026-07-20.md`](docs/review-yield-2026-07-20.md)).
+
+## Landed in v6.0.0 (the trust-chain release)
 
 Executed against [`docs/improvement-plan-2026-07-20.md`](docs/improvement-plan-2026-07-20.md)
 (waves 1–3 plus 4.1/4.2); see `CHANGELOG.md` §6.0.0 for the full item list.
@@ -122,16 +168,26 @@ Executed against [`docs/improvement-plan-2026-07-20.md`](docs/improvement-plan-2
 
 ## Next
 
-**The next milestone is Wave 4.3: run the live ablation — or retract.** The
-protocol is pre-registered in [`bench/PROTOCOL.md`](bench/PROTOCOL.md) (arms,
-tasks, judging, cost capture, and decision rules committed before the data
-exists; a completed run forces the stated outcome). Everything the project still
-argues about in prose — which gates earn their tokens, the R5 per-model process
-depth, the small-task tax — is decided by that run. Capped at ~36 runs.
+**The next milestone is the §6.2 micro-task cell: six judge-free, token-only
+runs.** The spec is committed at
+[`bench/tasks/14-micro-bugfix.json`](bench/tasks/14-micro-bugfix.json) —
+{baseline, full} × Claude × 3 seeds, an afternoon's work, no judges, no
+blinding. Either outcome wins: a measured overhead figure replaces the
+philosophy-page estimate, or the >1.5× rule fires and the always-loaded
+ladder text becomes the pre-registered cut candidate.
+
+**After it: Wave 4.3, the full live ablation — or retract.** The protocol is
+pre-registered in [`bench/PROTOCOL.md`](bench/PROTOCOL.md) (arms, tasks,
+judging, cost capture, and decision rules committed before the data exists; a
+completed run forces the stated outcome — v6.1.0 added the
+discriminating-power precondition and judge-independence rules so the run
+cannot measure judge noise). Everything the project still argues about in
+prose — which gates earn their tokens, the R5 per-model process depth — is
+decided by that run. Capped at ~36 runs.
 
 ### Hardening from the webapp live eval (2026-07-07) — landed
 
-Findings from `examples/webapp-agent-eval-2026-07-07/` (gate-gaming, allowlist
+Findings from `archive/eval-runs/webapp-agent-eval-2026-07-07/` (gate-gaming, allowlist
 never created, attested review going stale, ImportError on partial installs):
 
 - ✅ `init-record` scaffolds `.quality-loop/allowed-commands`; the `not_allowed`

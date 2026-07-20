@@ -59,14 +59,17 @@ RECORD_DESTRUCTIVE = [
 EDIT_TOOLS = {"Write", "Edit", "apply_patch"}
 
 # Repo-relative paths whose edit is denied while protect_harness is on.
+# The agent record is deliberately NOT here: the lifecycle requires continuous
+# record mutation and no CLI subcommand writes it, so denying record edits only
+# funnels honest agents into Bash heredocs. Record integrity comes from the
+# layer that actually holds it — the freshness hash, verify's re-execution, and
+# the CI anchor — not from a PreToolUse path deny. What stays denied is the set
+# an agent never legitimately edits: config, hook wiring, and the install
+# inventory (unwiring the hooks or rewriting the uninstall manifest defeats the
+# gates without touching the scripts).
 HARNESS_RECORD_FILES = {
-    ".quality-loop/agent-record.json",
-    "agent-record.json",
     "quality-loop.config.json",
     ".quality-loop/config.json",
-    # Hook wiring + install inventory: same protection class as the gate
-    # scripts — unwiring the hooks or rewriting the uninstall manifest defeats
-    # the gates without touching them.
     ".claude/settings.json",
     ".codex/hooks.json",
     ".quality-loop/install-manifest.json",
@@ -240,8 +243,11 @@ def main() -> int:
             target = _patch_protected_target(tool_input)
         if target:
             return deny_pretool(
-                f"edit blocked: {target} is Quality Loop harness/record — tamper-evidence depends "
-                "on the agent under review not modifying its own gates, record, or config. If this "
+                f"edit blocked: {target} is Quality Loop harness — tamper-evidence depends on the "
+                "agent under review not rewriting its own gate scripts, hook wiring, config, or "
+                "install manifest. (The agent record is deliberately NOT protected here: its "
+                "integrity comes from the freshness hash, verify's re-execution, and the CI anchor "
+                "— edit it directly with Write/Edit as the lifecycle requires.) If this harness "
                 "file genuinely needs to change, ask the user to make or approve the change."
             )
         if finding := _scan_text(root, tool_input):

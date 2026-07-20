@@ -70,9 +70,10 @@ each are in Inspirations below.
 
 ## Every gate must earn its tokens
 
-Process is not free: a diligent medium loop spends roughly 15–22k tokens of scaffolding before
-a line of the codebase is read, and the literature shows harnesses that silently double token
-spend while passing every functional check. So each gate is held to the same standard as the
+Process is not free: a diligent medium loop is *estimated* to spend roughly 15–22k tokens of
+scaffolding before a line of the codebase is read — an estimate pending the pre-registered
+`bench/PROTOCOL.md` §6.2 measurement, not yet a measured figure — and the literature shows
+harnesses that silently double token spend while passing every functional check. So each gate is held to the same standard as the
 code it guards — an addition or a retention must be justified by a measured eval delta per token
 of overhead it imposes, and a deletion is a win to celebrate rather than a regression to fear
 (v3.0 cut ~40% of the surface this way and shipped stronger). Context is the scarce resource; the
@@ -131,8 +132,10 @@ above into one self-contained Agent Skill:
   promise.
 - **Offline evals** that assert each gate fires for the right reason, wired into dependency-free
   CI so the claims stay verifiable.
-- **Host-native install paths** for Claude Code, Codex, Cursor, Pi, and standalone runtimes, so
-  the same philosophy drops into whatever you already use.
+- **Host-native install paths** with the hook runtime wired for Claude Code and Codex (the two
+  routed hosts); Droid, git, and GitHub are supported install targets, and Cursor and Pi get
+  advisory rules recipes (instructions, no hook runtime), so the same philosophy drops into
+  whatever you already use.
 
 ## The engineering operating system
 
@@ -147,9 +150,10 @@ land as five concrete parts:
    Cursor rules (`.cursor/rules/*.mdc`: Always / Auto Attached / Agent Requested / Manual).
 2. **Reusable skills** — focused `SKILL.md` workflows with triggers, steps, and exit criteria;
    the portable capability unit, shareable across hosts.
-3. **Mission artifacts** — `context-map.md`, `validation-contract.md`, `plan.md`,
-   `execution-log.md`, `decision-log.md`, `completion-record.md`. Shared state that makes
-   long-horizon work orchestratable.
+3. **Mission artifacts** — the four that ship (eval-pinned): `contract.md`, `plan.md`,
+   `completion-record.md`, and `progress.md`, plus `context-map.md` for EXPLORE. Shared state
+   that makes long-horizon work orchestratable; decisions live inline in progress bullets and
+   commands in the record's `commands_run`, not in separate log files.
 4. **Independent verification** — implementer and validator separated for non-trivial work; the
    implementer is never the final validator. Different-family review is the portable default;
    an explicit higher-level harness may pin the same model across separate hosts/sessions when

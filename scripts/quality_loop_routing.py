@@ -197,52 +197,6 @@ def _parse_iso_date(value: Any) -> date | None:
         return None
 
 
-def _families_heterogeneity(section: Any) -> list[str]:
-    """Same-family errors that only a ``model_routing.families`` entry reveals.
-
-    The core heterogeneity check (quality_loop.py) silently skips ids whose
-    family the built-in table cannot classify; a families entry un-skips them.
-    Guarded to fire only when the built-in lookup would have skipped, so it
-    never duplicates the core check's errors.
-    """
-    extra = merged_families(section)
-    if not extra:
-        return []
-    topo = resolve_routing({"model_routing": section})
-    ms = topo["main_session"]
-    rev_entry = topo["agents"].get("quality-loop-reviewer")
-    if not ms or not rev_entry:
-        return []
-    impl_block = class_block(topo["host_models"], ms.get("host"), ms.get("class"))
-    impl_model = ms.get("model") or impl_block.get("model")
-    impl_declared = impl_block.get("family") if not ms.get("model") else None
-    rev_block = class_block(topo["host_models"], rev_entry.get("host"), rev_entry.get("class"))
-    rev_model = rev_block.get("model")
-    rev_declared = rev_block.get("family")
-    if is_placeholder_model(impl_model) or is_placeholder_model(rev_model):
-        return []
-    if impl_model.strip().lower() == rev_model.strip().lower():
-        return []  # the core check already fails same-model configs
-    builtin_skipped = (
-        model_family(impl_model, impl_declared) is None
-        or model_family(rev_model, rev_declared) is None
-    )
-    impl_family = model_family(impl_model, impl_declared, extra)
-    rev_family = model_family(rev_model, rev_declared, extra)
-    if (
-        builtin_skipped
-        and impl_family and rev_family and impl_family == rev_family
-        and section.get("allow_same_family") is not True
-    ):
-        return [
-            f"reviewer heterogeneity: implementer ({impl_model!r}) and fresh_reviewer "
-            f"({rev_model!r}) resolve to the same model family {impl_family!r} via "
-            f"model_routing.families; use a different family for review, or set "
-            f"\"allow_same_family\": true to accept the risk explicitly"
-        ]
-    return []
-
-
 def validate_model_routing(section: Any) -> list[str]:
     errors: list[str] = []
     if not isinstance(section, dict):
@@ -374,7 +328,8 @@ def validate_model_routing(section: Any) -> list[str]:
     as_of = section.get("as_of")
     if as_of is not None and _parse_iso_date(as_of) is None:
         errors.append(f"model_routing.as_of must be a YYYY-MM-DD date string, got {as_of!r}")
-    errors.extend(_families_heterogeneity(section))
+    # Reviewer-heterogeneity errors (including families-taught ids) come from
+    # the single resolver, resolve_heterogeneity — check-config appends them.
     if isinstance(host_models, dict) and isinstance(agents, dict):
         for aname, aval in agents.items():
             entry = _agent_entry(aval)
@@ -906,81 +861,222 @@ def cmd_setup_models(args: Any) -> int:
 # Brief integration
 # ---------------------------------------------------------------------------
 
-def heterogeneity_status(config: Any) -> dict[str, Any]:
-    """One-line reviewer-heterogeneity status for brief and check-config.
+def resolve_heterogeneity(config: Any) -> dict[str, Any]:
+    """THE reviewer-heterogeneity resolver — one resolution for enforcement and
+    display, replacing the three prior implementations (the enforcing check in
+    quality_loop, ``heterogeneity_status``, ``_families_heterogeneity``).
 
-    Loud degradation: instead of silently skipping, the returned ``line`` says
-    'verified (<famA> vs <famB>)', names the unknown-family id that caused a
-    SKIP (and the model_routing.families fix), or flags a same-model/family
-    conflict. Never raises on malformed config; degrades to a SKIPPED line.
+    check-config appends ``errors`` (blocking) and prints ``line``; brief
+    prints ``line``. Both consume the SAME resolution, so the display can
+    never claim "verified" for a config the gate never evaluated — enforcing
+    semantics apply to the line too, in particular NO default-class fallbacks:
+    an unresolved host/model_class SKIPS, loudly. main_session wins the
+    implementer leg; the quality-loop-reviewer agents entry wins the reviewer
+    leg (it is what setup-models applies; disagreeing with steps.REVIEW is
+    itself an error); steps[].model_class fills whichever side has no
+    override. Placeholders and unknown families skip loudly; allow_same_family
+    is the same-family escape hatch; the same model never passes.
+
+    Returns ``{status, line, errors, skip_reason, implementer, reviewer}``
+    with each leg's resolved ``{host, class, model, family}``.
     """
+    def result(
+        status: str,
+        line: str,
+        errors: list[str],
+        impl: dict[str, Any] | None = None,
+        rev: dict[str, Any] | None = None,
+        skip_reason: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "status": status,
+            "line": "reviewer heterogeneity: " + line,
+            "errors": errors,
+            "skip_reason": skip_reason,
+            "implementer": impl or {},
+            "reviewer": rev or {},
+        }
+
     section = config.get("model_routing") if isinstance(config, dict) else None
     if not isinstance(section, dict):
-        return {"status": "skipped", "line": "reviewer heterogeneity: SKIPPED — model_routing not configured"}
+        return result(
+            "skipped", "SKIPPED — model_routing not configured", [],
+            skip_reason="model_routing not configured",
+        )
     topo = resolve_routing({"model_routing": section})
+    host_models = topo["host_models"]
+    default_host = topo["default_host"]
     extra = topo["families"]
+
     impl_class = rev_class = None
-    steps = config.get("steps") if isinstance(config.get("steps"), list) else []
-    for step in steps:
+    steps = config.get("steps") if isinstance(config, dict) else None
+    for step in (steps if isinstance(steps, list) else []):
         if not isinstance(step, dict):
             continue
         if step.get("step") == "IMPLEMENT_SLICE":
             impl_class = step.get("model_class")
         elif step.get("step") == "REVIEW":
             rev_class = step.get("model_class")
-    host_models = topo["host_models"]
-    ms = topo["main_session"]
-    if ms:
-        impl_block = class_block(host_models, ms.get("host"), ms.get("class") or impl_class)
-        impl_model = ms.get("model") or impl_block.get("model")
-        impl_declared = impl_block.get("family") if not ms.get("model") else None
+
+    errors: list[str] = []
+    main_session = topo["main_session"]
+    if main_session:
+        impl_host = main_session.get("host")
+        impl_cls = main_session.get("class") or impl_class
+        impl_block = class_block(host_models, impl_host, impl_cls)
+        impl_model = main_session.get("model") or impl_block.get("model")
+        # The block's declared family describes the block's model; it must not
+        # be applied to an explicit main_session.model override.
+        impl_declared = impl_block.get("family") if not main_session.get("model") else None
     else:
-        impl_block = class_block(host_models, topo["default_host"], impl_class or "code_specialized")
+        impl_host = default_host
+        impl_cls = impl_class
+        impl_block = class_block(host_models, impl_host, impl_cls)
         impl_model = impl_block.get("model")
         impl_declared = impl_block.get("family")
-    rev_entry = topo["agents"].get("quality-loop-reviewer")
-    if rev_entry:
-        rev_block = class_block(host_models, rev_entry.get("host"), rev_entry.get("class"))
+
+    # The `quality-loop-reviewer` agents entry (string or object) is what
+    # setup-models actually writes into the reviewer's agent file, so it is the
+    # effective reviewer; the REVIEW step's model_class is doctrine. When both
+    # are concrete and resolve to different models the config disagrees with
+    # itself -- flag it rather than silently trusting either.
+    rev_agent_entry = topo["agents"].get("quality-loop-reviewer")
+    step_block = class_block(host_models, default_host, rev_class)
+    step_resolved = step_block.get("model")
+    if rev_agent_entry and rev_agent_entry.get("class"):
+        rev_host = rev_agent_entry.get("host")
+        rev_cls = rev_agent_entry.get("class")
+        if (
+            rev_class and rev_cls != rev_class
+            and not is_placeholder_model(step_resolved)
+        ):
+            entry_block = class_block(host_models, rev_host, rev_cls)
+            entry_resolved = entry_block.get("model")
+            if (
+                not is_placeholder_model(entry_resolved)
+                and entry_resolved.strip().lower() != step_resolved.strip().lower()
+            ):
+                errors.append(
+                    f"reviewer heterogeneity: steps.REVIEW model_class={rev_class!r} "
+                    f"resolves to {step_resolved!r} but model_routing.agents."
+                    f"quality-loop-reviewer ({rev_cls!r} on host {rev_host!r}) "
+                    f"resolves to {entry_resolved!r}; align them -- the agents "
+                    f"entry is what setup-models applies"
+                )
     else:
-        rev_block = class_block(host_models, topo["default_host"], rev_class or "strong_reasoning")
+        rev_host = default_host
+        rev_cls = rev_class
+    rev_block = class_block(host_models, rev_host, rev_cls)
     rev_model = rev_block.get("model")
     rev_declared = rev_block.get("family")
+
+    impl_leg = {"host": impl_host, "class": impl_cls, "model": impl_model, "family": None}
+    rev_leg = {"host": rev_host, "class": rev_cls, "model": rev_model, "family": None}
+
+    # Enforcing bail, preserved exactly: with any host or model_class
+    # unresolved there is nothing to enforce — and the line now says so
+    # instead of defaulting classes the gate never evaluated.
+    if not (impl_host and rev_host and impl_cls and rev_cls):
+        return result(
+            "skipped",
+            "SKIPPED — implementer/reviewer host or model_class unresolved "
+            "(set model_routing.host, steps[].model_class, or main_session); "
+            "heterogeneity is not enforced for this config",
+            errors, impl_leg, rev_leg,
+            skip_reason="host or model_class unresolved",
+        )
+
+    # An explicit distinct main_session.model breaks the "same class => same
+    # model" implication, so the same-class branch must not fire over it.
+    ms_model = (
+        main_session.get("model")
+        if main_session and isinstance(main_session.get("model"), str)
+        else None
+    )
+    proceed = True
+    if impl_host == rev_host and impl_cls == rev_cls:
+        distinct_override = (
+            ms_model and isinstance(rev_model, str) and rev_model.strip()
+            and ms_model.strip().lower() != rev_model.strip().lower()
+        )
+        if not distinct_override:
+            if not (is_placeholder_model(impl_model) or is_placeholder_model(rev_model)):
+                errors.append(
+                    f"reviewer heterogeneity: IMPLEMENT_SLICE and REVIEW both "
+                    f"use model_class={impl_cls!r} on host {impl_host!r}; medium+ "
+                    f"tasks require a different model for review (use a different "
+                    f"model or model_class)"
+                )
+            proceed = False
+
     if is_placeholder_model(impl_model) or is_placeholder_model(rev_model):
         leg = "implementer" if is_placeholder_model(impl_model) else "reviewer"
-        return {
-            "status": "skipped",
-            "line": f"reviewer heterogeneity: SKIPPED — {leg} model is a placeholder; fill host_models",
-        }
+        return result(
+            "skipped",
+            f"SKIPPED — {leg} model is a placeholder; fill host_models",
+            errors, impl_leg, rev_leg, skip_reason=f"{leg} model is a placeholder",
+        )
+
+    # Case-insensitive: `GPT-5.6-SOL` vs `gpt-5.6-sol` is one model, not two.
     if impl_model.strip().lower() == rev_model.strip().lower():
-        return {
-            "status": "same-model",
-            "line": f"reviewer heterogeneity: FAILED — implementer and reviewer resolve to the same model ({impl_model}); run check-config",
-        }
+        if proceed:
+            errors.append(
+                f"reviewer heterogeneity: implementer ({impl_model!r} on host "
+                f"{impl_host!r}) and fresh_reviewer ({rev_model!r} on host "
+                f"{rev_host!r}) resolve to the same model; use a different model "
+                f"for review"
+            )
+        return result(
+            "same-model",
+            f"FAILED — implementer and reviewer resolve to the same model ({impl_model}); run check-config",
+            errors, impl_leg, rev_leg,
+        )
+
     impl_family = model_family(impl_model, impl_declared, extra)
     rev_family = model_family(rev_model, rev_declared, extra)
+    impl_leg["family"] = impl_family
+    rev_leg["family"] = rev_family
     for family, model_id in ((impl_family, impl_model), (rev_family, rev_model)):
         if family is None:
-            return {
-                "status": "skipped",
-                "line": (
-                    f"reviewer heterogeneity: SKIPPED — unknown family for {model_id}; "
-                    f"add model_routing.families to keep this check alive"
-                ),
-            }
+            return result(
+                "skipped",
+                f"SKIPPED — unknown family for {model_id}; "
+                f"add model_routing.families to keep this check alive",
+                errors, impl_leg, rev_leg, skip_reason=f"unknown family for {model_id}",
+            )
     if impl_family == rev_family:
         if topo["allow_same_family"]:
-            return {
-                "status": "same-family-allowed",
-                "line": f"reviewer heterogeneity: same family ({impl_family}) — accepted via allow_same_family",
-            }
-        return {
-            "status": "same-family",
-            "line": f"reviewer heterogeneity: FAILED — implementer and reviewer share family {impl_family!r}; run check-config",
-        }
-    return {
-        "status": "verified",
-        "line": f"reviewer heterogeneity: verified ({impl_family} vs {rev_family})",
-    }
+            return result(
+                "same-family-allowed",
+                f"same family ({impl_family}) — accepted via allow_same_family",
+                errors, impl_leg, rev_leg,
+            )
+        # Name the families table when it (not the built-in table) classified a
+        # leg, so a user who taught the id sees which knob fired.
+        via = (
+            " (family classified via model_routing.families)"
+            if model_family(impl_model, impl_declared) is None
+            or model_family(rev_model, rev_declared) is None
+            else ""
+        )
+        errors.append(
+            f"reviewer heterogeneity: implementer ({impl_model!r} on host "
+            f"{impl_host!r}) and fresh_reviewer ({rev_model!r} on host "
+            f"{rev_host!r}) resolve to the same model family {impl_family!r}; "
+            f"harness diversity does not guarantee model heterogeneity -- use a "
+            f"different family for review, or set \"allow_same_family\": true "
+            f"to accept the risk explicitly" + via
+        )
+        return result(
+            "same-family",
+            f"FAILED — implementer and reviewer share family {impl_family!r}; run check-config",
+            errors, impl_leg, rev_leg,
+        )
+    return result(
+        "verified",
+        f"verified ({impl_family} vs {rev_family})",
+        errors, impl_leg, rev_leg,
+    )
 
 
 def brief_routing_info(cwd: Path, config_path: Path | None = None) -> dict[str, Any]:
@@ -1056,7 +1152,7 @@ def brief_routing_info(cwd: Path, config_path: Path | None = None) -> dict[str, 
             cblock = {}
         model = ms.get("model") or cblock.get("model") or "(not set)"
         lines.append(f"  main session (implementer): host={ms.get('host')} model={model}")
-    het = heterogeneity_status(config)
+    het = resolve_heterogeneity(config)
     lines.append("  " + het["line"])
     section = config.get("model_routing") if isinstance(config.get("model_routing"), dict) else {}
     as_of = section.get("as_of")

@@ -6,30 +6,79 @@
     "goal": "Build a small in-memory search index over the docs corpus and expose a query function",
     "task_class": "medium",
     "risk_tier": "medium",
-    "acceptance_criteria": ["Query returns ranked matches; index builds under the size budget"],
-    "verification_plan": ["unit tests for ranking"],
-    "minimality_decision": {"rung": "build", "reason": "no existing index; smallest viable build"},
-    "plan": ["build index", "add query fn"],
-    "commands_run": [{"cmd": "pytest tests/test_index.py", "class": "unit", "result": "pass", "evidence": "14 passed"}],
+    "acceptance_criteria": [
+      "Query returns ranked matches; index builds under the size budget"
+    ],
+    "verification_plan": [
+      "unit tests for ranking"
+    ],
+    "minimality_decision": {
+      "rung": "build",
+      "reason": "no existing index; smallest viable build"
+    },
+    "plan": [
+      "build index",
+      "add query fn"
+    ],
+    "commands_run": [
+      {
+        "cmd": "pytest tests/test_index.py",
+        "class": "unit",
+        "result": "pass",
+        "evidence": "14 passed"
+      }
+    ],
     "open_risks": [],
-    "review_findings": ["fresh-context review: approved"],
+    "review_findings": [
+      "fresh-context review: approved"
+    ],
     "repo_map": {
-      "entry_points": ["search/index.py:build"],
-      "likely_files": ["search/index.py"],
-      "callers_checked": ["search/query.py:run"],
-      "tests": ["tests/test_index.py"]
+      "entry_points": [
+        "search/index.py:build"
+      ],
+      "likely_files": [
+        "search/index.py"
+      ],
+      "callers_checked": [
+        "search/query.py:run"
+      ],
+      "tests": [
+        "tests/test_index.py"
+      ]
     },
     "implementer": "agent-a",
-    "validation_contract": {"goal": "In-memory index", "acceptance_criteria": ["ranked matches"], "evidence": ["pytest -> pass"]},
-    "independent_review": {"reviewer": "agent-a", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "validation_contract": {
+      "goal": "In-memory index",
+      "evidence": [
+        "pytest -> pass"
+      ]
+    },
+    "independent_review": {
+      "reviewer": "agent-a",
+      "verdict": "approve",
+      "fresh_context": true,
+      "patched": false,
+      "findings": []
+    },
     "security_review": null,
-    "completion_record": {"goal": "In-memory index", "acceptance_criteria": ["ranked matches"], "evidence": ["pytest -> 14 passed", "review: approve"]},
+    "completion_record": {
+      "goal": "In-memory index",
+      "acceptance_criteria": [
+        "ranked matches"
+      ],
+      "evidence": [
+        "pytest -> 14 passed",
+        "review: approve"
+      ]
+    },
     "security_sensitive": false,
     "status": "done"
   },
   "expect": {
     "risk_floor": "low",
     "gates_exit": 1,
-    "findings_include": ["reviewer cannot be the implementer"]
+    "findings_include": [
+      "reviewer cannot be the implementer"
+    ]
   }
 }

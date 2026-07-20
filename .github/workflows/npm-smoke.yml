@@ -54,5 +54,37 @@ jobs:
           target="$(mktemp -d)"
           node bin/cql.mjs init --yes --host claude-code --target "$target"
           node bin/cql.mjs check --target "$target"
+      - name: Stop hook actually fires (guards the bare-python3 Windows class)
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$(mktemp -d)"
+          node bin/cql.mjs init --yes --host claude-code --target "$target"
+          # Force a deterministic JSON response: an unreadable record makes the
+          # stop gate emit {"decision":"block", ...} regardless of git state.
+          mkdir -p "$target/.quality-loop"
+          printf '{invalid json' > "$target/.quality-loop/agent-record.json"
+          # Run the EXACT command+args written into settings.json. This is what
+          # catches the Windows bare-"python3" class: if install wrote a launcher
+          # this host cannot exec, spawnSync fails and the step goes red.
+          QL_TARGET="$target" node --input-type=module <<'EOF'
+          import { readFileSync } from "node:fs";
+          import { spawnSync } from "node:child_process";
+          const target = process.env.QL_TARGET;
+          const settings = JSON.parse(readFileSync(target + "/.claude/settings.json", "utf8"));
+          const hook = settings.hooks.Stop[0].hooks[0];
+          const sub = (s) => s.replaceAll("${CLAUDE_PROJECT_DIR}", target);
+          const cmd = sub(hook.command);
+          const args = (hook.args || []).map(sub);
+          const payload = JSON.stringify({ cwd: target, hook_event_name: "Stop", stop_hook_active: false });
+          const r = spawnSync(cmd, args, { input: payload, encoding: "utf8" });
+          if (r.error) { console.error("spawn failed:", r.error); process.exit(1); }
+          if (r.status !== 0) { console.error("hook exited", r.status, "stderr:", r.stderr); process.exit(1); }
+          let parsed;
+          try { parsed = JSON.parse(r.stdout); }
+          catch { console.error("stop hook stdout is not valid JSON:", JSON.stringify(r.stdout)); process.exit(1); }
+          if (parsed.decision !== "block") { console.error("expected a block decision, got:", r.stdout); process.exit(1); }
+          console.log("Stop hook fired and returned valid JSON:", JSON.stringify(parsed.decision));
+          EOF
       - name: npm pack (verify tarball builds cleanly)
         run: npm pack --dry-run

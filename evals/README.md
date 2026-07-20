@@ -6,18 +6,18 @@ config is well-formed. They run fully offline — no models, no network, no exte
 ## Gate suites and the canonical count
 
 The offline **gate** suites — the ones that can fail on a real regression — total
-**219 gate cases across 6 core suites**, plus **35 add-on cases** for the opt-in
+**234 gate cases across 6 core suites**, plus **35 add-on cases** for the opt-in
 control plane:
 
 | Suite | Cases | Runner |
 |---|---:|---|
 | Static (intake classifier) | 20 | `quality_loop.py eval-cases evals/cases` |
-| Behavioral (record gates) | 54 | `evals/run_evals.py` |
+| Behavioral (record gates) | 55 | `evals/run_evals.py` |
 | Memory | 32 | `evals/run_memory_evals.py` |
-| Reality (record ↔ diff) | 42 | `evals/run_reality_evals.py` |
-| Routing | 29 | `evals/run_routing_evals.py` |
-| Hook (host shims) | 42 | `evals/run_hook_evals.py` |
-| **Total core gate cases** | **219** | re-run by `.github/workflows/evals.yml` |
+| Reality (record ↔ diff) | 48 | `evals/run_reality_evals.py` |
+| Routing | 30 | `evals/run_routing_evals.py` |
+| Hook (host shims) | 49 | `evals/run_hook_evals.py` |
+| **Total core gate cases** | **234** | re-run by `.github/workflows/evals.yml` |
 | Control plane add-on (index, server, ingest) | 35 | `evals/run_control_evals.py` — counted separately: the add-on is installed only via `install.py --with-control-plane` and is not in the npm tarball |
 
 The canonical numbers live in exactly one place — `CANONICAL_GATE_CASES` and
@@ -25,9 +25,6 @@ The canonical numbers live in exactly one place — `CANONICAL_GATE_CASES` and
 (`case_doc_counts_match_canonical`) fails if any public doc states a contradicting
 count (lines annotated "as of vX.Y" are exempt as declared-historical). Bump the
 constants when a suite's case count changes.
-
-The **10-case trigger smoke fixture** is deliberately **excluded** from this count
-(see [below](#trigger-smoke-fixture-opt-in-excluded-from-the-gate-count)).
 
 ## What they check
 
@@ -88,28 +85,16 @@ python3 evals/run_memory_evals.py   # persistent-memory recall/commit/redaction
 python3 evals/run_hook_evals.py     # policy-hook enforcement
 ```
 
-## Trigger smoke fixture (opt-in, excluded from the gate count)
+## Activation (SKILL.md `description`)
 
-`triggers/cases.json` holds `should_trigger` / `should_not_trigger` prompts for the frontmatter
-`description` — the sole activation signal, and the #1 skill failure mode when it is too vague
-(misses) or too broad (misfires).
-
-**Why it is a smoke fixture, not a gate.** The default grader in `run_trigger_evals.py` is a
-keyword-overlap heuristic whose `coding` / `quiet` word lists were reverse-engineered from these
-exact 10 prompts. It therefore **structurally cannot fail** — passing it proves nothing about
-whether a changed `description` would actually activate. For that reason the fixture is
-**excluded from the gate-case counts** and the suite is **not wired into CI**.
-
-A **real** activation check requires an LLM judge supplied via `--judge-command` (a command that
-reads `{"description", "prompt"}` on stdin and prints `true`/`false`). That is kept opt-in
-because live judge grading depends on the host/model. A useful mutation test: change SKILL.md's
-`description`, then confirm the `--judge-command` run can turn red — an eval that cannot fail is
-not an eval.
-
-```bash
-python3 evals/run_trigger_evals.py                                       # keyword-overlap smoke (cannot fail)
-python3 evals/run_trigger_evals.py --judge-command './judge-trigger.sh'  # real, LLM-judged activation check
-```
+There is no offline suite for the frontmatter `description` — the sole activation signal, and
+the #1 skill failure mode when it is too vague (misses) or too broad (misfires). The former keyword-overlap trigger fixture was **deleted in
+v6.1**: its grader's word lists were reverse-engineered from its own 10 prompts, so it
+**structurally could not fail** and proved nothing about whether a changed `description` would
+activate (its own docstring said so).
+A real activation check needs an LLM judge, which depends on the host/model and cannot run
+offline; keep that check manual — after changing the `description`, confirm on your host that a
+should-trigger prompt still activates and a should-not prompt does not.
 
 ## Cases
 

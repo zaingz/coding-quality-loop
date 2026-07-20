@@ -5,7 +5,7 @@ an agent softened its local copy of diff-audit and reported PASS;
 the pristine gates caught it; v3.1 added helper-integrity sha256 hashes.
 
 All copy is paraphrased from CHANGELOG.md \u00a73.1.0 lines 14\u201318 and
-examples/webapp-agent-eval-2026-07-07/README.md lines describing the
+archive/eval-runs/webapp-agent-eval-2026-07-07/README.md lines describing the
 softening incident.
 """
 from __future__ import annotations
@@ -111,7 +111,7 @@ def draw():
                 family="DejaVu Sans Mono")
 
     ax.text(50, 6,
-            "Source: CHANGELOG.md \u00a7 3.1.0 \u00b7 examples/webapp-agent-eval-2026-07-07/",
+            "Source: CHANGELOG.md \u00a7 3.1.0 \u00b7 archive/eval-runs/webapp-agent-eval-2026-07-07/",
             ha="center", va="center", fontsize=10, color=MUTED,
             family="DejaVu Sans")
 

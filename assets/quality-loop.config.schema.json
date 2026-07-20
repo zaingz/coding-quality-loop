@@ -14,10 +14,41 @@
       "type": "string"
     },
     "version": {
-      "type": "string"
+      "type": "string",
+      "const": "5.1.0",
+      "description": "Config SCHEMA lineage version — the version of this config's shape, which last changed in release 5.1.0. It does not track the package release version. check-config and an eval pin this const against the engine constant (CONFIG_SCHEMA_VERSION) and the example config."
     },
     "description": {
       "type": "string"
+    },
+    "base": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Default git base ref for the diff-grounded gates. Precedence: --base flag > QUALITY_LOOP_BASE env > this key > the built-in ladder (origin/main → origin/master → main → master). Together with tests.path_markers and high_risk_paths this is the COMPLETE deliberate gate-config surface; everything else about the gates is deliberately not configurable."
+    },
+    "tests": {
+      "type": "object",
+      "description": "Gate-config key 2 of 3: tests.path_markers ADDS path substrings (e.g. \"evals/\") to the built-in test markers (test/spec/__tests__) used by test-weakening, test-shrinkage, and bugfix-test co-presence. Additive only — the built-ins always apply.",
+      "properties": {
+        "path_markers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "high_risk_paths": {
+      "type": "array",
+      "description": "Gate-config key 3 of 3: extra high-risk path entries (a directory/file name matched as a path component or basename, or a slash-containing path prefix like \"services/identity\") ADDED to the built-in high-tier paths (auth/, payments/, migrations/, terraform/, lockfiles, .env*). A changed path matching one forces high-risk gates. Additive only.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "profiles": {
       "type": "object",

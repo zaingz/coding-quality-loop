@@ -3,6 +3,18 @@
 Three ways to try the Coding Quality Loop, ordered by commitment. Pick the lightest one
 that fits your task.
 
+## Verify it works (10 seconds)
+
+Before anything else, run the shipped walkthrough record through the gates. It exits 0:
+
+```bash
+python3 scripts/quality_loop.py verify-gates examples/walkthrough/agent-record.json
+# verification gates look sufficient for recorded risk tier   (exit 0)
+```
+
+Green means the gates ran and this complete, honest record passes every one — that is the
+target shape for your own records.
+
 <div align="center">
 <img src="images/terminal-demo.gif" alt="Animated terminal capture — the quality loop detects the host, copies the skill, wires hooks, and runs verify to a green Overall: PASS." width="820">
 </div>
@@ -59,9 +71,10 @@ exact same files. The npm tarball does **not** ship `evals/` or the control-plan
 module — those live in the repo checkout (control is an opt-in add-on:
 `python3 scripts/install.py --with-control-plane`).
 
-After install, three commands that each exit 0 on a fresh setup:
+After install, commit the install, then three commands that each exit 0 on a fresh setup:
 
 ```bash
+git add -A && git commit -m "chore: install coding-quality-loop"    # 0. commit the install so the diff gates see a clean base
 cp assets/quality-loop.config.example.json quality-loop.config.json  # 1. create the root config
 python3 scripts/quality_loop.py setup-models --host claude-code      # 2. apply per-role model routing
 claude "Use coding-quality-loop to fix a small bug"                  # 3. try it
@@ -169,12 +182,12 @@ prints Codex `config.toml` snippets, and prints Pi `/model` commands per role.
 ## 30-second demo
 
 ```text
-user: Fix checkout retry losing the final error.
-agent: Contract: preserve retry count, expose final error, no new deps, medium risk.
-agent: Context map: src/checkout/retry.py, tests/test_retry.py, caller api/checkout.py.
-agent: Minimality: one localized branch; no retry framework.
-agent: Diff: retry.py + regression test.
-agent: Evidence: new test fails on base with swallowed error; passes on HEAD; targeted suite green.
+user: Fix invoice totals that round each line item instead of once at the total.
+agent: Contract: round once at the total, preserve per-line display, no new deps, medium risk.
+agent: Context map: src/billing/invoice.py, tests/test_invoice.py, caller api/invoice.py.
+agent: Minimality: one localized change to the summation; no money library.
+agent: Diff: invoice.py + regression test.
+agent: Evidence: new test fails on base with the double-rounding error; passes on HEAD; targeted suite green.
 reviewer: Fresh-context review approves against the contract; no API or dependency change.
 agent: PR: summary, files changed, evidence table, risk note, rollback: revert this diff.
 ```

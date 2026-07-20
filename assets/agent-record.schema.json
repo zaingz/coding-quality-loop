@@ -19,7 +19,7 @@
     "task_class": {"type": ["string", "null"], "enum": ["tiny", "small", "medium", "mission", null]},
     "implementer": {"type": ["string", "null"]},
     "security_sensitive": {"type": "boolean"},
-    "validation_contract": {"type": ["string", "object", "null"], "minLength": 1},
+    "validation_contract": {"type": ["string", "object", "null"], "minLength": 1, "description": "Inline object or path to the contract artifact. Needs a goal and the evidence/checks that will prove it. Acceptance criteria live ONLY in the record's top-level acceptance_criteria list — gates read no copy inside this artifact, so do not duplicate them here."},
     "completion_record": {"type": ["string", "object", "null"], "minLength": 1, "description": "Inline object (with optional files_changed array) or a path to a completion-record file"},
     "repair_attempts": {"type": "integer", "minimum": 0},
     "repeated_failure": {"type": "boolean"},

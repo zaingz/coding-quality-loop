@@ -6,34 +6,91 @@
     "goal": "Enforce per-tenant authorization on signed upload URLs and rotate the signing secret",
     "task_class": "medium",
     "risk_tier": "high",
-    "acceptance_criteria": ["Uploads are tenant-scoped; the signing secret is rotated"],
-    "verification_plan": ["unit + security tests"],
-    "minimality_decision": {"rung": "extend", "reason": "extend the existing URL signer"},
-    "plan": ["add authz check", "rotate secret"],
-    "commands_run": [
-      {"cmd": "pytest tests/test_upload.py", "class": "unit", "result": "pass", "evidence": "8 passed"},
-      {"cmd": "bandit -r upload/", "class": "security", "result": "pass", "evidence": "no issues"}
+    "acceptance_criteria": [
+      "Uploads are tenant-scoped; the signing secret is rotated"
     ],
-    "open_risks": ["secret rotation must be coordinated with ops"],
-    "review_findings": ["fresh-context review: approved"],
+    "verification_plan": [
+      "unit + security tests"
+    ],
+    "minimality_decision": {
+      "rung": "extend",
+      "reason": "extend the existing URL signer"
+    },
+    "plan": [
+      "add authz check",
+      "rotate secret"
+    ],
+    "commands_run": [
+      {
+        "cmd": "pytest tests/test_upload.py",
+        "class": "unit",
+        "result": "pass",
+        "evidence": "8 passed"
+      },
+      {
+        "cmd": "bandit -r upload/",
+        "class": "security",
+        "result": "pass",
+        "evidence": "no issues"
+      }
+    ],
+    "open_risks": [
+      "secret rotation must be coordinated with ops"
+    ],
+    "review_findings": [
+      "fresh-context review: approved"
+    ],
     "repo_map": {
-      "entry_points": ["upload/sign.py:sign"],
-      "likely_files": ["upload/sign.py"],
-      "callers_checked": ["upload/api.py:presign"],
-      "tests": ["tests/test_upload.py"]
+      "entry_points": [
+        "upload/sign.py:sign"
+      ],
+      "likely_files": [
+        "upload/sign.py"
+      ],
+      "callers_checked": [
+        "upload/api.py:presign"
+      ],
+      "tests": [
+        "tests/test_upload.py"
+      ]
     },
     "implementer": "agent-a",
-    "validation_contract": {"goal": "Tenant-scoped uploads", "acceptance_criteria": ["authz enforced"], "evidence": ["pytest -> pass"]},
-    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "validation_contract": {
+      "goal": "Tenant-scoped uploads",
+      "evidence": [
+        "pytest -> pass"
+      ]
+    },
+    "independent_review": {
+      "reviewer": "agent-b",
+      "verdict": "approve",
+      "fresh_context": true,
+      "patched": false,
+      "findings": []
+    },
     "security_review": null,
-    "completion_record": {"goal": "Tenant-scoped uploads", "acceptance_criteria": ["authz enforced"], "evidence": ["pytest -> 8 passed", "review: approve"]},
+    "completion_record": {
+      "goal": "Tenant-scoped uploads",
+      "acceptance_criteria": [
+        "authz enforced"
+      ],
+      "evidence": [
+        "pytest -> 8 passed",
+        "review: approve"
+      ]
+    },
     "security_sensitive": true,
     "status": "done"
   },
   "expect": {
     "risk_floor": "high",
-    "floor_markers": ["authz", "secrets"],
+    "floor_markers": [
+      "authz",
+      "secrets"
+    ],
     "gates_exit": 1,
-    "findings_include": ["security_review"]
+    "findings_include": [
+      "security_review"
+    ]
   }
 }

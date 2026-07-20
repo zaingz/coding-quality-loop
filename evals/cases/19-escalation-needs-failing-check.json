@@ -6,31 +6,89 @@
     "goal": "Add bounded exponential backoff to the HTTP client retry path and update its callers",
     "task_class": "medium",
     "risk_tier": "medium",
-    "acceptance_criteria": [{"criterion": "Retries use bounded exponential backoff; caller behavior unchanged", "proving_command": "pytest tests/test_client.py"}],
-    "verification_plan": ["unit tests for the backoff schedule"],
-    "minimality_decision": {"rung": "reuse", "reason": "extend the existing retry helper; no new dependency"},
-    "plan": ["add backoff to client", "update callers"],
-    "commands_run": [{"cmd": "pytest tests/test_client.py", "class": "unit", "result": "pass", "evidence": "18 passed"}],
-    "escalations": [{"from_model": "cheap-fast", "to_model": "frontier-reasoning", "failing_commands": []}],
+    "acceptance_criteria": [
+      {
+        "criterion": "Retries use bounded exponential backoff; caller behavior unchanged",
+        "proving_command": "pytest tests/test_client.py"
+      }
+    ],
+    "verification_plan": [
+      "unit tests for the backoff schedule"
+    ],
+    "minimality_decision": {
+      "rung": "reuse",
+      "reason": "extend the existing retry helper; no new dependency"
+    },
+    "plan": [
+      "add backoff to client",
+      "update callers"
+    ],
+    "commands_run": [
+      {
+        "cmd": "pytest tests/test_client.py",
+        "class": "unit",
+        "result": "pass",
+        "evidence": "18 passed"
+      }
+    ],
+    "escalations": [
+      {
+        "from_model": "cheap-fast",
+        "to_model": "frontier-reasoning",
+        "failing_commands": []
+      }
+    ],
     "open_risks": [],
-    "review_findings": ["fresh-context review: approved"],
+    "review_findings": [
+      "fresh-context review: approved"
+    ],
     "repo_map": {
-      "entry_points": ["client/http.py:retry"],
-      "likely_files": ["client/http.py"],
-      "callers_checked": ["svc/a.py:call"],
-      "tests": ["tests/test_client.py"]
+      "entry_points": [
+        "client/http.py:retry"
+      ],
+      "likely_files": [
+        "client/http.py"
+      ],
+      "callers_checked": [
+        "svc/a.py:call"
+      ],
+      "tests": [
+        "tests/test_client.py"
+      ]
     },
     "implementer": "agent-a",
-    "validation_contract": {"goal": "Bounded backoff", "acceptance_criteria": ["backoff is capped"], "evidence": ["pytest tests/test_client.py -> pass"]},
-    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "validation_contract": {
+      "goal": "Bounded backoff",
+      "evidence": [
+        "pytest tests/test_client.py -> pass"
+      ]
+    },
+    "independent_review": {
+      "reviewer": "agent-b",
+      "verdict": "approve",
+      "fresh_context": true,
+      "patched": false,
+      "findings": []
+    },
     "security_review": null,
-    "completion_record": {"goal": "Bounded backoff", "acceptance_criteria": ["backoff is capped"], "evidence": ["pytest -> 18 passed", "fresh-context review: approve"]},
+    "completion_record": {
+      "goal": "Bounded backoff",
+      "acceptance_criteria": [
+        "backoff is capped"
+      ],
+      "evidence": [
+        "pytest -> 18 passed",
+        "fresh-context review: approve"
+      ]
+    },
     "security_sensitive": false,
     "status": "done"
   },
   "expect": {
     "risk_floor": "low",
     "gates_exit": 1,
-    "findings_include": ["cites no evidenced failing"]
+    "findings_include": [
+      "cites no evidenced failing"
+    ]
   }
 }

@@ -25,8 +25,8 @@ implementer context) unless you explicitly resume one.
 | planner | `cat assets/prompts/planner.md task.md \| claude -p --model claude-fable-5` | strong_reasoning leg |
 | implementer | `cat assets/prompts/implementer.md slice-prompt.md \| claude -p --model claude-fable-5` | the main-session leg; run in a git worktree for isolation on parallel slices |
 | verification runner | run the validation-contract commands yourself and record exact output | `run-evidence` re-executes them from the allowlist anyway |
-| fresh reviewer | `python3 scripts/quality_loop.py render-prompt --role reviewer --record agent-record.json \| codex exec -s read-only -m gpt-5.6-sol` | fresh session, read-only sandbox — the reviewer needs no writes; run inside the repo (codex requires a trusted git dir; close stdin or pipe the prompt) |
-| security reviewer | `python3 scripts/quality_loop.py render-prompt --role security-reviewer --record agent-record.json \| codex exec -s read-only -m gpt-5.6-sol` | boundary changes only |
+| fresh reviewer | `python3 scripts/quality_loop.py render-prompt --role reviewer --record .quality-loop/agent-record.json \| codex exec -s read-only -m gpt-5.6-sol` | fresh session, read-only sandbox — the reviewer needs no writes; run inside the repo (codex requires a trusted git dir; close stdin or pipe the prompt) |
+| security reviewer | `python3 scripts/quality_loop.py render-prompt --role security-reviewer --record .quality-loop/agent-record.json \| codex exec -s read-only -m gpt-5.6-sol` | boundary changes only |
 
 `render-prompt` substitutes `{contract}`/`{diff}`/`{evidence}` from the record
 into the prompt card, so the reviewer receives the actual contract slice and
@@ -66,7 +66,7 @@ Codex-implementer topology, not for review legs.
   it in the agent record —
 
   ```bash
-  python3 scripts/quality_loop.py render-prompt --role reviewer --record agent-record.json |
+  python3 scripts/quality_loop.py render-prompt --role reviewer --record .quality-loop/agent-record.json |
     codex exec -s read-only -m gpt-5.6-sol; echo "exit=$?"
   ```
 

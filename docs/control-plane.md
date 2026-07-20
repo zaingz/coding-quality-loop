@@ -143,7 +143,7 @@ transcript format may have changed") whenever it is nonzero.
 | `control-stop` | SIGTERM the running server. |
 | `control-ingest --event NAME` | Hook entry point: records one event from stdin JSON. No-op unless enabled; **always exits 0**. |
 | `control-report --task-id ID [--json]` | Print a per-task audit bundle — goal, status, minimality rung, plan, delegations (with matched sessions), verdicts, findings, escalations, and linked-session spend — as markdown (default) or `--json`. Exits 2 on an unknown task id. |
-| `control-report --arm-costs [--since TS]` | Bench cost capture (a query, never a gate): emit per-session `tokens_in`/`tokens_out`/`duration_sec` as JSON, plus totals, shaped for a bench results arm (`bench/runner.py` `COST_FIELDS`; `cost_usd` stays yours to compute). `--since` keeps only sessions active at/after the ISO-8601 cutoff. Until the gate CLI registers the flags, invoke directly: `python3 scripts/quality_loop_control.py control-report --arm-costs --since 2026-07-14T00:00:00Z`. |
+| `control-report --arm-costs [--since TS]` | Bench cost capture (a query, never a gate): emit per-session `tokens_in`/`tokens_out`/`duration_sec` as JSON, plus totals, shaped for a bench results arm (`bench/runner.py` `COST_FIELDS`; `cost_usd` stays yours to compute). `--since` keeps only sessions active at/after the ISO-8601 cutoff. The gate CLI registers these flags in a control-plane checkout: `python3 scripts/quality_loop.py control-report --arm-costs --since 2026-07-14T00:00:00Z` (the module has no direct entry point; the former standalone parser was folded in v6.1.0). |
 
 ### JSON API (all GET, all local)
 
