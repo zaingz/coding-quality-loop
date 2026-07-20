@@ -54,3 +54,30 @@ test("--target with a leading dot value is treated as a value, not a flag", () =
   const a = parseArgs(["init", "--target", "."]);
   assert.equal(a.flags.target, ".");
 });
+
+test("boolean flag before a command does not swallow it", () => {
+  // Regression: `cql --dry-run check` must run `check` in dry-run mode, not
+  // parse as {dry-run: "check"} and fall back to `init`.
+  const a = parseArgs(["--dry-run", "check"]);
+  assert.equal(a.flags["dry-run"], true);
+  assert.deepEqual(a._, ["check"]);
+});
+
+test("--yes before a command stays boolean", () => {
+  const a = parseArgs(["--yes", "init"]);
+  assert.equal(a.flags.yes, true);
+  assert.deepEqual(a._, ["init"]);
+});
+
+test("value flags still consume the following token", () => {
+  const a = parseArgs(["--host", "codex", "--target", "some/dir", "remove"]);
+  assert.equal(a.flags.host, "codex");
+  assert.equal(a.flags.target, "some/dir");
+  assert.deepEqual(a._, ["remove"]);
+});
+
+test("unknown flags default to boolean", () => {
+  const a = parseArgs(["init", "--verbose", "extra"]);
+  assert.equal(a.flags.verbose, true);
+  assert.deepEqual(a._, ["init", "extra"]);
+});

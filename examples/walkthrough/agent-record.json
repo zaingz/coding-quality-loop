@@ -2,9 +2,18 @@
   "task_id": "wt-invoice-rounding-001",
   "goal": "Fix invoice totals that round each line item instead of rounding once at the total",
   "acceptance_criteria": [
-    "Line items are summed at full precision and the total is rounded once to 2 decimals",
-    "Existing invoices with single line items are unchanged",
-    "A regression test reproduces the reported off-by-one-cent bug"
+    {
+      "criterion": "Line items are summed at full precision and the total is rounded once to 2 decimals",
+      "proving_command": "pytest billing/tests/test_invoice.py"
+    },
+    {
+      "criterion": "Existing invoices with single line items are unchanged",
+      "proving_command": "pytest billing/tests/test_invoice.py"
+    },
+    {
+      "criterion": "A regression test reproduces the reported off-by-one-cent bug",
+      "proving_command": "pytest billing/tests/test_invoice.py::test_multiline_total_rounds_once"
+    }
   ],
   "constraints": [
     "No change to the public Invoice API shape",

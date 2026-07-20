@@ -299,6 +299,9 @@ async function overview(stale) {
   main.innerHTML = `
     <h1>Overview</h1>
     <div class="sub">last indexed ${when(o.last_index_at)}${o.skipped_lines ? ` · <span class="pill warn">${fmt(o.skipped_lines)} unparsed lines skipped</span>` : ""}</div>
+    ${o.zero_usage_lines ? `<div class="card" style="margin:8px 0"><span class="pill warn">drift canary</span>
+      token counts may be stale — transcript format may have changed
+      (${fmt(o.zero_usage_lines)} model line(s) carried zero/absent usage; if your host renamed its usage keys, the index is filling with zeros)</div>` : ""}
     <div class="tiles">
       <div class="tile"><div class="v">${fmt(t.sessions)}</div><div class="k">sessions</div></div>
       <div class="tile"><div class="v">${fmt(t.model_calls)}</div><div class="k">model calls</div></div>
@@ -496,6 +499,7 @@ async function delegations(stale) {
         <td class="mono ell" title="${esc(r.host || "")}">${esc(r.host || "")}</td>
         <td class="ell" title="${esc(r.brief_summary || "")}">${esc(r.brief_summary || "")}</td>
         <td>${r.session ? `${sessionLink(r.session.id)} <span class="pill ok">linked</span>`
+              : r.unjoinable ? '<span class="pill warn" title="delegation ts is not ISO-8601 — record session_id at hand-off">unjoinable</span>'
               : '<span class="pill warn">unmatched</span>'}</td>
       </tr>`).join("")}</tbody></table></div>`
     : `<div class="card"><div class="empty">no delegations recorded — the orchestrator appends one line per hand-off to

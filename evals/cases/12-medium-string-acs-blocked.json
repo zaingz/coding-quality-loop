@@ -1,15 +1,15 @@
 {
-  "name": "medium-multifile-behavior-change-ships",
-  "description": "A fully-compliant multi-file medium change (HTTP client retry backoff) with contract, independent review, executable evidence, and completion record passes every runtime gate. No boundary text, so the risk floor stays low.",
+  "name": "medium-string-acceptance-criteria-blocked",
+  "description": "At medium+ risk a bare string acceptance criterion is unprovable: the AC-coverage gate blocks it with an actionable message (convert to an object with a proving_command). Everything else about the record is compliant, so the only finding is the AC one.",
   "record": {
-    "task_id": "t-02",
-    "goal": "Add bounded exponential backoff to the HTTP client retry path and update its callers",
+    "task_id": "t-12",
+    "goal": "Add bounded exponential backoff to the HTTP client retry path",
     "task_class": "medium",
     "risk_tier": "medium",
-    "acceptance_criteria": [{"criterion": "Retries use bounded exponential backoff; caller behavior unchanged", "proving_command": "pytest tests/test_client.py"}],
+    "acceptance_criteria": ["Retries use bounded exponential backoff; caller behavior unchanged"],
     "verification_plan": ["unit tests for the backoff schedule"],
-    "minimality_decision": {"rung": "extend", "reason": "extend the existing retry helper; no new dependency"},
-    "plan": ["add backoff to client", "update callers"],
+    "minimality_decision": {"rung": "reuse", "reason": "extend the existing retry helper"},
+    "plan": ["add backoff to client"],
     "commands_run": [{"cmd": "pytest tests/test_client.py", "class": "unit", "result": "pass", "evidence": "18 passed"}],
     "open_risks": [],
     "review_findings": ["fresh-context review: approved"],
@@ -29,6 +29,7 @@
   },
   "expect": {
     "risk_floor": "low",
-    "gates_exit": 0
+    "gates_exit": 1,
+    "findings_include": ["has no proving_command", "proving_command"]
   }
 }

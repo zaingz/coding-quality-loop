@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 try:
-    import quality_loop_control as qlctl
     import quality_loop_core as qlcore
     import quality_loop_memory as qlmem
     import quality_loop_reality as qlreal
@@ -30,12 +29,19 @@ except ImportError as _exc:  # pragma: no cover - exercised via subprocess eval
     sys.stderr.write(
         "coding-quality-loop: incomplete install — %s.\n"
         "The helper needs all sibling modules in the same directory: "
-        "quality_loop.py, quality_loop_core.py, quality_loop_control.py, "
+        "quality_loop.py, quality_loop_core.py, "
         "quality_loop_memory.py, quality_loop_reality.py, quality_loop_routing.py.\n"
         "Copy the full scripts/ directory or re-run scripts/install.py. "
         "Do not hand-edit or stub the helper.\n" % _exc
     )
     raise SystemExit(2)
+
+try:
+    # Opt-in observability add-on (install.py --with-control-plane); absent on
+    # a default install. Gates never depend on it.
+    import quality_loop_control as qlctl
+except ImportError:  # pragma: no cover - default installs omit the add-on
+    qlctl = None  # type: ignore[assignment]
 
 # Re-export the shared primitives moved into quality_loop_core so that
 # `import quality_loop; quality_loop.<name>` (evals) keeps working and this
@@ -296,11 +302,17 @@ def detect_risk_floor(record: dict[str, Any]) -> tuple[str, list[str]]:
     matched) so a self-declared low/tiny tier cannot bypass the heavy gates.
     Returns ('high', [markers]) when any boundary term is present, else ('low', []).
     """
+    def _criterion_text(ac: Any) -> str:
+        # Object ACs contribute their criterion text only: proving_command is a
+        # command/path (like commands_run, which the floor never scans), and a
+        # path segment such as billing/tests must not force payment gates.
+        return str(ac.get("criterion", "")) if isinstance(ac, dict) else str(ac)
+
     haystack = " ".join(
         str(x).lower()
         for x in (
             [record.get("goal", "")]
-            + list(record.get("acceptance_criteria", []) or [])
+            + [_criterion_text(ac) for ac in record.get("acceptance_criteria", []) or []]
             + list(record.get("plan", []) or [])
         )
     )
@@ -451,6 +463,18 @@ def check_record(args: argparse.Namespace) -> int:
                 errors.append(
                     f"commands_run[{idx}].class is not a recognized class: {cls!r}"
                 )
+            # `reason` / `rationale` are optional; when present they must be
+            # non-empty strings. verify-gates requires one on result=blocked
+            # rows (a bare blocked row fails there), so honest sandbox blocks
+            # stay recordable.
+            for reason_key in ("reason", "rationale"):
+                reason_val = cmd.get(reason_key)
+                if reason_val is not None and (
+                    not isinstance(reason_val, str) or not reason_val.strip()
+                ):
+                    errors.append(
+                        f"commands_run[{idx}].{reason_key} must be a non-empty string when present"
+                    )
 
     for artifact_key in ("validation_contract", "completion_record", "harness_update"):
         value = record.get(artifact_key)
@@ -641,6 +665,24 @@ def _resolve_base(base: str) -> tuple[str, str | None]:
     )
 
 
+def _resolve_default_base() -> tuple[str, str | None]:
+    """Auto-resolve the default diff base for verify/verify-gates.
+
+    Walks the ``_resolve_base`` ladder seeded with ``origin/main``, then prefers
+    ``git merge-base <candidate> HEAD`` so committed-but-unpushed work stays
+    visible to the diff-grounded gates — a bare ``HEAD`` default let an agent
+    hide its entire diff (scope, secrets, risk floor) by committing first. An
+    explicit ``--base`` always wins over this default.
+    """
+    resolved, hint = _resolve_base("origin/main")
+    if resolved == _EMPTY_TREE_SHA:
+        return resolved, hint
+    code, out, _ = qlcore.git_capture(["merge-base", resolved, "HEAD"])
+    if code == 0 and out.strip():
+        return out.strip(), hint
+    return resolved, hint
+
+
 # Intentional simplifications (P3.17) are marked with an inline `cql:` comment
 # naming the ceiling and the upgrade path. diff-audit surfaces a count only
 # (advisory), so the ceilings stay visible without blocking the change.
@@ -763,6 +805,11 @@ def diff_audit(args: argparse.Namespace) -> int:
             + ", ".join(weakened)
         )
 
+    # Deleted/gutted tests (net declaration or assertion loss). Advisory here —
+    # diff-audit does not know the risk tier; verify-gates --against-diff
+    # promotes the same hits to blocking at medium+.
+    advisory.extend(qlcore.test_shrinkage_hits(patch))
+
     marker_count = sum(1 for line in patch.splitlines() if _SHORTCUT_MARKER_RE.search(line))
     if marker_count:
         advisory.append(
@@ -785,7 +832,17 @@ def diff_audit(args: argparse.Namespace) -> int:
     return 1 if blocking else 0
 
 
-_EXEC_CLASSES = {"unit", "integration", "typecheck", "build", "lint"}
+_EXEC_CLASSES = {
+    "unit",
+    "integration",
+    "typecheck",
+    "build",
+    "lint",
+    "e2e",
+    "security",
+    "format",
+    "migration_dry_run",
+}
 _REVIEW_READY_STATUS = REVIEW_READY_STATUSES  # single-sourced in quality_loop_core
 
 # Table-driven risk-tier evidence rules. Each tier lists ordered (check, message)
@@ -860,8 +917,39 @@ def _risk_tier_findings(
 
 def verify_gates(args: argparse.Namespace) -> int:
     record_path = Path(args.record)
-    base_dir = record_path.resolve().parent
     record = load_json(record_path)
+    findings, notes = collect_gate_findings(
+        record,
+        record_path,
+        against_diff=getattr(args, "against_diff", False),
+        base=getattr(args, "base", None),
+    )
+    for note in notes:
+        print(f"note: {note}")
+    if findings:
+        for finding in findings:
+            print(f"error: {finding}")
+        return 1
+    print("verification gates look sufficient for recorded risk tier")
+    return 0
+
+
+def collect_gate_findings(
+    record: dict[str, Any],
+    record_path: Path,
+    *,
+    against_diff: bool = False,
+    base: str | None = None,
+) -> tuple[list[str], list[str]]:
+    """All verify-gates findings for a record, structured.
+
+    Returns ``(findings, notes)``: findings are blocking (printed as ``error:``
+    and exit 1 by the CLI), notes are advisory only. The umbrella ``verify`` and
+    ``eval-cases`` consume these return values directly instead of parsing a
+    stdout prefix. ``base=None`` auto-resolves via ``_resolve_default_base`` so
+    committed-but-unpushed work stays visible to the diff-grounded gates.
+    """
+    base_dir = record_path.resolve().parent
     risk = record.get("risk_tier")
     status = record.get("status")
     task_class = record.get("task_class")
@@ -1018,22 +1106,44 @@ def verify_gates(args: argparse.Namespace) -> int:
         _risk_tier_findings(risk, commands, command_classes, status, record)
     )
 
-    if blocked:
-        findings.append(f"{len(blocked)} verification command(s) blocked; ensure rationale is recorded")
+    # Blocked rows carrying an honest, non-empty reason/rationale are legitimate
+    # (sandboxes exist); only a bare blocked row fails, so honesty is not
+    # punished into relabeling the row as pass or deleting it.
+    bare_blocked = [
+        cmd for cmd in blocked
+        if not any(
+            isinstance(cmd.get(key), str) and cmd.get(key, "").strip()
+            for key in ("reason", "rationale")
+        )
+    ]
+    if bare_blocked:
+        findings.append(
+            f"{len(bare_blocked)} blocked verification command(s) missing a reason; add a "
+            "non-empty 'reason' (or 'rationale') field to each blocked commands_run row "
+            "explaining why the command could not run"
+        )
 
-    for note in soft_warnings:
-        print(f"note: {note}")
+    # AC-to-command coverage runs here (the Stop gate path), not only in the
+    # verify umbrella — the flagship contract is vacuous if the enforced path
+    # never checks it.
+    ac_findings, ac_warnings = _check_ac_coverage(record, non_trivial)
+    findings.extend(ac_findings)
+    soft_warnings.extend(ac_warnings)
 
     # Reality layer: ground the record in the real git diff when --against-diff
     # is requested. This catches phantom completion, unmapped scope, a diff-
     # derived risk floor, missing bugfix tests, stale review hashes, and promotes
     # diff-audit secret/test-weakening warnings to blocking at medium+.
-    if getattr(args, "against_diff", False):
+    if against_diff:
+        if base is None:
+            base, base_hint = _resolve_default_base()
+            if base_hint:
+                soft_warnings.append(base_hint)
         try:
             diff_findings = qlreal.verify_gates_against_diff(
                 record,
                 risk,
-                base=getattr(args, "base", "HEAD"),
+                base=base,
                 cwd=Path.cwd(),
                 record_path=record_path,
             )
@@ -1044,13 +1154,7 @@ def verify_gates(args: argparse.Namespace) -> int:
                 "ensure this is a git repository" % (exc.code,)
             )
 
-    if findings:
-        for finding in findings:
-            print(f"warning: {finding}")
-        return 1
-
-    print("verification gates look sufficient for recorded risk tier")
-    return 0
+    return findings, soft_warnings
 
 
 REQUIRED_STEPS = [
@@ -1307,7 +1411,17 @@ def check_config(args: argparse.Namespace) -> int:
 
     control = config.get("control_plane")
     if control is not None:
-        errors.extend(qlctl.validate_control_plane(control))
+        if qlctl is None:
+            # A disabled block is inert documentation; only an enabled one
+            # needs the add-on actually installed.
+            if isinstance(control, dict) and control.get("enabled"):
+                errors.append(
+                    "config enables control_plane but the control-plane add-on "
+                    "is not installed — run: python3 scripts/install.py "
+                    "--with-control-plane"
+                )
+        else:
+            errors.extend(qlctl.validate_control_plane(control))
 
     routing = config.get("model_routing")
     if routing is not None:
@@ -1480,30 +1594,20 @@ def cmd_brief(args: argparse.Namespace) -> int:
 
 
 def _run_case_gates(record: dict[str, Any]) -> tuple[int, list[str]]:
-    """Run the real verify_gates on a record in-process, capturing findings.
+    """Run the real gate logic on a record in-process, capturing findings.
 
-    Writes the record to a temp file (verify_gates loads from disk and resolves
-    artifact paths relative to it) and captures the ``warning:`` lines it emits.
-    This exercises the exact production code path a running loop would hit — no
-    parallel classifier to drift from the shipping gate.
+    Writes the record to a temp file (artifact paths resolve relative to it) and
+    consumes the structured findings ``collect_gate_findings`` returns — no
+    stdout-prefix parsing, and no parallel classifier to drift from the
+    shipping gate.
     """
-    import contextlib
-    import io
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
         rec_path = Path(tmp) / "agent-record.json"
         rec_path.write_text(json.dumps(record))
-        vg_args = argparse.Namespace(record=str(rec_path), against_diff=False, base="HEAD")
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = verify_gates(vg_args)
-    findings = [
-        line[len("warning:"):].strip()
-        for line in buf.getvalue().splitlines()
-        if line.strip().startswith("warning:")
-    ]
-    return rc, findings
+        findings, _notes = collect_gate_findings(record, rec_path, against_diff=False)
+    return (1 if findings else 0), findings
 
 
 def eval_cases(args: argparse.Namespace) -> int:
@@ -1561,27 +1665,56 @@ def eval_cases(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
-def _check_ac_coverage(record: dict[str, Any]) -> list[str]:
-    """Check that each acceptance criterion with a proving_command has a matching pass command."""
+def _check_ac_coverage(
+    record: dict[str, Any], non_trivial: bool
+) -> tuple[list[str], list[str]]:
+    """Check that each acceptance criterion names the check that proves it.
+
+    Returns ``(findings, warnings)``. At medium/high risk (``non_trivial``)
+    every criterion must be an object with a non-empty ``proving_command`` that
+    matches a pass-labeled ``commands_run`` entry — a bare string criterion is
+    unprovable and blocks. String criteria stay valid at low risk. Warnings are
+    advisory only: >=3 criteria sharing one identical proving_command suggests
+    an umbrella command is standing in for per-criterion proof.
+    """
     findings: list[str] = []
-    criteria = record.get("acceptance_criteria", [])
+    warnings: list[str] = []
+    criteria = record.get("acceptance_criteria", []) or []
+    criteria = criteria if isinstance(criteria, list) else []
     commands = record.get("commands_run", [])
+    commands = commands if isinstance(commands, list) else []
     pass_cmds = [c.get("cmd", "") for c in commands if isinstance(c, dict) and c.get("result") == "pass"]
 
+    proving_counts: dict[str, int] = {}
     for idx, ac in enumerate(criteria):
-        if isinstance(ac, dict) and ac.get("proving_command"):
-            proving = ac["proving_command"]
+        proving = ac.get("proving_command") if isinstance(ac, dict) else None
+        if isinstance(proving, str) and proving.strip():
+            proving_counts[proving] = proving_counts.get(proving, 0) + 1
             if proving not in pass_cmds:
                 findings.append(
                     f"acceptance_criteria[{idx}].proving_command {proving!r} not found in "
                     f"commands_run with result=pass"
                 )
-        elif isinstance(ac, dict) and not ac.get("proving_command"):
+        elif non_trivial:
+            label = ac.get("criterion") if isinstance(ac, dict) else ac
+            findings.append(
+                f"acceptance_criteria[{idx}] ({str(label)[:80]!r}) has no proving_command; "
+                "at medium/high risk each criterion must be an object "
+                '{"criterion": ..., "proving_command": ...} naming the passing check '
+                "that proves it"
+            )
+        elif isinstance(ac, dict):
             findings.append(
                 f"acceptance_criteria[{idx}] has no proving_command; "
                 f"each criterion should name the check that proves it"
             )
-    return findings
+    for cmd, count in proving_counts.items():
+        if count >= 3:
+            warnings.append(
+                f"{count} acceptance criteria share one proving_command ({cmd!r}); "
+                "consider a per-criterion check so each criterion is proven independently"
+            )
+    return findings, warnings
 
 
 HELPER_MODULES = (
@@ -1607,6 +1740,66 @@ def helper_integrity() -> dict[str, str]:
     return out
 
 
+# File suffixes that never count as the "one new source file" of an
+# under-fanned monolith: docs, data, and lockfiles legitimately land big.
+_NON_SOURCE_SUFFIXES = (".md", ".txt", ".rst", ".json", ".lock", ".yml", ".yaml", ".toml", ".cfg", ".ini")
+
+
+def _under_fanning_advisory(record: dict[str, Any], base: str) -> str | None:
+    """Advisory when a medium+ diff concentrates nearly all added LOC in one
+    new source file — the monolith shape the live evals measured at −9.0.
+    Returns the warning text or None; never blocking."""
+    if record.get("task_class") not in {"medium", "mission"}:
+        return None
+    n_code, numstat, _ = git_capture(["diff", "--numstat", base])
+    a_code, added_names, _ = git_capture(["diff", "--diff-filter=A", "--name-only", base])
+    if n_code != 0 or a_code != 0:
+        return None
+    per_file: dict[str, int] = {}
+    total_added = 0
+    for line in numstat.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3 or parts[0] == "-":
+            continue
+        try:
+            count = int(parts[0])
+        except ValueError:
+            continue
+        per_file[parts[2]] = count
+        total_added += count
+    if total_added <= 300:
+        return None
+    new_files = {name.strip() for name in added_names.splitlines() if name.strip()}
+    for path, count in per_file.items():
+        if (
+            path in new_files
+            and not path.lower().endswith(_NON_SOURCE_SUFFIXES)
+            and count >= 0.9 * total_added
+        ):
+            return (
+                "possible under-fanning: minimal diff is not minimal architecture — "
+                f"{count} of {total_added} added lines land in one new file ({path}); "
+                "consider splitting responsibilities into modules"
+            )
+    return None
+
+
+def _resolve_evidence_timeout(args: argparse.Namespace, warnings: list[str]) -> int:
+    """Per-command evidence timeout: --timeout > QUALITY_LOOP_TIMEOUT > 120s."""
+    explicit = getattr(args, "timeout", None)
+    if explicit is not None:
+        return explicit
+    env = os.environ.get("QUALITY_LOOP_TIMEOUT", "").strip()
+    if env:
+        try:
+            return int(env)
+        except ValueError:
+            warnings.append(
+                f"QUALITY_LOOP_TIMEOUT={env!r} is not an integer; using the default 120s"
+            )
+    return 120
+
+
 def verify(args: argparse.Namespace) -> int:
     """Umbrella verification: record-shape gates + diff-grounded checks + evidence re-execution + AC coverage."""
     import contextlib
@@ -1614,12 +1807,18 @@ def verify(args: argparse.Namespace) -> int:
 
     record_path = Path(args.record)
     record = load_json(record_path)
-    requested_base = getattr(args, "base", "HEAD")
-    # Resolve the base once and reuse it for every diff-grounded section. On a
-    # fresh/detached checkout the requested ref (often origin/main) may not exist;
-    # rather than let each section die with git's raw exit 128, fall back to a
-    # sane ref and tell the caller how to pin it explicitly.
-    base, base_hint = _resolve_base(requested_base)
+    requested_base = getattr(args, "base", None)
+    # Resolve the base once and reuse it for every diff-grounded section. With
+    # no explicit --base, auto-resolve (merge-base of the origin/main ladder and
+    # HEAD) so committed-but-unpushed work stays visible to the diff-grounded
+    # gates. On a fresh/detached checkout a requested ref may not exist; rather
+    # than let each section die with git's raw exit 128, fall back to a sane
+    # ref and tell the caller how to pin it explicitly.
+    if requested_base:
+        base, base_hint = _resolve_base(requested_base)
+    else:
+        base, base_hint = _resolve_default_base()
+        requested_base = "auto"
     all_findings: list[str] = []
     all_warnings: list[str] = []
     if base_hint:
@@ -1642,15 +1841,25 @@ def verify(args: argparse.Namespace) -> int:
                 buf.write(f"section aborted (exit {rc})")
         return int(rc), buf.getvalue().strip()
 
-    # 1. Record-shape + diff-grounded gates
-    vg_args = argparse.Namespace(record=str(record_path), against_diff=True, base=base)
-    vg_rc, vg_out = _run_section(lambda: verify_gates(vg_args))
+    # 1. Record-shape + diff-grounded gates. Consumes the structured findings
+    #    collect_gate_findings returns — no stdout-prefix parsing. AC coverage
+    #    runs inside the collection (so it also fires at the Stop gate); its
+    #    findings are broken out into their own section below without
+    #    double-counting.
+    try:
+        vg_findings, vg_notes = collect_gate_findings(
+            record, record_path, against_diff=True, base=base
+        )
+    except SystemExit as exc:
+        rc = exc.code if isinstance(exc.code, int) and exc.code is not None else 1
+        vg_findings, vg_notes = [f"verify-gates section aborted (exit {rc})"], []
+    vg_rc = 1 if vg_findings else 0
+    vg_out = "\n".join(
+        [f"note: {n}" for n in vg_notes] + [f"error: {f}" for f in vg_findings]
+    ) or "ok"
     sections.append(("verify-gates (record + diff)", vg_rc, vg_out))
-    if vg_rc != 0:
-        for line in vg_out.splitlines():
-            line = line.strip()
-            if line.startswith("warning:"):
-                all_warnings.append(line[len("warning:"):].strip())
+    all_findings.extend(vg_findings)
+    all_warnings.extend(vg_notes)
 
     # 2. Diff audit (wrapped so a non-git repo produces a failed section, not a
     #    bare exit 129 with no report). Parse regardless of exit code: advisory
@@ -1667,12 +1876,21 @@ def verify(args: argparse.Namespace) -> int:
         if da_rc != 0 and da_out and "section aborted" not in da_out:
             all_findings.append(da_out)
 
-    # 3. Evidence re-execution (if pass commands exist)
+    # Under-fanning advisory (never blocking): a medium+ task landing >300
+    # added LOC with >=90% concentrated in ONE new source file is the measured
+    # monolith failure shape.
+    under_fanning = _under_fanning_advisory(record, base)
+    if under_fanning:
+        all_warnings.append(under_fanning)
+
+    # 3. Evidence re-execution (if pass commands exist). Timeout precedence:
+    #    --timeout flag > QUALITY_LOOP_TIMEOUT env > default 120s.
     pass_cmds = [c for c in record.get("commands_run", []) if isinstance(c, dict) and c.get("result") == "pass"]
     if pass_cmds:
         re_args = argparse.Namespace(
             record=str(record_path), base=base,
-            red_green=getattr(args, "red_green", False), timeout=30,
+            red_green=getattr(args, "red_green", False),
+            timeout=_resolve_evidence_timeout(args, all_warnings),
         )
         re_rc, re_out = _run_section(lambda: qlreal.cmd_run_evidence(re_args))
         sections.append(("run-evidence (re-execution)", re_rc, re_out))
@@ -1686,11 +1904,14 @@ def verify(args: argparse.Namespace) -> int:
     else:
         sections.append(("run-evidence", 0, "skipped (no pass commands in record)"))
 
-    # 4. AC-to-command coverage
-    ac_findings = _check_ac_coverage(record)
+    # 4. AC-to-command coverage. Already enforced inside collect_gate_findings
+    #    (section 1) so it fires at the Stop gate too; broken out here as its
+    #    own report section without adding the findings twice.
+    ac_findings = [
+        f for f in vg_findings if "acceptance_criteria" in f or "proving_command" in f
+    ]
     if ac_findings:
         sections.append(("AC coverage", 1, "\n".join(ac_findings)))
-        all_findings.extend(ac_findings)
     else:
         sections.append(("AC coverage", 0, "ok"))
 
@@ -1762,6 +1983,84 @@ def verify(args: argparse.Namespace) -> int:
     return overall
 
 
+_RENDER_PROMPT_ROLES = ("reviewer", "security-reviewer")
+_PLACEHOLDER_RE = re.compile(r"\{[a-z_]+\}")
+
+
+def render_prompt(args: argparse.Namespace) -> int:
+    """Render a cross-CLI reviewer prompt from assets/prompts/<role>.md.
+
+    Substitutes {contract} (the record's contract fields, pretty-printed),
+    {diff} (git diff vs the resolved base), and {evidence} (the commands_run
+    table). Unknown placeholders are left intact with a trailing warning on
+    stderr; the rendered prompt goes to stdout for piping into another CLI.
+    """
+    prompt_path = Path(__file__).resolve().parent.parent / "assets" / "prompts" / f"{args.role}.md"
+    try:
+        template = prompt_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(
+            f"error: could not read prompt template {prompt_path}: {exc}. "
+            "Reinstall the full skill (assets/prompts/ ships with scripts/).",
+            file=sys.stderr,
+        )
+        return 1
+    record = load_json(Path(args.record))
+
+    requested_base = getattr(args, "base", None)
+    if requested_base:
+        base, _hint = _resolve_base(requested_base)
+    else:
+        base, _hint = _resolve_default_base()
+    code, diff, err = git_capture(["diff", base])
+    if code != 0:
+        diff = f"(could not read git diff vs {base}: {redact(err.strip())})"
+
+    contract = {
+        key: record.get(key)
+        for key in (
+            "goal",
+            "acceptance_criteria",
+            "constraints",
+            "non_goals",
+            "assumptions",
+            "risk_tier",
+            "task_class",
+            "security_sensitive",
+            "validation_contract",
+        )
+    }
+    rows = ["| cmd | class | result | evidence |", "| --- | --- | --- | --- |"]
+    for cmd in record.get("commands_run", []) or []:
+        if not isinstance(cmd, dict):
+            continue
+        evidence = cmd.get("evidence")
+        if not isinstance(evidence, str):
+            evidence = json.dumps(evidence) if evidence is not None else ""
+        rows.append(
+            "| %s | %s | %s | %s |"
+            % (cmd.get("cmd", ""), cmd.get("class", ""), cmd.get("result", ""), evidence)
+        )
+    evidence_table = redact("\n".join(rows)) if len(rows) > 2 else "(no commands recorded)"
+
+    rendered = template
+    for key, value in (
+        ("contract", json.dumps(contract, indent=2)),
+        ("diff", diff),
+        ("evidence", evidence_table),
+    ):
+        rendered = rendered.replace("{" + key + "}", value)
+
+    print(rendered)
+    leftover = sorted(set(_PLACEHOLDER_RE.findall(template)) - {"{contract}", "{diff}", "{evidence}"})
+    if leftover:
+        print(
+            "warning: unsubstituted placeholder(s) left intact: " + ", ".join(leftover),
+            file=sys.stderr,
+        )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Coding Quality Loop helper")
     sub = parser.add_subparsers(required=True)
@@ -1788,12 +2087,13 @@ def main() -> int:
     p_gates = sub.add_parser("verify-gates", help="Check verification evidence against risk tier")
     p_gates.add_argument("record")
     p_gates.add_argument("--against-diff", action="store_true", help="Also verify the record against the real git diff (phantom completion, scope integrity, review freshness, etc.)")
-    p_gates.add_argument("--base", default="HEAD", help="Git base ref for --against-diff (default HEAD)")
+    p_gates.add_argument("--base", default=None, help="Git base ref for --against-diff (default: auto — merge-base of the origin/main ladder and HEAD, so committed-but-unpushed work stays in the diff)")
     p_gates.set_defaults(func=verify_gates)
 
     p_verify = sub.add_parser("verify", help="Umbrella: record gates + diff audit + evidence re-execution + AC coverage in one command")
     p_verify.add_argument("record")
-    p_verify.add_argument("--base", default="HEAD", help="Git base ref (default HEAD)")
+    p_verify.add_argument("--base", default=None, help="Git base ref (default: auto — merge-base of the origin/main ladder and HEAD, so committed-but-unpushed work stays in the diff)")
+    p_verify.add_argument("--timeout", type=int, default=None, help="Per-command evidence timeout in seconds (default: QUALITY_LOOP_TIMEOUT env, else 120)")
     p_verify.add_argument("--red-green", action="store_true", help="Also replay red_green commands at base (expect fail) and HEAD (expect pass)")
     p_verify.add_argument("--require-terminal", action="store_true", help="Fail if the diff vs --base is non-empty while the record status is not package/done (loop shipped unclosed)")
     p_verify.set_defaults(func=verify)
@@ -1851,6 +2151,12 @@ def main() -> int:
     p_evidence.add_argument("--timeout", type=int, default=30, help="Per-command timeout in seconds (default 30)")
     p_evidence.set_defaults(func=qlreal.cmd_run_evidence)
 
+    p_render = sub.add_parser("render-prompt", help="Render a cross-CLI reviewer prompt (assets/prompts/<role>.md) with {contract}/{diff}/{evidence} substituted; pipe stdout to the reviewing CLI")
+    p_render.add_argument("--role", required=True, choices=list(_RENDER_PROMPT_ROLES), help="Prompt template to render")
+    p_render.add_argument("--record", required=True, help="Agent record JSON supplying the contract and evidence")
+    p_render.add_argument("--base", default=None, help="Git base ref for the diff (default: auto — merge-base of the origin/main ladder and HEAD)")
+    p_render.set_defaults(func=render_prompt)
+
     p_scan = sub.add_parser("scan-text", help="Secret-scan text from stdin (for host hook shims)")
     p_scan.add_argument("--stdin", action="store_true", help="Read text to scan from stdin")
     p_scan.set_defaults(func=qlreal.cmd_scan_text)
@@ -1871,37 +2177,40 @@ def main() -> int:
     p_setup.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     p_setup.set_defaults(func=qlroute.cmd_setup_models)
 
-    p_cindex = sub.add_parser("control-index", help="Build/update the local control-plane index (SQLite) from host transcripts + CQL artifacts")
-    p_cindex.add_argument("--cwd", default=".", help="Repo root (default .)")
-    p_cindex.add_argument("--all-projects", action="store_true", help="Index every project under ~/.claude/projects, not just this repo's")
-    p_cindex.add_argument("--json", action="store_true", help="Machine-readable JSON output")
-    p_cindex.set_defaults(func=qlctl.cmd_index)
+    if qlctl is not None:
+        p_cindex = sub.add_parser("control-index", help="Build/update the local control-plane index (SQLite) from host transcripts + CQL artifacts")
+        p_cindex.add_argument("--cwd", default=".", help="Repo root (default .)")
+        p_cindex.add_argument("--all-projects", action="store_true", help="Index every project under ~/.claude/projects, not just this repo's")
+        p_cindex.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+        p_cindex.set_defaults(func=qlctl.cmd_index)
 
-    p_cserve = sub.add_parser("control-serve", help="Serve the control-plane dashboard + read-only JSON API on 127.0.0.1")
-    p_cserve.add_argument("--cwd", default=".", help="Repo root (default .)")
-    p_cserve.add_argument("--port", type=int, help=f"Port (default: control_plane.port or {qlctl.DEFAULT_PORT})")
-    p_cserve.set_defaults(func=qlctl.cmd_serve)
+        p_cserve = sub.add_parser("control-serve", help="Serve the control-plane dashboard + read-only JSON API on 127.0.0.1")
+        p_cserve.add_argument("--cwd", default=".", help="Repo root (default .)")
+        p_cserve.add_argument("--port", type=int, help=f"Port (default: control_plane.port or {qlctl.DEFAULT_PORT})")
+        p_cserve.set_defaults(func=qlctl.cmd_serve)
 
-    p_cingest = sub.add_parser("control-ingest", help="Record one host hook event from stdin JSON (no-op unless control_plane.enabled; never fails)")
-    p_cingest.add_argument("--cwd", default=".", help="Repo root (default .)")
-    p_cingest.add_argument("--event", required=True, help="Event name (SessionStart, SessionEnd, ...)")
-    p_cingest.add_argument("--host", default="claude-code", help="Host emitting the event (default claude-code)")
-    p_cingest.set_defaults(func=qlctl.cmd_ingest)
+        p_cingest = sub.add_parser("control-ingest", help="Record one host hook event from stdin JSON (no-op unless control_plane.enabled; never fails)")
+        p_cingest.add_argument("--cwd", default=".", help="Repo root (default .)")
+        p_cingest.add_argument("--event", required=True, help="Event name (SessionStart, SessionEnd, ...)")
+        p_cingest.add_argument("--host", default="claude-code", help="Host emitting the event (default claude-code)")
+        p_cingest.set_defaults(func=qlctl.cmd_ingest)
 
-    p_cstatus = sub.add_parser("control-status", help="Show control-plane DB and server state")
-    p_cstatus.add_argument("--cwd", default=".", help="Repo root (default .)")
-    p_cstatus.add_argument("--json", action="store_true", help="Machine-readable JSON output")
-    p_cstatus.set_defaults(func=qlctl.cmd_status)
+        p_cstatus = sub.add_parser("control-status", help="Show control-plane DB and server state")
+        p_cstatus.add_argument("--cwd", default=".", help="Repo root (default .)")
+        p_cstatus.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+        p_cstatus.set_defaults(func=qlctl.cmd_status)
 
-    p_cstop = sub.add_parser("control-stop", help="Stop the running control-plane server")
-    p_cstop.add_argument("--cwd", default=".", help="Repo root (default .)")
-    p_cstop.set_defaults(func=qlctl.cmd_stop)
+        p_cstop = sub.add_parser("control-stop", help="Stop the running control-plane server")
+        p_cstop.add_argument("--cwd", default=".", help="Repo root (default .)")
+        p_cstop.set_defaults(func=qlctl.cmd_stop)
 
-    p_creport = sub.add_parser("control-report", help="Print a per-task audit bundle (goal, rung, plan, delegations, verdicts+findings, spend, sessions) as markdown or JSON")
-    p_creport.add_argument("--cwd", default=".", help="Repo root (default .)")
-    p_creport.add_argument("--task-id", required=True, help="Task id to report on (matches the record artifact title)")
-    p_creport.add_argument("--json", action="store_true", help="Emit the bundle as JSON instead of markdown")
-    p_creport.set_defaults(func=qlctl.cmd_report)
+        p_creport = sub.add_parser("control-report", help="Print a per-task audit bundle (goal, rung, plan, delegations, verdicts+findings, spend, sessions) as markdown or JSON, or per-session cost figures with --arm-costs")
+        p_creport.add_argument("--cwd", default=".", help="Repo root (default .)")
+        p_creport.add_argument("--task-id", help="Task id to report on (matches the record artifact title)")
+        p_creport.add_argument("--json", action="store_true", help="Emit the bundle as JSON instead of markdown")
+        p_creport.add_argument("--arm-costs", action="store_true", help="Emit per-session tokens_in/tokens_out/duration_sec JSON for a bench results arm instead of a task bundle")
+        p_creport.add_argument("--since", help="With --arm-costs: only sessions started at/after this ISO-8601 timestamp")
+        p_creport.set_defaults(func=qlctl.cmd_report)
 
     args = parser.parse_args()
     return args.func(args)

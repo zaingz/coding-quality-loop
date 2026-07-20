@@ -1,0 +1,29 @@
+{
+  "name": "low-risk-string-acceptance-criteria-still-valid",
+  "description": "String acceptance criteria remain valid at low risk: the medium+ proving_command requirement must not leak ceremony onto tiny work.",
+  "record": {
+    "task_id": "t-13",
+    "goal": "Clarify the CLI --help text for the export command",
+    "task_class": "tiny",
+    "risk_tier": "low",
+    "acceptance_criteria": ["Help text names the output format and default path"],
+    "verification_plan": ["snapshot test of the help output"],
+    "minimality_decision": {"rung": "one_liner", "reason": "single help-string edit"},
+    "plan": ["edit the argparse help string"],
+    "commands_run": [{"cmd": "pytest tests/test_cli.py", "class": "unit", "result": "pass", "evidence": "3 passed"}],
+    "open_risks": [],
+    "review_findings": [],
+    "implementer": "agent-a",
+    "validation_contract": null,
+    "independent_review": null,
+    "security_review": null,
+    "completion_record": null,
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 0,
+    "findings_exclude": ["proving_command"]
+  }
+}

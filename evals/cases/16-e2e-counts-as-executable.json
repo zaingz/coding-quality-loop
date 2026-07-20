@@ -1,0 +1,37 @@
+{
+  "name": "e2e-pass-counts-as-executable-evidence",
+  "description": "A passing e2e command is executable evidence: the medium 'needs at least one relevant executable check' rule must accept e2e/security/format/migration_dry_run classes, not just unit/integration/typecheck/build/lint.",
+  "record": {
+    "task_id": "t-16",
+    "goal": "Wire the export button to the report download endpoint",
+    "task_class": "medium",
+    "risk_tier": "medium",
+    "acceptance_criteria": [{"criterion": "Export button downloads the generated report", "proving_command": "npx playwright test e2e/export.spec.ts"}],
+    "verification_plan": ["browser e2e for the export flow"],
+    "minimality_decision": {"rung": "reuse", "reason": "wire the existing endpoint; no new code path"},
+    "plan": ["connect button handler to endpoint"],
+    "commands_run": [
+      {"cmd": "npx playwright test e2e/export.spec.ts", "class": "e2e", "result": "pass", "evidence": "3 passed (chromium)"}
+    ],
+    "open_risks": [],
+    "review_findings": ["fresh-context review: approved"],
+    "repo_map": {
+      "entry_points": ["ui/export.tsx:ExportButton"],
+      "likely_files": ["ui/export.tsx"],
+      "callers_checked": ["ui/report_page.tsx:render"],
+      "tests": ["e2e/export.spec.ts"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {"goal": "Export flow works end-to-end", "acceptance_criteria": ["report downloads"], "evidence": ["playwright e2e -> pass"]},
+    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "security_review": null,
+    "completion_record": {"goal": "Export flow works end-to-end", "acceptance_criteria": ["report downloads"], "evidence": ["playwright e2e -> 3 passed", "fresh-context review: approve"]},
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 0,
+    "findings_exclude": ["executable check"]
+  }
+}

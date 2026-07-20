@@ -1,0 +1,38 @@
+{
+  "name": "blocked-command-with-reason-passes",
+  "description": "A blocked commands_run row carrying a non-empty reason is honest sandbox reporting, not a gate failure: the record must pass so honesty is never punished into relabeling the row as pass.",
+  "record": {
+    "task_id": "t-14",
+    "goal": "Add bounded exponential backoff to the HTTP client retry path",
+    "task_class": "medium",
+    "risk_tier": "medium",
+    "acceptance_criteria": [{"criterion": "Retries use bounded exponential backoff", "proving_command": "pytest tests/test_client.py"}],
+    "verification_plan": ["unit tests for the backoff schedule", "browser e2e where available"],
+    "minimality_decision": {"rung": "reuse", "reason": "extend the existing retry helper"},
+    "plan": ["add backoff to client"],
+    "commands_run": [
+      {"cmd": "pytest tests/test_client.py", "class": "unit", "result": "pass", "evidence": "18 passed"},
+      {"cmd": "npm run e2e", "class": "e2e", "result": "blocked", "reason": "sandbox has no browser runtime; run in CI"}
+    ],
+    "open_risks": [],
+    "review_findings": ["fresh-context review: approved"],
+    "repo_map": {
+      "entry_points": ["client/http.py:retry"],
+      "likely_files": ["client/http.py"],
+      "callers_checked": ["svc/a.py:call"],
+      "tests": ["tests/test_client.py"]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {"goal": "Bounded backoff", "acceptance_criteria": ["backoff is capped"], "evidence": ["pytest tests/test_client.py -> pass"]},
+    "independent_review": {"reviewer": "agent-b", "verdict": "approve", "fresh_context": true, "patched": false, "findings": []},
+    "security_review": null,
+    "completion_record": {"goal": "Bounded backoff", "acceptance_criteria": ["backoff is capped"], "evidence": ["pytest -> 18 passed", "fresh-context review: approve"]},
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 0,
+    "findings_exclude": ["blocked"]
+  }
+}

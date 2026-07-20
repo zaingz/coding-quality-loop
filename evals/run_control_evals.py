@@ -18,6 +18,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -40,6 +41,12 @@ def make_repo(tmp: Path, name: str = "repo") -> Path:
     repo = tmp / name
     repo.mkdir()
     subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    # Fixtures pin dates in early 2026; the real retention default (90 days)
+    # would prune them as the calendar advances. Pin a huge window here; the
+    # retention case writes its own tighter config.
+    (repo / "quality-loop.config.json").write_text(
+        json.dumps({"version": "x", "control_plane": {"retention_days": 100000}}),
+        encoding="utf-8")
     return repo
 
 
@@ -99,7 +106,7 @@ def write_transcript(proj: Path, session: str, lines: list[str]) -> Path:
 
 
 def enabled_config(repo: Path, **extra) -> None:
-    block = {"enabled": True, "autostart": False}
+    block = {"enabled": True, "autostart": False, "retention_days": 100000}
     block.update(extra)
     (repo / "quality-loop.config.json").write_text(
         json.dumps({"version": "x", "control_plane": block}), encoding="utf-8")
@@ -785,6 +792,315 @@ def case_tool_target_redaction(tmp: Path) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
+# v6.0.0 cases: session_id join, join fixes, droid events, drift canary,
+# retention, schema-bump backup, arm-costs
+# ---------------------------------------------------------------------------
+
+def case_delegation_direct_session_id(tmp: Path) -> tuple[bool, str]:
+    """v6: a ledger row carrying session_id joins directly by id — the fuzzy
+    heuristic is skipped even when agent_name and window disagree — and an
+    explicit id that is not indexed stays unmatched, never guessed against."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    write_transcript(proj, "workersess", [
+        assistant_line("workersess", "w1", "2026-01-05T10:05:00Z", inp=100, out=40, agent="impl-agent"),
+    ])
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    # Direct row: wrong agent name, ts years outside any window — id wins anyway.
+    direct = json.loads(_deleg_line("t-d", "implementer", "totally-other-agent", "2020-01-01T00:00:00Z"))
+    direct["session_id"] = "workersess"
+    # Ghost row: agent + window WOULD fuzzy-match workersess, but the explicit
+    # (unindexed) id must not be second-guessed by the heuristic.
+    ghost = json.loads(_deleg_line("t-d", "reviewer", "impl-agent", "2026-01-05T10:00:00Z"))
+    ghost["session_id"] = "ghost-session"
+    (qdir / "delegations.jsonl").write_text(
+        json.dumps(direct) + "\n" + json.dumps(ghost) + "\n", encoding="utf-8")
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    joined = ctl.delegations_with_sessions(conn)
+    conn.close()
+    d_direct = next(d for d in joined if d["role"] == "implementer")
+    d_ghost = next(d for d in joined if d["role"] == "reviewer")
+    ok = (not d_direct["unmatched"] and d_direct["session"]["id"] == "workersess"
+          and d_direct["session"]["tokens"]["input_tokens"] == 100
+          and d_ghost["unmatched"] and d_ghost["session"] is None
+          and not d_ghost["unjoinable"])
+    return ok, (f"direct={d_direct['session']['id'] if d_direct['session'] else None}; "
+                f"ghost_unmatched={d_ghost['unmatched']}; ghost_session={d_ghost['session']}")
+
+
+def case_delegation_unjoinable_ts(tmp: Path) -> tuple[bool, str]:
+    """v6 join fix (a): a legacy row whose ts is unparseable is flagged
+    `unjoinable` — never a distance-0 best match that steals the session from
+    an honest row — and /api/delegations surfaces the count."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    write_transcript(proj, "rsess", [
+        assistant_line("rsess", "r1", "2026-01-05T10:05:00Z", inp=10, out=5, agent="rev-agent"),
+    ])
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    # The broken row comes FIRST: under the old code it matched everything at
+    # dist 0.0 and stole rsess from the honest second row.
+    (qdir / "delegations.jsonl").write_text(
+        _deleg_line("t-u", "reviewer", "rev-agent", "not-a-timestamp") + "\n"
+        + _deleg_line("t-u", "validator", "rev-agent", "2026-01-05T10:00:00Z") + "\n",
+        encoding="utf-8")
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    joined = ctl.delegations_with_sessions(conn)
+    conn.close()
+    bad = next(d for d in joined if d["role"] == "reviewer")
+    good = next(d for d in joined if d["role"] == "validator")
+    httpd, port = _start_server(repo)
+    try:
+        code, body = get_json(f"http://127.0.0.1:{port}/api/delegations")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    ok = (bad["unjoinable"] and bad["unmatched"] and bad["session"] is None
+          and not good["unmatched"] and good["session"]["id"] == "rsess"
+          and code == 200 and body["unjoinable"] == 1)
+    return ok, (f"bad_unjoinable={bad['unjoinable']}; good_session="
+                f"{good['session']['id'] if good['session'] else None}; api_unjoinable={body.get('unjoinable')}")
+
+
+def case_delegation_one_to_one(tmp: Path) -> tuple[bool, str]:
+    """v6 join fix (b): the fallback join is one-to-one — a session matched by
+    a nearer delegation is not double-counted (the next-nearest goes
+    unmatched); once a second session exists, each delegation gets its own."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    write_transcript(proj, "w1", [
+        assistant_line("w1", "a1", "2026-01-05T10:10:00Z", inp=11, out=7, agent="worker"),
+    ])
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    (qdir / "delegations.jsonl").write_text(
+        _deleg_line("t-1", "implementer", "worker", "2026-01-05T10:00:00Z") + "\n"  # 600s from w1
+        + _deleg_line("t-2", "implementer", "worker", "2026-01-05T10:09:00Z") + "\n",  # 60s: wins w1
+        encoding="utf-8")
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    joined = ctl.delegations_with_sessions(conn)
+    conn.close()
+    far = next(d for d in joined if d["task_id"] == "t-1")
+    near = next(d for d in joined if d["task_id"] == "t-2")
+    one_ok = (not near["unmatched"] and near["session"]["id"] == "w1"
+              and far["unmatched"] and far["session"] is None)
+    # A second worker session appears: both rows now link, one session each.
+    write_transcript(proj, "w2", [
+        assistant_line("w2", "b1", "2026-01-05T10:01:00Z", inp=3, out=2, agent="worker"),
+    ])
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    joined2 = ctl.delegations_with_sessions(conn)
+    conn.close()
+    far2 = next(d for d in joined2 if d["task_id"] == "t-1")
+    near2 = next(d for d in joined2 if d["task_id"] == "t-2")
+    two_ok = (near2["session"] is not None and near2["session"]["id"] == "w1"
+              and far2["session"] is not None and far2["session"]["id"] == "w2")
+    ok = one_ok and two_ok
+    return ok, (f"one_session: near={near['session']['id'] if near['session'] else None}, "
+                f"far_unmatched={far['unmatched']}; two_sessions: "
+                f"near={near2['session']['id'] if near2['session'] else None}, "
+                f"far={far2['session']['id'] if far2['session'] else None}")
+
+
+def case_droid_runs_are_events(tmp: Path) -> tuple[bool, str]:
+    """v6: a droid wrapper run indexes as a 'droid_run' event + tool call —
+    never a fabricated 0-token model_calls row that corrupts call totals —
+    and re-indexing never duplicates the event."""
+    repo = make_repo(tmp)
+    claude_dir(tmp, repo)
+    ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    log = tmp / "droid-wrapper.jsonl"
+    log.write_text(json.dumps({
+        "event": "wrapper_end", "ts": ts, "cwd": str(repo), "session_id": "run-1",
+        "model": "glm-5", "mode": "exec", "exit_code": 0, "ok": True,
+        "prompt_file": "fix-parser.md"}) + "\n", encoding="utf-8")
+    saved = os.environ.get("DROID_WRAPPER_LOG")
+    os.environ["DROID_WRAPPER_LOG"] = str(log)
+    try:
+        stats = ctl.index_all(repo)
+        stats2 = ctl.index_all(repo)  # whole-log re-parse must not duplicate
+        conn = ctl.open_db(repo)
+        n_calls = conn.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0]
+        events = conn.execute(
+            "SELECT session_id, host, detail FROM events WHERE name='droid_run'").fetchall()
+        tool = conn.execute("SELECT tool, status FROM tool_calls").fetchone()
+        sess = conn.execute("SELECT host FROM sessions WHERE id='droid:run-1'").fetchone()
+        conn.close()
+    finally:
+        if saved is None:
+            os.environ.pop("DROID_WRAPPER_LOG", None)
+        else:
+            os.environ["DROID_WRAPPER_LOG"] = saved
+    detail = json.loads(events[0]["detail"]) if events else {}
+    ok = (stats["droid_runs"] == 1 and stats2["droid_runs"] == 0
+          and n_calls == 0 and len(events) == 1
+          and events[0]["host"] == "droid" and events[0]["session_id"] == "droid:run-1"
+          and detail.get("model") == "glm-5" and detail.get("ok") is True
+          and sess is not None and sess["host"] == "droid"
+          and tool is not None and tool["status"] == "ok")
+    return ok, (f"runs=({stats['droid_runs']},{stats2['droid_runs']}); model_calls={n_calls}; "
+                f"events={len(events)}; detail={detail}; tool_status={tool['status'] if tool else None}")
+
+
+def case_zero_usage_canary(tmp: Path) -> tuple[bool, str]:
+    """v6 drift canary: a transcript whose usage keys were RENAMED still
+    indexes (zeros) but turns the counter nonzero — surfaced via overview,
+    /healthz, control-status, and a dashboard banner — instead of silently
+    filling the index with confident zeros. '<synthetic>' placeholder turns
+    stay exempt."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    renamed = json.loads(assistant_line("s1", "u1", "2026-01-05T10:00:00Z"))
+    renamed["message"]["usage"] = {"in_tok": 100, "out_tok": 50}  # vendor renamed the keys
+    healthy = assistant_line("s1", "u2", "2026-01-05T10:01:00Z", inp=10, out=5)
+    synthetic = json.loads(assistant_line("s1", "u3", "2026-01-05T10:02:00Z", inp=0, out=0))
+    synthetic["message"]["model"] = "<synthetic>"
+    write_transcript(proj, "s1", [json.dumps(renamed), healthy, json.dumps(synthetic)])
+    stats = ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    ov = ctl.overview(conn)
+    conn.close()
+    httpd, port = _start_server(repo)
+    try:
+        hcode, health = get_json(f"http://127.0.0.1:{port}/healthz")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    scode, sout, _ = run_stdin([sys.executable, str(QL), "control-status", "--json",
+                                "--cwd", str(repo)], "", repo)
+    try:
+        status = json.loads(sout)
+    except ValueError:
+        status = {}
+    banner = "token counts may be stale" in (
+        ROOT / "assets" / "control-plane" / "dashboard.html").read_text(encoding="utf-8")
+    ok = (stats["zero_usage"] == 1 and ov["zero_usage_lines"] == 1
+          and hcode == 200 and health.get("zero_usage_lines") == 1
+          and scode == 0 and status.get("zero_usage_lines") == 1
+          and banner)
+    return ok, (f"pass_count={stats['zero_usage']}; overview={ov['zero_usage_lines']}; "
+                f"healthz={health.get('zero_usage_lines')}; status={status.get('zero_usage_lines')}; "
+                f"dashboard_banner={banner}")
+
+
+def case_retention_prunes_all_tables(tmp: Path) -> tuple[bool, str]:
+    """v6: retention_days prunes sessions/model_calls/tool_calls/artifacts/
+    events by ONE cutoff — not just events — and pruned rows stay pruned on
+    the next pass (the offset cache never re-reads an unchanged file)."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    (repo / "quality-loop.config.json").write_text(
+        json.dumps({"version": "x", "control_plane": {"retention_days": 30}}), encoding="utf-8")
+    old_ts = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
+    new_ts = datetime.now(timezone.utc).isoformat()
+    write_transcript(proj, "old", [
+        assistant_line("old", "o1", old_ts, tools=[("t1", "Bash", {"command": "ls"})]),
+    ])
+    write_transcript(proj, "new", [assistant_line("new", "n1", new_ts)])
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    rec = qdir / "agent-record.json"
+    rec.write_text(json.dumps(_fixture_record()), encoding="utf-8")
+    old_epoch = time.time() - 40 * 86400  # artifact ts = source mtime -> old
+    os.utime(rec, (old_epoch, old_epoch))
+    stats = ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    sess = {r["id"] for r in conn.execute("SELECT id FROM sessions")}
+    n_calls = conn.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0]
+    n_tools = conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0]
+    n_arts = conn.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0]
+    conn.close()
+    pruned = stats["rows_pruned"]
+    ctl.index_all(repo)  # unchanged sources: nothing resurrected
+    conn = ctl.open_db(repo)
+    sess2 = {r["id"] for r in conn.execute("SELECT id FROM sessions")}
+    conn.close()
+    ok = (sess == {"new"} and n_calls == 1 and n_tools == 0 and n_arts == 0
+          and pruned["sessions"] == 1 and pruned["model_calls"] == 1
+          and pruned["tool_calls"] == 1 and pruned["artifacts"] >= 1
+          and sess2 == {"new"})
+    return ok, (f"sessions={sorted(sess)}; calls={n_calls}; tools={n_tools}; artifacts={n_arts}; "
+                f"pruned={pruned}; after_reindex={sorted(sess2)}")
+
+
+def case_schema_bump_backs_up_events(tmp: Path) -> tuple[bool, str]:
+    """v6: a schema-version mismatch exports hook events (the one thing a
+    rebuild cannot regenerate) to append-safe events-backup-schema<N>.jsonl
+    before deleting the DB."""
+    repo = make_repo(tmp)
+    claude_dir(tmp, repo)
+    conn = ctl.open_db(repo)
+    conn.execute(
+        "INSERT INTO events(session_id, host, ts, name, detail) VALUES(?,?,?,?,?)",
+        ("hook-1", "claude-code", "2026-01-05T10:00:00Z", "SessionStart", None))
+    conn.execute("PRAGMA user_version=3")  # simulate a cache from schema v3
+    conn.commit()
+    conn.close()
+    conn = ctl.open_db(repo)  # mismatch -> backup, then rebuild
+    n_events = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    conn.close()
+    backup = ctl.control_dir(repo) / "events-backup-schema3.jsonl"
+    rows = ([json.loads(line) for line in backup.read_text(encoding="utf-8").splitlines()]
+            if backup.is_file() else [])
+    ok = (backup.is_file() and len(rows) == 1 and rows[0]["name"] == "SessionStart"
+          and rows[0]["session_id"] == "hook-1"
+          and n_events == 0 and version == ctl.SCHEMA_VERSION)
+    return ok, (f"backup={backup.is_file()}; rows={len(rows)}; "
+                f"rebuilt_events={n_events}; version={version}")
+
+
+def case_arm_costs_query(tmp: Path) -> tuple[bool, str]:
+    """4.2: control-report --arm-costs emits per-session tokens_in/tokens_out/
+    duration_sec JSON shaped for a bench results arm; --since filters by last
+    activity; an unparseable --since exits 2 naming the fix."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    write_transcript(proj, "recent", [
+        assistant_line("recent", "a1", "2026-01-05T10:00:00Z", inp=100, out=40),
+        assistant_line("recent", "a2", "2026-01-05T10:10:00Z", inp=50, out=10),
+    ])
+    write_transcript(proj, "older", [
+        assistant_line("older", "b1", "2026-01-01T09:00:00Z", inp=7, out=3),
+    ])
+    ctl.index_all(repo)
+    ctl_py = ROOT / "scripts" / "quality_loop_control.py"
+    code, out, _ = run_stdin([sys.executable, str(ctl_py), "control-report", "--arm-costs",
+                              "--cwd", str(repo)], "", repo)
+    try:
+        data = json.loads(out)
+    except ValueError:
+        data = {"sessions": [], "totals": {}}
+    by_id = {s["session_id"]: s for s in data["sessions"]}
+    code2, out2, _ = run_stdin([sys.executable, str(ctl_py), "control-report", "--arm-costs",
+                                "--since", "2026-01-03T00:00:00Z", "--cwd", str(repo)], "", repo)
+    try:
+        data2 = json.loads(out2)
+    except ValueError:
+        data2 = {"sessions": [], "totals": {}}
+    code3, _, err3 = run_stdin([sys.executable, str(ctl_py), "control-report", "--arm-costs",
+                                "--since", "yesterday-ish", "--cwd", str(repo)], "", repo)
+    recent = by_id.get("recent", {})
+    ok = (code == 0 and recent.get("tokens_in") == 150 and recent.get("tokens_out") == 50
+          and recent.get("duration_sec") == 600.0
+          and data["totals"].get("tokens_in") == 157
+          and code2 == 0
+          and [s["session_id"] for s in data2["sessions"]] == ["recent"]
+          and data2["totals"].get("tokens_out") == 50
+          and code3 == 2 and "ISO-8601" in err3)
+    return ok, (f"codes=({code},{code2},{code3}); recent=({recent.get('tokens_in')},"
+                f"{recent.get('tokens_out')},{recent.get('duration_sec')}); "
+                f"totals_in={data['totals'].get('tokens_in')}; "
+                f"since_ids={[s['session_id'] for s in data2['sessions']]}; iso_err={'ISO-8601' in err3}")
+
+
+# ---------------------------------------------------------------------------
 # Ingest + shim cases
 # ---------------------------------------------------------------------------
 
@@ -951,19 +1267,33 @@ def case_check_config_control_plane(tmp: Path) -> tuple[bool, str]:
 
 
 def case_installer_ships_control_plane(tmp: Path) -> tuple[bool, str]:
+    """v6: the control plane is an OPT-IN add-on — a default install copies no
+    control module/shim/dashboard and wires no control hooks; only
+    --with-control-plane ships and wires the lot."""
+    plain = tmp / "plain"
+    plain.mkdir()
+    code0, _, _ = run_stdin([sys.executable, str(ROOT / "scripts" / "install.py"),
+                             "--target", str(plain), "--host", "claude-code"], "", ROOT)
+    settings0 = json.loads((plain / ".claude" / "settings.json").read_text())
+    default_clean = (not (plain / "scripts" / "quality_loop_control.py").is_file()
+                     and not (plain / "hosts" / "claude-code" / "control_plane.py").is_file()
+                     and not (plain / "assets" / "control-plane" / "dashboard.html").is_file()
+                     and "control_plane.py" not in json.dumps(settings0.get("hooks", {})))
     target = tmp / "target"
     target.mkdir()
     code, out, err = run_stdin([sys.executable, str(ROOT / "scripts" / "install.py"),
-                                "--target", str(target), "--host", "claude-code"], "", ROOT)
+                                "--target", str(target), "--host", "claude-code",
+                                "--with-control-plane"], "", ROOT)
     settings = json.loads((target / ".claude" / "settings.json").read_text())
     session_end = settings.get("hooks", {}).get("SessionEnd", [])
     start_cmds = json.dumps(settings.get("hooks", {}).get("SessionStart", []))
-    ok = (code == 0
+    ok = (code0 == 0 and default_clean and code == 0
           and (target / "scripts" / "quality_loop_control.py").is_file()
           and (target / "hosts" / "claude-code" / "control_plane.py").is_file()
           and (target / "assets" / "control-plane" / "dashboard.html").is_file()
           and len(session_end) >= 1 and "control_plane.py" in start_cmds)
-    return ok, f"exit={code}; session_end={len(session_end)}; err={err.strip()[:80]!r}"
+    return ok, (f"default=(exit={code0}, clean={default_clean}); "
+                f"opt_in=(exit={code}, session_end={len(session_end)}); err={err.strip()[:80]!r}")
 
 
 CASES = [
@@ -987,13 +1317,21 @@ CASES = [
     ("loop metrics compute exact KPIs; empty DB serves 200 zeros", case_loop_metrics),
     ("control-report emits markdown + json; unknown task exits 2", case_control_report_cli),
     ("tool-call targets redact secrets before storage; benign intact", case_tool_target_redaction),
+    ("delegation with session_id joins directly; unindexed id never guessed", case_delegation_direct_session_id),
+    ("unparseable delegation ts is counted unjoinable, never a dist-0 match", case_delegation_unjoinable_ts),
+    ("fallback delegation join is one-to-one; nearest wins, no double count", case_delegation_one_to_one),
+    ("droid wrapper runs become droid_run events, not 0-token model calls", case_droid_runs_are_events),
+    ("renamed usage keys turn the zero-usage drift canary nonzero everywhere", case_zero_usage_canary),
+    ("retention_days prunes every table by one cutoff; no resurrection", case_retention_prunes_all_tables),
+    ("schema bump exports hook events to an append-safe backup first", case_schema_bump_backs_up_events),
+    ("control-report --arm-costs emits bench-arm cost JSON; --since filters", case_arm_costs_query),
     ("control-ingest records events and SessionEnd closes the session", case_ingest_event_roundtrip),
     ("ingest is a no-op when control_plane is absent or disabled", case_ingest_disabled_noop),
     ("ingest exits 0 on garbage stdin (never breaks a session)", case_ingest_never_breaks),
     ("shim: disabled writes nothing; live pidfile prevents double start", case_shim_disabled_and_guard),
     ("shim autostarts a reachable server when enabled (then torn down)", case_shim_autostarts_server),
     ("check-config accepts a valid control_plane block and names every bad field", case_check_config_control_plane),
-    ("installer ships control module, shim, dashboard, and hook wiring", case_installer_ships_control_plane),
+    ("installer ships the control plane only with --with-control-plane", case_installer_ships_control_plane),
 ]
 
 
@@ -1001,16 +1339,23 @@ def main() -> int:
     failures = 0
     for name, fn in CASES:
         with tempfile.TemporaryDirectory() as td:
-            saved_env = os.environ.get("CLAUDE_CONFIG_DIR")
+            # Hermetic per case: point every host-side source at the tempdir so
+            # the suite never reads the developer's real ~/.claude, ~/.codex,
+            # or ~/.factory data (cases that need a source create their own).
+            saved = {var: os.environ.get(var) for var in
+                     ("CLAUDE_CONFIG_DIR", "CODEX_SESSIONS_DIR", "DROID_WRAPPER_LOG")}
+            os.environ["CODEX_SESSIONS_DIR"] = str(Path(td) / "no-codex-sessions")
+            os.environ["DROID_WRAPPER_LOG"] = str(Path(td) / "no-droid-log.jsonl")
             try:
                 ok, detail = fn(Path(td))
             except Exception as exc:  # noqa: BLE001
                 ok, detail = False, f"exception: {exc!r}"
             finally:
-                if saved_env is None:
-                    os.environ.pop("CLAUDE_CONFIG_DIR", None)
-                else:
-                    os.environ["CLAUDE_CONFIG_DIR"] = saved_env
+                for var, value in saved.items():
+                    if value is None:
+                        os.environ.pop(var, None)
+                    else:
+                        os.environ[var] = value
         print(f"[{PASS if ok else FAIL}] {name}\n        {detail}")
         failures += 0 if ok else 1
     print(f"\n{len(CASES) - failures}/{len(CASES)} control-plane eval cases passed")

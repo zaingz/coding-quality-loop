@@ -1,0 +1,29 @@
+{
+  "name": "proving-command-path-does-not-force-risk-floor",
+  "description": "The text risk floor scans description text (goal, criterion text, plan) — not commands. An object AC whose proving_command merely contains a path segment like billing/tests must not force payment-boundary gates onto a low-risk copy change.",
+  "record": {
+    "task_id": "t-17",
+    "goal": "Reword the invoice footer disclaimer",
+    "task_class": "tiny",
+    "risk_tier": "low",
+    "acceptance_criteria": [{"criterion": "Footer disclaimer uses the approved wording", "proving_command": "pytest billing/tests/test_footer.py"}],
+    "verification_plan": ["snapshot test of the footer"],
+    "minimality_decision": {"rung": "one_liner", "reason": "single string edit"},
+    "plan": ["edit the footer template string"],
+    "commands_run": [{"cmd": "pytest billing/tests/test_footer.py", "class": "unit", "result": "pass", "evidence": "1 passed"}],
+    "open_risks": [],
+    "review_findings": [],
+    "implementer": "agent-a",
+    "validation_contract": null,
+    "independent_review": null,
+    "security_review": null,
+    "completion_record": null,
+    "security_sensitive": false,
+    "status": "done"
+  },
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 0,
+    "findings_exclude": ["boundary"]
+  }
+}

@@ -33,6 +33,12 @@ jobs:
         run: python3 evals/run_control_evals.py
       - name: Run benchmark fixture smoke
         run: python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json
+      - name: Validate committed bench results (cost fields)
+        run: |
+          for res in bench/results/*.json; do
+            echo "== $res =="
+            python3 bench/runner.py --validate "$res"
+          done
       - name: Gate example records (showcase must pass its own gate)
         run: |
           for rec in examples/*/agent-record.json; do

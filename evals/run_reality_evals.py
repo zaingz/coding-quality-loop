@@ -125,7 +125,9 @@ def passing_record(repo: Path, **overrides) -> dict:
         "goal": "Add rounding to the total calculation",
         "task_class": "medium",
         "risk_tier": "medium",
-        "acceptance_criteria": ["total rounds once"],
+        # Medium+ requires provable criteria: object AC whose proving_command
+        # matches the pass command below (string ACs block at medium+ risk).
+        "acceptance_criteria": [{"criterion": "total rounds once", "proving_command": "pytest"}],
         "constraints": [],
         "non_goals": [],
         "assumptions": [],
@@ -645,6 +647,271 @@ def case_action_invocations_are_pinned(tmp: Path) -> tuple[bool, str]:
     return ok, f"python_lines_unpinned={offenders!r}"
 
 
+def _default_branch(repo: Path) -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "symbolic-ref", "--short", "HEAD"],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
+    )
+    return proc.stdout.strip() or "master"
+
+
+def case_committed_work_still_diffed(tmp: Path) -> tuple[bool, str]:
+    """Commit-first evasion (1.1): work fully committed on a feature branch must
+    still be visible to the diff-grounded gates via the auto-resolved default
+    base (merge-base vs the origin/main ladder) — with --base defaulting to
+    HEAD this record passed silently."""
+    repo = make_repo(tmp)
+    _git(repo, "checkout", "-b", "feature")
+    auth = repo / "src" / "auth"
+    auth.mkdir(parents=True)
+    (auth / "login.py").write_text("def login(): pass\n")
+    _git(repo, "add", "src/auth/login.py")
+    _git(repo, "commit", "-m", "add login")
+    record = passing_record(
+        repo,
+        goal="rename a local helper for clarity",
+        risk_tier="low",
+        task_class="small",
+        status="done",
+        commands_run=[{"cmd": "read", "class": "lint", "result": "pass", "evidence": "looks good"}],
+        validation_contract=None,
+        independent_review=None,
+        completion_record=None,
+        repo_map={"entry_points": [], "likely_files": [], "callers_checked": [], "tests": []},
+        plan=[],
+        review_findings=[],
+    )
+    path = write_record(repo, record)
+    # Deliberately NO --base: the auto default must see the committed diff.
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", cwd=str(repo))
+    ok = code == 1 and "diff-derived risk floor" in (out + err).lower()
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_honest_committer_no_phantom(tmp: Path) -> tuple[bool, str]:
+    """Honest committer (1.1): status done with a CLEAN tree and committed work
+    must NOT fire phantom-completion — the auto base keeps the committed diff
+    visible instead of reading an empty diff as a lie."""
+    repo = make_repo(tmp)
+    base_branch = _default_branch(repo)
+    _git(repo, "checkout", "-b", "feature")
+    billing = repo / "src" / "billing"
+    billing.mkdir(parents=True)
+    (billing / "invoice.py").write_text("def round_total(): return round(sum([]), 2)\n")
+    tests = repo / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_invoice.py").write_text("def test_round(): assert True\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "rounding work")
+    attested_hash = qlreal.diff_sha256(base_branch, cwd=repo)
+    record = passing_record(
+        repo,
+        independent_review={
+            "reviewer": "agent-b",
+            "verdict": "approve",
+            "fresh_context": True,
+            "patched": False,
+            "findings": [],
+            "diff_sha256": attested_hash,
+        },
+        completion_record=_completion(files=["src/billing/invoice.py", "tests/test_invoice.py"]),
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", cwd=str(repo))
+    combined = (out + err).lower()
+    ok = code == 0 and "phantom completion" not in combined
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_deleted_test_file_blocks_at_medium(tmp: Path) -> tuple[bool, str]:
+    """Hard rule 6 depth (1.5): deleting a test file nets out test declarations
+    and must block at medium."""
+    repo = make_repo(tmp)
+    tests = repo / "tests"
+    tests.mkdir()
+    (tests / "test_calc.py").write_text(
+        "def test_a():\n    assert 1 == 1\n\ndef test_b():\n    assert 2 == 2\n"
+    )
+    _git(repo, "add", "tests/test_calc.py")
+    _git(repo, "commit", "-m", "add tests")
+    (tests / "test_calc.py").unlink()
+    record = passing_record(repo, completion_record=_completion(files=["tests/test_calc.py"]))
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    ok = code == 1 and "net test-declaration loss" in (out + err)
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_gutted_assertions_flagged(tmp: Path) -> tuple[bool, str]:
+    """Hard rule 6 depth (1.5): replacing strong assertions with one weak one
+    (net assertion loss) is flagged at medium."""
+    repo = make_repo(tmp)
+    tests = repo / "tests"
+    tests.mkdir()
+    (tests / "test_calc.py").write_text(
+        "def test_total():\n"
+        "    assert calc(1) == 1\n"
+        "    assert calc(2) == 2\n"
+        "    assert calc(3) == 3\n"
+    )
+    _git(repo, "add", "tests/test_calc.py")
+    _git(repo, "commit", "-m", "add tests")
+    (tests / "test_calc.py").write_text(
+        "def test_total():\n    assert calc(3) is not None\n"
+    )
+    record = passing_record(repo, completion_record=_completion(files=["tests/test_calc.py"]))
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    ok = code == 1 and "net assertion loss" in (out + err)
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_test_move_stays_green(tmp: Path) -> tuple[bool, str]:
+    """Hard rule 6 depth (1.5): a legitimate test MOVE (deleted from one test
+    file, equivalent adds in another in the same diff) nets to zero and stays
+    silent — the netting is diff-level, not per-file."""
+    repo = make_repo(tmp)
+    tests = repo / "tests"
+    tests.mkdir()
+    body = (
+        "def test_a():\n    assert calc(1) == 1\n\n"
+        "def test_b():\n    assert calc(2) == 2\n"
+    )
+    (tests / "test_a.py").write_text(body)
+    _git(repo, "add", "tests/test_a.py")
+    _git(repo, "commit", "-m", "add tests")
+    (tests / "test_a.py").unlink()
+    (tests / "test_b.py").write_text(body)
+    _git(repo, "add", "-A")  # stage the move so the diff shows both sides
+    record = passing_record(
+        repo,
+        completion_record=_completion(files=["tests/test_a.py", "tests/test_b.py"]),
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    combined = out + err
+    ok = code == 0 and "net test-declaration loss" not in combined and "net assertion loss" not in combined
+    return ok, f"exit={code}; output={combined.strip()[:200]!r}"
+
+
+def case_under_fanning_advisory(tmp: Path) -> tuple[bool, str]:
+    """Under-fanning (1.5): a medium diff of one new 400-line source file draws
+    the advisory in `verify`; a modular diff of the same size stays silent."""
+    def build(name: str, files: dict[str, int]) -> tuple[Path, Path]:
+        repo = tmp / name
+        repo.mkdir()
+        _git(repo, "init")
+        _git(repo, "config", "user.email", "eval@example.com")
+        _git(repo, "config", "user.name", "eval")
+        (repo / "README.md").write_text("# t\n")
+        _git(repo, "add", "README.md")
+        _git(repo, "commit", "-m", "base")
+        for fname, lines in files.items():
+            (repo / fname).write_text("".join(f"x{i} = {i}\n" for i in range(lines)))
+            _git(repo, "add", fname)
+        record = passing_record(repo, completion_record=_completion(files=list(files)))
+        return repo, write_record(repo, record)
+
+    mono_repo, mono_rec = build("mono", {"big.py": 400})
+    code_m, out_m, err_m = run_cli("verify", str(mono_rec), cwd=str(mono_repo))
+    mono_warns = "under-fanning" in (out_m + err_m)
+
+    mod_repo, mod_rec = build("modular", {"part_a.py": 250, "part_b.py": 250})
+    code_d, out_d, err_d = run_cli("verify", str(mod_rec), cwd=str(mod_repo))
+    modular_silent = "under-fanning" not in (out_d + err_d)
+
+    ok = mono_warns and modular_silent
+    return ok, f"mono(exit={code_m},warns={mono_warns}); modular(exit={code_d},silent={modular_silent})"
+
+
+def case_plan_mention_case_insensitive(tmp: Path) -> tuple[bool, str]:
+    """Scope integrity (1.6): a plan that names Button.tsx must map the changed
+    file regardless of case — the plan text is lowercased, so the path side
+    must be lowercased too."""
+    repo = make_repo(tmp)
+    comp = repo / "src" / "components"
+    comp.mkdir(parents=True)
+    (comp / "Button.tsx").write_text("export const Button = () => null;\n")
+    record = passing_record(
+        repo,
+        plan=["edit src/components/Button.tsx to add the icon variant"],
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    combined = (out + err).lower()
+    ok = code == 0 and "scope integrity" not in combined
+    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_mapped_file_does_not_whitelist_subtree(tmp: Path) -> tuple[bool, str]:
+    """Scope integrity (1.6): one mapped file whitelists only its OWN directory
+    (single level) — a file deeper in the subtree is still unmapped."""
+    repo = make_repo(tmp)
+    a = repo / "src" / "a"
+    (a / "deep").mkdir(parents=True)
+    (a / "y.py").write_text("y = 1\n")          # sibling of the mapped file: allowed
+    (a / "deep" / "z.py").write_text("z = 1\n")  # subtree: must be flagged
+    record = passing_record(repo, completion_record=_completion(files=["src/a/x.py"]))
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    combined = out + err
+    flagged_subtree = "scope integrity" in combined.lower() and "src/a/deep/z.py" in combined
+    sibling_allowed = "y.py" not in combined
+    ok = code == 1 and flagged_subtree and sibling_allowed
+    return ok, f"exit={code}; subtree_flagged={flagged_subtree}; sibling_allowed={sibling_allowed}"
+
+
+def case_bugfix_keywords_word_boundary(tmp: Path) -> tuple[bool, str]:
+    """Bugfix detector (1.6): 'debugging' must not trigger via the 'bug'
+    substring; a goal saying 'fix' (no 'bug' word) must trigger."""
+    def run_goal(name: str, goal: str) -> tuple[int, str]:
+        sub = tmp / name
+        sub.mkdir()
+        repo = make_repo(sub)
+        (repo / "logger.py").write_text("LEVEL = 'debug'\n")
+        record = passing_record(
+            repo,
+            goal=goal,
+            completion_record=_completion(files=["logger.py"]),
+            plan=["edit logger.py"],
+        )
+        path = write_record(repo, record)
+        code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+        return code, out + err
+
+    code_d, out_d = run_goal("dbg", "Improve debugging output in the request logger")
+    debugging_clean = "bugfix-test" not in out_d.lower()
+
+    code_f, out_f = run_goal("fix", "fix the off-by-one in pagination totals")
+    fix_flagged = code_f == 1 and "bugfix-test" in out_f.lower()
+
+    ok = debugging_clean and fix_flagged
+    return ok, f"debugging(exit={code_d},clean={debugging_clean}); fix(exit={code_f},flagged={fix_flagged})"
+
+
+def case_render_prompt_substitutes(tmp: Path) -> tuple[bool, str]:
+    """render-prompt (2.2): the rendered reviewer prompt carries the real
+    contract, diff, and evidence — no {contract}/{diff}/{evidence} placeholder
+    survives."""
+    repo = make_repo(tmp)
+    (repo / "README.md").write_text("# test\nchanged line\n")
+    record = passing_record(repo)
+    path = write_record(repo, record)
+    code, out, err = run_cli(
+        "render-prompt", "--role", "reviewer", "--record", str(path), "--base", "HEAD",
+        cwd=str(repo),
+    )
+    no_placeholders = all(p not in out for p in ("{contract}", "{diff}", "{evidence}"))
+    has_contract = "Add rounding to the total calculation" in out
+    has_evidence = "| cmd | class | result | evidence |" in out and "pytest" in out
+    has_diff = "changed line" in out
+    ok = code == 0 and no_placeholders and has_contract and has_evidence and has_diff
+    return ok, (
+        f"exit={code}; no_placeholders={no_placeholders}; contract={has_contract}; "
+        f"evidence={has_evidence}; diff={has_diff}; err={err.strip()[:80]!r}"
+    )
+
+
 CASES = [
     ("action.yml python invocations all run the pinned copy", case_action_invocations_are_pinned),
     ("phantom completion (done + empty diff) is caught", case_phantom_completion),
@@ -669,6 +936,16 @@ CASES = [
     ("partial scripts/ install fails with an actionable message", case_partial_install_fails_actionably),
     ("softened local gate script passes locally but CI pinned copy still blocks (F1 trust anchor)", case_ci_anchor_defeats_softened_local_script),
     ("verify reports helper-integrity hashes for all five modules", case_verify_reports_helper_integrity),
+    ("committed-but-unpushed work is still diffed by the auto default base (commit-first evasion)", case_committed_work_still_diffed),
+    ("honest committer: done + clean tree + committed work is not phantom completion", case_honest_committer_no_phantom),
+    ("deleted test file blocks at medium (net test-declaration loss)", case_deleted_test_file_blocks_at_medium),
+    ("gutted assertions block at medium (net assertion loss)", case_gutted_assertions_flagged),
+    ("legit test move (delete + equivalent adds elsewhere) stays green", case_test_move_stays_green),
+    ("under-fanned monolith diff draws the advisory; modular diff stays silent", case_under_fanning_advisory),
+    ("plan mention maps a changed file case-insensitively (Button.tsx)", case_plan_mention_case_insensitive),
+    ("mapped file whitelists its own directory only, not the subtree", case_mapped_file_does_not_whitelist_subtree),
+    ("bugfix keywords are word-boundary matched ('debugging' clean, 'fix' fires)", case_bugfix_keywords_word_boundary),
+    ("render-prompt substitutes {contract}/{diff}/{evidence} for the reviewer role", case_render_prompt_substitutes),
 ]
 
 

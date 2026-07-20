@@ -3,7 +3,7 @@
 import { resolve } from "node:path";
 import { detectHosts, KNOWN_HOSTS } from "./detect.mjs";
 import { confirm, select } from "./prompts.mjs";
-import { runInstall, checkInstall, readSkillVersion } from "./install.mjs";
+import { runInstall, runUninstall, checkInstall, readSkillVersion } from "./install.mjs";
 import { c, header, info, ok, warn, fail, box } from "./report.mjs";
 
 const HELP = `
@@ -15,12 +15,14 @@ ${c.bold("Usage")}
   npx coding-quality-loop init --host <h>   install for a specific host
   npx coding-quality-loop init --dry-run    preview without writing files
   npx coding-quality-loop add <host>        add wiring for one host to an existing project
-  npx coding-quality-loop check             verify a prior install is intact
+  npx coding-quality-loop check             verify a prior install against its manifest
+  npx coding-quality-loop remove            uninstall: remove manifest-listed files, reverse hook wiring
   npx coding-quality-loop --version         print version
   npx coding-quality-loop --help            show this help
 
 ${c.bold("Hosts")}
-  claude-code, codex, cursor, droid, pi, git, github
+  claude-code, codex, droid, git, github
+  (cursor and pi: advisory rules recipes live in the repo's examples/ — no runtime install)
 
 ${c.bold("Examples")}
   npx coding-quality-loop init
@@ -31,6 +33,10 @@ ${c.bold("Examples")}
 Docs: https://github.com/zaingz/coding-quality-loop
 `.trim();
 
+// Flags that take a value. Everything else is boolean, so a boolean flag can
+// never swallow the token after it (`cql --dry-run check` must run `check`).
+const VALUE_FLAGS = new Set(["host", "target"]);
+
 export function parseArgs(argv) {
   const args = { _: [], flags: {} };
   for (let i = 0; i < argv.length; i++) {
@@ -39,7 +45,7 @@ export function parseArgs(argv) {
       const [key, inline] = a.slice(2).split("=");
       if (inline !== undefined) {
         args.flags[key] = inline;
-      } else if (argv[i + 1] && !argv[i + 1].startsWith("-")) {
+      } else if (VALUE_FLAGS.has(key) && argv[i + 1] !== undefined && !argv[i + 1].startsWith("-")) {
         args.flags[key] = argv[i + 1];
         i++;
       } else {
@@ -78,7 +84,9 @@ async function commandInit(args) {
   let host = args.flags.host;
   if (!host) {
     const options = [...KNOWN_HOSTS, "all"];
-    const preferred = detected[0] ?? "claude-code";
+    // Detection may surface hosts the picker no longer offers (cursor/pi are
+    // advisory recipes now); only preselect a host we can actually install.
+    const preferred = detected.find((h) => options.includes(h)) ?? "claude-code";
     host = await select({
       question: "Which host should the loop wire up?",
       choices: options,
@@ -123,15 +131,14 @@ async function commandInit(args) {
   // `setup-models --host git` would just error. Skip that step for those.
   const modelRoutedHost = host === "all" ? "claude-code" : host;
   const showSetupModels = host !== "git" && host !== "github";
+  // Every command printed here must exit 0 on a fresh install of this host.
   const steps = [];
   let n = 1;
   if (showSetupModels) {
-    steps.push(`${n++}. ${c.bold("Set your models:")}   python3 scripts/quality_loop.py setup-models --host ${modelRoutedHost}`);
+    steps.push(`${n++}. ${c.bold("Create your config:")} cp assets/quality-loop.config.example.json quality-loop.config.json`);
+    steps.push(`${n++}. ${c.bold("Set your models:")}    python3 scripts/quality_loop.py setup-models --host ${modelRoutedHost}`);
   }
-  steps.push(`${n++}. ${c.bold("Try it out:")}        ${invokeExample}`);
-  if (host !== "git" && host !== "github") {
-    steps.push(`${n++}. ${c.bold("Run the evals:")}     python3 evals/run_evals.py`);
-  }
+  steps.push(`${n++}. ${c.bold("Try it out:")}         ${invokeExample}`);
   steps.push(``);
   steps.push(c.dim(`Docs: https://github.com/zaingz/coding-quality-loop#quickstart-60-seconds`));
   box("Next steps:", steps);
@@ -162,12 +169,18 @@ async function commandCheck(args) {
     warn(`${result.findings.length} missing item${result.findings.length === 1 ? "" : "s"} — run \`cql init\` to fix`);
     return 1;
   }
-  if (result.foundHosts.length === 0) {
-    warn("No host wiring found — run `cql init`");
-    return 1;
-  }
   ok("Install looks healthy.");
   return 0;
+}
+
+async function commandRemove(args) {
+  const target = resolve(String(args.flags.target ?? process.cwd()));
+  const dryRun = Boolean(args.flags["dry-run"]);
+  header(`Remove${dryRun ? " (dry run)" : ""}`, `Target: ${target}`);
+  const result = await runUninstall({ target, dryRun });
+  console.log("");
+  result.report.forEach((line) => (result.code === 0 ? ok(line) : warn(line)));
+  return result.code === 0 ? 0 : 1;
 }
 
 export async function run(argv) {
@@ -188,6 +201,8 @@ export async function run(argv) {
       return commandAdd(args);
     case "check":
       return commandCheck(args);
+    case "remove":
+      return commandRemove(args);
     default:
       fail(`Unknown command: ${cmd}`);
       console.log(HELP);

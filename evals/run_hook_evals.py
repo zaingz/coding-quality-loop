@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -20,7 +21,7 @@ PASS = "PASS"
 FAIL = "FAIL"
 
 
-def run_script(path: Path, payload: dict, cwd: Path) -> tuple[int, str, str]:
+def run_script(path: Path, payload: dict, cwd: Path, env: dict | None = None) -> tuple[int, str, str]:
     proc = subprocess.run(
         [sys.executable, str(path)],
         input=json.dumps(payload),
@@ -28,6 +29,7 @@ def run_script(path: Path, payload: dict, cwd: Path) -> tuple[int, str, str]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=str(cwd),
+        env=env,
         check=False,
     )
     return proc.returncode, proc.stdout, proc.stderr
@@ -127,6 +129,122 @@ def case_pretool_allows_safe_write(tmp: Path) -> tuple[bool, str]:
     repo = make_repo(tmp, with_scripts=True)
     code, out, err = run_script(PRE, {"cwd": str(repo), "tool_name": "Write", "tool_input": {"content": "safe text"}}, repo)
     return code == 0 and out.strip() == "", f"exit={code}; out={out.strip()!r}; err={err.strip()!r}"
+
+
+def _bash(repo: Path, command: str, env: dict | None = None) -> tuple[int, str, str]:
+    return run_script(PRE, {"cwd": str(repo), "tool_name": "Bash", "tool_input": {"command": command}}, repo, env=env)
+
+
+def case_pretool_blocks_flag_order_variants(tmp: Path) -> tuple[bool, str]:
+    # rm matching must be order-insensitive: combined, reversed, and long-form
+    # flags all count as recursive+force.
+    repo = make_repo(tmp)
+    details = []
+    ok = True
+    for cmd in ("rm -fr /x", "rm --recursive --force x"):
+        code, out, _ = _bash(repo, cmd)
+        good = code == 0 and deny_json(out)
+        ok = ok and good
+        details.append(f"{cmd!r}: exit={code} denied={deny_json(out)}")
+    return ok, "; ".join(details)
+
+
+def case_pretool_allows_quoted_or_other_command(tmp: Path) -> tuple[bool, str]:
+    # Anchoring to a command position: quoted/read-only mentions must not match,
+    # and a force flag on a DIFFERENT command (cp -f) must not complete rm -r.
+    repo = make_repo(tmp)
+    details = []
+    ok = True
+    for cmd in ('grep -rn "git reset --hard" docs/', 'echo "never rm -rf"', "rm -r build && cp -f a b"):
+        code, out, err = _bash(repo, cmd)
+        good = code == 0 and out.strip() == ""
+        ok = ok and good
+        details.append(f"{cmd!r}: exit={code} out={out.strip()!r}")
+    return ok, "; ".join(details)
+
+
+def case_pretool_blocks_record_deletion(tmp: Path) -> tuple[bool, str]:
+    # protect_harness (default ON): deleting the record or .quality-loop erases
+    # the audit trail, so rm against either is denied even without -rf.
+    repo = make_repo(tmp)
+    details = []
+    ok = True
+    for cmd in ("rm agent-record.json", "rm -r .quality-loop"):
+        code, out, _ = _bash(repo, cmd)
+        good = code == 0 and deny_json(out) and "audit trail" in out
+        ok = ok and good
+        details.append(f"{cmd!r}: exit={code} denied={deny_json(out)}")
+    return ok, "; ".join(details)
+
+
+def case_pretool_protect_harness_blocks_gate_edit(tmp: Path) -> tuple[bool, str]:
+    # Default-on tamper-evidence: editing the gate scripts, hook shims, or the
+    # active record is denied without any config present.
+    repo = make_repo(tmp)
+    details = []
+    ok = True
+    for target in ("scripts/quality_loop.py", "hosts/claude-code/stop_gate.py", "agent-record.json"):
+        code, out, _ = run_script(PRE, {"cwd": str(repo), "tool_name": "Edit", "tool_input": {"file_path": target, "new_string": "x = 1"}}, repo)
+        good = code == 0 and deny_json(out) and "tamper-evidence" in out
+        ok = ok and good
+        details.append(f"{target}: exit={code} denied={deny_json(out)}")
+    return ok, "; ".join(details)
+
+
+def case_pretool_protect_harness_off_allows_gate_edit(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp, with_scripts=True)
+    (repo / "quality-loop.config.json").write_text(json.dumps({"protect_harness": False}))
+    code, out, err = run_script(PRE, {"cwd": str(repo), "tool_name": "Edit", "tool_input": {"file_path": "scripts/quality_loop.py", "new_string": "# comment"}}, repo)
+    return code == 0 and out.strip() == "", f"exit={code}; out={out.strip()!r}; err={err.strip()!r}"
+
+
+def case_pretool_missing_runtime_allows_with_warning(tmp: Path) -> tuple[bool, str]:
+    # A missing CQL runtime is NOT a secret finding: allow, and name the actual
+    # problem on stderr instead of fabricating "secret-like text blocked".
+    repo = make_repo(tmp)  # no scripts/
+    payload = {"cwd": str(repo), "tool_name": "Write", "tool_input": {"file_path": "notes.txt", "content": 'api_key = "ghp_' + "A" * 36 + '"'}}
+    code, out, err = run_script(PRE, payload, repo)
+    ok = code == 0 and out.strip() == "" and "CQL runtime missing" in err
+    return ok, f"exit={code}; out={out.strip()!r}; err={err.strip()[:160]!r}"
+
+
+def case_pretool_scans_without_python3_on_path(tmp: Path) -> tuple[bool, str]:
+    # The scan child is spawned via sys.executable, so a PATH without python3
+    # (git only) must still produce a REAL scan result, not a spawn crash.
+    git_path = shutil.which("git")
+    if not git_path:
+        return False, "git not found on PATH"
+    bindir = tmp / "bin"
+    bindir.mkdir()
+    (bindir / "git").symlink_to(git_path)
+    repo = make_repo(tmp, with_scripts=True)
+    env = {**os.environ, "PATH": str(bindir)}
+    payload = {"cwd": str(repo), "tool_name": "Write", "tool_input": {"content": 'api_key = "ghp_' + "A" * 36 + '"'}}
+    code, out, err = run_script(PRE, payload, repo, env=env)
+    return code == 0 and deny_json(out), f"exit={code}; out={out.strip()[:160]!r}; err={err.strip()[:160]!r}"
+
+
+def case_pretool_legacy_config_warns(tmp: Path) -> tuple[bool, str]:
+    # Old .quality-loop/config.json still works as a fallback, with a one-line
+    # deprecation warning naming the move to root quality-loop.config.json.
+    repo = make_repo(tmp, with_scripts=True)
+    (repo / ".quality-loop").mkdir()
+    (repo / ".quality-loop" / "config.json").write_text(json.dumps({"enforcement": "advisory"}))
+    code, out, err = run_script(PRE, {"cwd": str(repo), "tool_name": "Write", "tool_input": {"content": "safe text"}}, repo)
+    ok = code == 0 and out.strip() == "" and "deprecated" in err and "quality-loop.config.json" in err
+    return ok, f"exit={code}; out={out.strip()!r}; err={err.strip()[:160]!r}"
+
+
+def case_pretool_canonical_config_required(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp, with_scripts=True)
+    (repo / "quality-loop.config.json").write_text(json.dumps({"enforcement": "required"}))
+    record = done_record()
+    record["status"] = "plan"
+    record["minimality_decision"] = None
+    (repo / "agent-record.json").write_text(json.dumps(record))
+    code, out, err = run_script(PRE, {"cwd": str(repo), "tool_name": "Write", "tool_input": {"content": "safe text"}}, repo)
+    ok = code == 0 and deny_json(out) and "PLAN" in out and "deprecated" not in err
+    return ok, f"exit={code}; out={out.strip()[:160]!r}; err={err.strip()[:120]!r}"
 
 
 def case_stop_gate_blocks_phantom_done(tmp: Path) -> tuple[bool, str]:
@@ -233,6 +351,83 @@ def case_stop_gate_allows_active_loop_review(tmp: Path) -> tuple[bool, str]:
     return code == 0 and out.strip() == "", f"exit={code}; out={out.strip()!r}; err={err.strip()!r}"
 
 
+def _stop(repo: Path, env: dict | None = None) -> tuple[int, str, str]:
+    return run_script(STOP, {"cwd": str(repo), "hook_event_name": "Stop", "stop_hook_active": False}, repo, env=env)
+
+
+def _decision(out: str) -> str | None:
+    try:
+        return json.loads(out).get("decision")
+    except json.JSONDecodeError:
+        return None
+
+
+def _stub_gate_repo(tmp: Path, stub_body: str, status: str = "done") -> Path:
+    """A repo whose scripts/quality_loop.py is a stub, so the stop gate's child
+    invocation is observable without depending on the real gate engine."""
+    repo = make_repo(tmp)
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "quality_loop.py").write_text(stub_body)
+    record = done_record()
+    record["status"] = status
+    (repo / "agent-record.json").write_text(json.dumps(record))
+    return repo
+
+
+def case_stop_gate_allows_no_record_no_loop(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    code, out, err = _stop(repo)
+    return code == 0 and out.strip() == "", f"exit={code}; out={out.strip()!r}; err={err.strip()!r}"
+
+
+def case_stop_gate_blocks_deleted_record_with_config(tmp: Path) -> tuple[bool, str]:
+    # Loop artifacts without a record mean the record was deleted mid-loop —
+    # deletion must not lift the gate, and the message must say how to restore.
+    repo = make_repo(tmp)
+    (repo / "quality-loop.config.json").write_text(json.dumps({"enforcement": "advisory"}))
+    code, out, err = _stop(repo)
+    ok = code == 0 and _decision(out) == "block" and "init-record" in out
+    return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:200]!r}"
+
+
+def case_stop_gate_terminal_runs_verify_umbrella(tmp: Path) -> tuple[bool, str]:
+    # At package/done the child must be the `verify` umbrella, with --base only
+    # when QUALITY_LOOP_BASE is set (otherwise the script auto-resolves it).
+    stub = "import sys\nprint('ARGS: ' + ' '.join(sys.argv[1:]))\nsys.exit(1)\n"
+    repo = _stub_gate_repo(tmp, stub)
+    env = {k: v for k, v in os.environ.items() if k != "QUALITY_LOOP_BASE"}
+    code, out, _ = _stop(repo, env=env)
+    ok_default = code == 0 and _decision(out) == "block" and "ARGS: verify " in out and "--base" not in out
+    code2, out2, _ = _stop(repo, env={**env, "QUALITY_LOOP_BASE": "main"})
+    ok_env = code2 == 0 and "--base main" in out2
+    return ok_default and ok_env, f"default_ok={ok_default} env_ok={ok_env}; out={out.strip()[:200]!r}"
+
+
+def case_stop_gate_timeout_failure_names_override(tmp: Path) -> tuple[bool, str]:
+    # A timeout-looking gate failure must tell the agent that slow suites can
+    # raise the limit via QUALITY_LOOP_TIMEOUT.
+    stub = "import sys\nprint('evidence: pytest timed out after 30s')\nsys.exit(1)\n"
+    repo = _stub_gate_repo(tmp, stub)
+    code, out, _ = _stop(repo)
+    ok = code == 0 and _decision(out) == "block" and "QUALITY_LOOP_TIMEOUT" in out
+    return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:200]!r}"
+
+
+def case_stop_gate_terminal_exit2_names_cause(tmp: Path) -> tuple[bool, str]:
+    # Child exit 2 (missing/crashed runner) is an environment problem, not gate
+    # findings: the block must say so and still offer the three ways forward.
+    repo = make_repo(tmp)  # no scripts/ -> python exits 2 (can't open file)
+    (repo / "agent-record.json").write_text(json.dumps(done_record()))
+    code, out, err = _stop(repo)
+    ok = (
+        code == 0
+        and _decision(out) == "block"
+        and "environment problem" in out
+        and "Three legitimate ways forward" in out
+    )
+    return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:220]!r}"
+
+
 def case_sessionstart_context(tmp: Path) -> tuple[bool, str]:
     repo = make_repo(tmp)
     mem = repo / ".quality-loop" / "memory"
@@ -280,7 +475,21 @@ CASES = [
     ("PreToolUse blocks secret Write content", case_pretool_blocks_secret_write),
     ("PreToolUse required mode blocks medium edit before plan", case_pretool_required_blocks_edit_before_plan),
     ("PreToolUse allows safe Write", case_pretool_allows_safe_write),
+    ("PreToolUse blocks rm with reordered/long recursive+force flags", case_pretool_blocks_flag_order_variants),
+    ("PreToolUse allows quoted mentions and cross-command force flags", case_pretool_allows_quoted_or_other_command),
+    ("PreToolUse blocks deletion of the record and .quality-loop", case_pretool_blocks_record_deletion),
+    ("PreToolUse protect_harness blocks gate/hook/record edits by default", case_pretool_protect_harness_blocks_gate_edit),
+    ("PreToolUse protect_harness=false allows gate-script edit", case_pretool_protect_harness_off_allows_gate_edit),
+    ("PreToolUse missing runtime allows with a truthful warning", case_pretool_missing_runtime_allows_with_warning),
+    ("PreToolUse scans via sys.executable without python3 on PATH", case_pretool_scans_without_python3_on_path),
+    ("PreToolUse legacy .quality-loop/config.json warns but still works", case_pretool_legacy_config_warns),
+    ("PreToolUse canonical quality-loop.config.json drives required mode", case_pretool_canonical_config_required),
     ("Stop gate blocks phantom done", case_stop_gate_blocks_phantom_done),
+    ("Stop gate allows a repo with no record and no loop artifacts", case_stop_gate_allows_no_record_no_loop),
+    ("Stop gate blocks a deleted record while loop config exists", case_stop_gate_blocks_deleted_record_with_config),
+    ("Stop gate runs the verify umbrella at terminal statuses", case_stop_gate_terminal_runs_verify_umbrella),
+    ("Stop gate names QUALITY_LOOP_TIMEOUT on timeout-looking failures", case_stop_gate_timeout_failure_names_override),
+    ("Stop gate names the cause and remedies on runner exit 2", case_stop_gate_terminal_exit2_names_cause),
     ("Stop gate skips active stop loop", case_stop_gate_skips_active_loop),
     ("Stop gate blocks review status with dirty tree and failing gates", case_stop_gate_blocks_review_dirty_failing),
     ("Stop gate blocks retrospect status with dirty tree", case_stop_gate_blocks_retrospect_dirty),

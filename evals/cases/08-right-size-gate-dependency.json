@@ -6,7 +6,7 @@
     "goal": "Add a tenant_id column via migration and enforce tenant authorization on the orders API",
     "task_class": "mission",
     "risk_tier": "high",
-    "acceptance_criteria": ["Migration backfills tenant_id; orders API is tenant-scoped"],
+    "acceptance_criteria": [{"criterion": "Migration backfills tenant_id; orders API is tenant-scoped", "proving_command": "pytest tests/integration"}],
     "verification_plan": ["unit + integration + security tests", "reviewed rollback plan"],
     "minimality_decision": {"rung": "extend", "reason": "extend existing migration + authz middleware"},
     "plan": ["write migration", "add authz middleware", "backfill"],

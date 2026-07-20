@@ -80,7 +80,16 @@ export async function runInstall({ host, target, dryRun = false }) {
     child.on("error", reject);
     child.on("close", (code) => {
       if (code !== 0) {
-        reject(new Error(`install.py exited with code ${code}`));
+        // A nonzero exit still emits the JSON report; surface its failures
+        // instead of a bare exit code so the user sees what to fix.
+        let detail = "";
+        try {
+          const failures = JSON.parse(stdout).failures ?? [];
+          if (failures.length > 0) detail = `\n${failures.join("\n")}`;
+        } catch {
+          // stdout was not JSON; the bare exit code is all we have.
+        }
+        reject(new Error(`install.py exited with code ${code}${detail}`));
         return;
       }
       try {
@@ -99,42 +108,101 @@ export async function runInstall({ host, target, dryRun = false }) {
 }
 
 /**
- * Verify a prior install is intact. Read-only, cheap.
+ * Reverse a manifest-recorded install via install.py --uninstall.
+ * Resolves even on a nonzero exit (e.g. missing manifest) so the caller can
+ * show the report; rejects only if the output is unusable.
+ * @param {object} opts
+ * @param {string} opts.target absolute path
+ * @param {boolean} [opts.dryRun]
+ * @returns {Promise<{code: number, report: string[]}>}
+ */
+export async function runUninstall({ target, dryRun = false }) {
+  const skillRoot = await resolveSkillRoot();
+  const python = resolvePython();
+  const installScript = join(skillRoot, "scripts", "install.py");
+  const args = [installScript, "--target", target, "--uninstall", "--json"];
+  if (dryRun) args.push("--dry-run");
+
+  info(`Running ${c.dim(`${python} ${args.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ")}`)}`);
+
+  return await new Promise((resolvePromise, reject) => {
+    const child = spawn(python, args, { stdio: ["ignore", "pipe", "inherit"] });
+    let stdout = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      try {
+        const payload = JSON.parse(stdout);
+        resolvePromise({ code: code ?? 1, report: payload.report ?? [] });
+      } catch (err) {
+        reject(new Error(`Could not parse install.py output as JSON: ${err.message}\n---\n${stdout}`));
+      }
+    });
+  });
+}
+
+/**
+ * Verify a prior install against its manifest. Read-only, cheap, and
+ * host-aware: the manifest records exactly what that host's install wrote,
+ * so nothing hand-maintained can drift out of sync with install.py.
  * @param {string} target
  */
 export async function checkInstall(target) {
+  const manifestRel = ".quality-loop/install-manifest.json";
   const findings = [];
-  const checks = [
-    { path: "scripts/quality_loop.py", label: "core script" },
-    { path: "assets/quality-loop.config.example.json", label: "example config" },
-  ];
-  for (const { path, label } of checks) {
-    if (await pathExists(join(target, path))) {
-      ok(`${label}: ${path}`);
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(join(target, manifestRel), "utf8"));
+  } catch (err) {
+    if (err?.code === "ENOENT") {
+      warn(`no install manifest found at ${manifestRel}`);
+      info("nothing is recorded to verify — installs before v6.0.0 wrote no manifest. Run `cql init` to (re)install and record one.");
     } else {
-      warn(`missing ${label}: ${path}`);
-      findings.push(path);
+      warn(`could not read ${manifestRel}: ${err.message}`);
+      info("delete the manifest and run `cql init` to regenerate it.");
+    }
+    return { findings: [manifestRel], foundHosts: [] };
+  }
+  const hosts = String(manifest.host ?? "").split(",").filter(Boolean);
+  const files = (Array.isArray(manifest.files) ? manifest.files : []).filter(
+    (f) => typeof f === "string",
+  );
+  let present = 0;
+  for (const rel of files) {
+    if (await pathExists(join(target, rel))) {
+      present++;
+    } else {
+      warn(`missing ${rel}`);
+      findings.push(rel);
     }
   }
-  const hosts = [
-    { path: ".claude/settings.json", label: "Claude Code hooks" },
-    { path: ".codex/hooks.json", label: "Codex hooks" },
-    { path: ".cursor/rules", label: "Cursor rules" },
-    { path: ".factory/droids", label: "Droid droids" },
-    { path: ".pi/settings.json", label: "Pi settings" },
-    { path: ".pre-commit-config.yaml", label: "git pre-commit" },
-  ];
-  const foundHosts = [];
-  for (const { path, label } of hosts) {
-    if (await pathExists(join(target, path))) {
-      ok(`${label} wired at ${path}`);
-      foundHosts.push(label);
+  ok(`${present}/${files.length} recorded files present (host${hosts.length === 1 ? "" : "s"}: ${hosts.join(", ") || "unknown"})`);
+  const groups = (Array.isArray(manifest.hook_groups) ? manifest.hook_groups : []).filter(
+    (g) => g && typeof g.file === "string" && typeof g.key === "string",
+  );
+  for (const g of groups) {
+    let wired = false;
+    try {
+      const body = await readFile(join(target, g.file), "utf8");
+      if (g.key === "managed-section") {
+        wired = body.includes("BEGIN coding-quality-loop");
+      } else {
+        const wiredGroups = JSON.parse(body)?.hooks?.[g.key];
+        wired = Array.isArray(wiredGroups) && wiredGroups.length > 0;
+      }
+    } catch {
+      wired = false;
+    }
+    if (wired) {
+      ok(`${g.file} wires ${g.key}`);
+    } else {
+      warn(`${g.file} no longer wires ${g.key}`);
+      findings.push(`${g.file}#${g.key}`);
     }
   }
-  if (foundHosts.length === 0) {
-    warn("no host wiring detected — run `cql init` to set up");
-  }
-  return { findings, foundHosts };
+  return { findings, foundHosts: hosts };
 }
 
 /**

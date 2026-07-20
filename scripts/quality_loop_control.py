@@ -165,6 +165,14 @@ def load_control_config(root: Path) -> dict[str, Any]:
     return block if isinstance(block, dict) else {}
 
 
+def _retention_cutoff(root: Path) -> str:
+    """ISO timestamp before which indexed rows are pruned (retention_days)."""
+    block = load_control_config(root)
+    days = block.get("retention_days")
+    days = days if isinstance(days, int) and not isinstance(days, bool) and days >= 1 else DEFAULT_RETENTION_DAYS
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
 def validate_control_plane(block: Any) -> list[str]:
     """Shape-validate a config ``control_plane`` block (used by check-config)."""
     if not isinstance(block, dict):
@@ -222,7 +230,11 @@ def validate_control_plane(block: Any) -> list[str]:
 # v6: also link codex sub-agents (parent_thread_id) into sessions.team.
 # v7: finding/delegation artifact kinds + tool_calls.target passes secret
 #     redaction before storage (rebuild re-redacts any old raw targets).
-SCHEMA_VERSION = 7
+# v8: droid wrapper runs become 'droid_run' events, not 0-token model_calls
+#     rows (rebuild drops the old fabricated 'dwr:' call rows), and delegation
+#     details may carry session_id. Since v8 a version-mismatch rebuild first
+#     exports hook events to events-backup-schema<N>.jsonl (append-safe).
+SCHEMA_VERSION = 8
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -232,6 +244,26 @@ def _connect(path: Path) -> sqlite3.Connection:
     # WAL + a busy timeout make them wait instead of raising "database is locked".
     conn.execute("PRAGMA busy_timeout=5000")
     return conn
+
+
+def _backup_events(conn: sqlite3.Connection, cdir: Path, version: int) -> None:
+    """Export hook events to ``events-backup-schema<N>.jsonl`` before a schema
+    rebuild deletes the DB. Events are the ONE thing a rebuild cannot
+    regenerate (everything else re-indexes from sources of truth). Append-safe
+    — a second rebuild from the same version appends — and best-effort: a
+    malformed old DB degrades to "no backup", never a crash."""
+    try:
+        rows = conn.execute("SELECT session_id, host, ts, name, detail FROM events").fetchall()
+        if not rows:
+            return
+        out = cdir / f"events-backup-schema{version}.jsonl"
+        with out.open("a", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps({"session_id": row["session_id"], "host": row["host"],
+                                     "ts": row["ts"], "name": row["name"],
+                                     "detail": row["detail"]}) + "\n")
+    except (sqlite3.Error, OSError, ValueError):
+        pass
 
 
 def open_db(root: Path) -> sqlite3.Connection:
@@ -246,6 +278,8 @@ def open_db(root: Path) -> sqlite3.Connection:
         if has_tables:
             # A cache written by another schema revision: rebuild from scratch
             # rather than crash on missing columns or serve mis-keyed rows.
+            # Hook events exist only in this DB, so export them first.
+            _backup_events(conn, path.parent, version)
             conn.close()
             for suffix in ("", "-wal", "-shm"):
                 try:
@@ -411,29 +445,37 @@ def _purge_transcript_rows(conn: sqlite3.Connection, path: Path) -> None:
     conn.execute("DELETE FROM sessions WHERE transcript_path=? AND source='transcript'", (str(path),))
 
 
-def _index_transcript_file(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
-    stats = {"lines": 0, "skipped": 0, "model_calls": 0, "tool_calls": 0}
+def _read_new_lines(conn: sqlite3.Connection, path: Path) -> tuple[int, list[bytes], int, float] | None:
+    """The ONE shared incremental reader for append-only JSONL sources (claude
+    transcripts and codex rollouts): a single offset/mtime/head-hash
+    implementation instead of one copy per adapter.
+
+    Returns ``(offset, raw_lines, new_offset, mtime)`` — the complete lines
+    appended since the stored offset — or ``None`` when there is nothing to do
+    (unchanged file, vanished file, or no complete new line yet; a partial
+    trailing line stays unread until the writer finishes it).
+
+    A changed head or a shrunken file means the file was REWRITTEN, not
+    appended: resuming from the old offset would index garbage and keep rows
+    whose source lines no longer exist. Derived rows are purged and the scan
+    restarts at 0. The hash covers min(512, indexed_offset) bytes — a prefix
+    that an append can never change — and the same span is recomputed by
+    ``_remember_file_state``. Known limit: a rewrite that preserves that
+    prefix AND does not shrink the file is indistinguishable from an append
+    (these sources are append-only in practice; cql: full-content hashing is
+    the upgrade path if a host ever rewrites tails in place).
+    """
     try:
         st = path.stat()
     except OSError:
-        return stats  # vanished between glob and stat; next pass reconciles
+        return None  # vanished between glob and stat; next pass reconciles
     row = conn.execute(
         "SELECT offset, mtime, head_hash FROM file_state WHERE path=?", (str(path),)
     ).fetchone()
     offset = row["offset"] if row else 0
     if row and st.st_mtime == row["mtime"] and st.st_size == offset:
-        return stats
-    fallback_session = path.stem
+        return None
     with path.open("rb") as fh:
-        # A changed head or a shrunken file means the file was REWRITTEN, not
-        # appended: resuming from the old offset would index garbage and keep
-        # rows whose source lines no longer exist. Purge and rescan instead.
-        # The hash covers min(512, indexed_offset) bytes — a prefix that an
-        # append can never change — and the same span is recomputed below.
-        # Known limit: a rewrite that preserves that prefix AND does not
-        # shrink the file is indistinguishable from an append (transcripts
-        # are append-only in practice; cql: full-content hashing is the
-        # upgrade path if a host ever rewrites tails in place).
         if row:
             span = min(512, row["offset"])
             head_hash = hashlib.sha256(fh.read(span)).hexdigest() if span else ""
@@ -442,13 +484,27 @@ def _index_transcript_file(conn: sqlite3.Connection, path: Path) -> dict[str, in
                 offset = 0
         fh.seek(offset)
         blob = fh.read()
-    # Only complete lines are consumed; a partial trailing line stays unread
-    # until the writer finishes it (transcripts are append-only).
     end = blob.rfind(b"\n")
     if end < 0:
-        return stats
-    new_offset = offset + end + 1
-    for raw in blob[: end + 1].splitlines():
+        return None
+    return offset, blob[: end + 1].splitlines(), offset + end + 1, st.st_mtime
+
+
+def _remember_file_state(conn: sqlite3.Connection, path: Path, new_offset: int, mtime: float) -> None:
+    """Persist offset+mtime+head-hash so the next pass resumes after ``new_offset``."""
+    with path.open("rb") as fh:
+        stored_hash = hashlib.sha256(fh.read(min(512, new_offset))).hexdigest()
+    conn.execute(
+        "INSERT INTO file_state(path, offset, mtime, head_hash) VALUES(?,?,?,?) "
+        "ON CONFLICT(path) DO UPDATE SET offset=excluded.offset, mtime=excluded.mtime, "
+        "head_hash=excluded.head_hash",
+        (str(path), new_offset, mtime, stored_hash),
+    )
+
+
+def _parse_json_lines(raw_lines: list[bytes], stats: dict[str, int]):
+    """Yield each raw line parsed to a dict; garbage is counted, never fatal."""
+    for raw in raw_lines:
         if not raw.strip():
             continue
         stats["lines"] += 1
@@ -460,20 +516,24 @@ def _index_transcript_file(conn: sqlite3.Connection, path: Path) -> dict[str, in
         if not isinstance(line, dict):
             stats["skipped"] += 1
             continue
+        yield line
+
+
+def _index_transcript_file(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
+    stats = {"lines": 0, "skipped": 0, "model_calls": 0, "tool_calls": 0, "zero_usage": 0}
+    read = _read_new_lines(conn, path)
+    if read is None:
+        return stats
+    _offset, raw_lines, new_offset, mtime = read
+    fallback_session = path.stem
+    for line in _parse_json_lines(raw_lines, stats):
         try:
             _index_line(conn, line, fallback_session, str(path), stats)
         except (sqlite3.Error, TypeError, ValueError, AttributeError):
             # One hostile/unexpected line shape must degrade to "one fewer
             # row", never to a dead index pass — the docs promise this.
             stats["skipped"] += 1
-    with path.open("rb") as fh:
-        stored_hash = hashlib.sha256(fh.read(min(512, new_offset))).hexdigest()
-    conn.execute(
-        "INSERT INTO file_state(path, offset, mtime, head_hash) VALUES(?,?,?,?) "
-        "ON CONFLICT(path) DO UPDATE SET offset=excluded.offset, mtime=excluded.mtime, "
-        "head_hash=excluded.head_hash",
-        (str(path), new_offset, st.st_mtime, stored_hash),
-    )
+    _remember_file_state(conn, path, new_offset, mtime)
     return stats
 
 
@@ -516,6 +576,18 @@ def _index_line(
     )
     if ltype == "assistant":
         usage = message.get("usage") if isinstance(message.get("usage"), dict) else {}
+        # Drift canary: a real model line whose usage sums to zero means either
+        # the host renamed its usage keys or stopped reporting them — the index
+        # would keep filling with confident zeros. Count it so /healthz,
+        # control-status, and the dashboard can warn instead of lying.
+        # ("<synthetic>" placeholder turns legitimately carry zero tokens.)
+        model_name = message.get("model")
+        if isinstance(model_name, str) and model_name and model_name != "<synthetic>":
+            token_sum = (_as_int(usage.get("input_tokens")) + _as_int(usage.get("output_tokens"))
+                         + _as_int(usage.get("cache_read_input_tokens"))
+                         + _as_int(usage.get("cache_creation_input_tokens")))
+            if token_sum == 0:
+                stats["zero_usage"] += 1
         uuid = line.get("uuid")
         # ONE row per API response, not per transcript line: hosts write one
         # JSONL line per content block, each repeating the same message.id and
@@ -717,46 +789,24 @@ def _index_codex_line(
 def _index_codex_file(
     conn: sqlite3.Connection, path: Path, root: Path, all_projects: bool
 ) -> dict[str, int]:
-    stats = {"lines": 0, "skipped": 0, "model_calls": 0, "tool_calls": 0}
+    stats = {"lines": 0, "skipped": 0, "model_calls": 0, "tool_calls": 0, "zero_usage": 0}
+    read = _read_new_lines(conn, path)
+    if read is None:
+        return stats
+    offset, raw_lines, new_offset, mtime = read
+    session_id = _codex_session_id(path)
     try:
-        st = path.stat()
+        with path.open("rb") as fh:
+            first_line = fh.readline(1_000_000)
     except OSError:
         return stats
-    row = conn.execute(
-        "SELECT offset, mtime, head_hash FROM file_state WHERE path=?", (str(path),)
-    ).fetchone()
-    offset = row["offset"] if row else 0
-    if row and st.st_mtime == row["mtime"] and st.st_size == offset:
-        return stats
-    session_id = _codex_session_id(path)
-    with path.open("rb") as fh:
-        if row:
-            span = min(512, row["offset"])
-            head_hash = hashlib.sha256(fh.read(span)).hexdigest() if span else ""
-            if (row["head_hash"] and head_hash != row["head_hash"]) or st.st_size < offset:
-                _purge_transcript_rows(conn, path)
-                offset = 0
-        fh.seek(0)
-        first_line = fh.readline(1_000_000)
-        fh.seek(offset)
-        blob = fh.read()
-
-    def _remember(new_off: int) -> None:
-        with path.open("rb") as fh2:
-            stored = hashlib.sha256(fh2.read(min(512, new_off))).hexdigest()
-        conn.execute(
-            "INSERT INTO file_state(path, offset, mtime, head_hash) VALUES(?,?,?,?) "
-            "ON CONFLICT(path) DO UPDATE SET offset=excluded.offset, mtime=excluded.mtime, "
-            "head_hash=excluded.head_hash",
-            (str(path), new_off, st.st_mtime, stored),
-        )
 
     meta = _codex_meta(first_line)
     cwd = str(meta["cwd"]) if isinstance(meta, dict) and meta.get("cwd") is not None else None
     if not all_projects and cwd != str(root):
         # Foreign project (or unreadable head): consume to the tail so the stat
         # check short-circuits future passes without re-reading the file.
-        _remember(st.st_size)
+        _remember_file_state(conn, path, new_offset, mtime)
         return stats
 
     git = meta.get("git") if isinstance(meta, dict) else None
@@ -783,23 +833,8 @@ def _index_codex_file(
         ).fetchone()
         model = seed["model"] if seed else None
 
-    end = blob.rfind(b"\n")
-    if end < 0:
-        return stats  # no complete new line yet; retry next pass
-    new_offset = offset + end + 1
     last_ts: str | None = None
-    for raw in blob[: end + 1].splitlines():
-        if not raw.strip():
-            continue
-        stats["lines"] += 1
-        try:
-            line = json.loads(raw.decode("utf-8", errors="replace"))
-        except (json.JSONDecodeError, ValueError):
-            stats["skipped"] += 1
-            continue
-        if not isinstance(line, dict):
-            stats["skipped"] += 1
-            continue
+    for line in _parse_json_lines(raw_lines, stats):
         lts = line.get("timestamp")
         if isinstance(lts, str):
             last_ts = lts
@@ -810,7 +845,7 @@ def _index_codex_file(
             stats["skipped"] += 1
     if last_ts:
         _touch_session(conn, session_id, last_ts, host="codex", source="transcript")
-    _remember(new_offset)
+    _remember_file_state(conn, path, new_offset, mtime)
     return stats
 
 
@@ -823,8 +858,10 @@ def _index_codex_file(
 # usage (verified) and are pruned to ~20, so the only durable, model-tagged
 # source is the wrapper's own append-only log: one record per exec run with
 # {ts, model, cwd, session_id, mode, exit_code, ok}. We surface those as
-# host='droid' sessions so GLM delegation is visible; token counts are simply
-# not available from Droid, so model_calls carry 0 tokens (a run == one call).
+# host='droid' sessions so GLM delegation is visible. Token counts are simply
+# not available from Droid, so a run becomes a 'droid_run' EVENT (plus a tool
+# call carrying the ok/error outcome) — never a fabricated 0-token model_calls
+# row, which would corrupt call counts while adding nothing to token totals.
 
 def droid_wrapper_log() -> Path:
     return Path(
@@ -846,7 +883,8 @@ def _index_droid_wrapper(conn: sqlite3.Connection, root: Path, all_projects: boo
     The log is small and append-only; re-parsing it whole each pass with
     INSERT OR IGNORE keeps the code offset-free while staying dedup-safe.
     """
-    stats = {"lines": 0, "skipped": 0, "model_calls": 0, "tool_calls": 0}
+    stats = {"lines": 0, "skipped": 0, "model_calls": 0, "tool_calls": 0,
+             "zero_usage": 0, "droid_runs": 0}
     log = droid_wrapper_log()
     if not log.is_file():
         return stats
@@ -854,6 +892,10 @@ def _index_droid_wrapper(conn: sqlite3.Connection, root: Path, all_projects: boo
         raw = log.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return stats
+    # Runs older than the retention window are skipped at ingest: the whole
+    # log is re-parsed every pass, so without this cutoff a pruned run would
+    # be resurrected on the next pass and pruned again forever.
+    cutoff = _retention_cutoff(root)
     for line in raw.splitlines():
         line = line.strip()
         if not line:
@@ -876,6 +918,8 @@ def _index_droid_wrapper(conn: sqlite3.Connection, root: Path, all_projects: boo
         if not isinstance(session_id, str) or not ts:
             stats["skipped"] += 1
             continue
+        if ts < cutoff:
+            continue  # outside the retention window; would be pruned anyway
         session_id = f"droid:{session_id}"  # namespaced: droid + claude UUIDs can collide
         model = rec.get("model") if isinstance(rec.get("model"), str) else "glm"
         mode = rec.get("mode") if isinstance(rec.get("mode"), str) else None
@@ -885,15 +929,21 @@ def _index_droid_wrapper(conn: sqlite3.Connection, root: Path, all_projects: boo
             conn, session_id, ts, host="droid", source="wrapper",
             cwd=cwd, agent_name=mode, title=title,
         )
-        # No token usage is available from Droid; a run is one model call.
-        key = f"dwr:{session_id}:{ts}"
+        # No token usage is available from Droid, so a run is a 'droid_run'
+        # event — visible in the UI without corrupting call/token totals.
+        # Dedupe via NOT EXISTS: the events table has no natural key and this
+        # log is re-parsed whole every pass.
+        detail = json.dumps({k: v for k, v in
+                             (("model", model), ("mode", mode), ("ok", bool(rec.get("ok"))),
+                              ("exit_code", rec.get("exit_code"))) if v is not None})
         cur = conn.execute(
-            "INSERT OR IGNORE INTO model_calls(uuid, session_id, ts, model, agent, sidechain, "
-            "input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens) "
-            "VALUES(?,?,?,?,?,?,0,0,0,0)",
-            (key, session_id, ts, model, mode, 0),
+            "INSERT INTO events(session_id, host, ts, name, detail) "
+            "SELECT ?,?,?,?,? WHERE NOT EXISTS "
+            "(SELECT 1 FROM events WHERE session_id=? AND ts=? AND name='droid_run')",
+            (session_id, "droid", ts, "droid_run", detail, session_id, ts),
         )
-        stats["model_calls"] += cur.rowcount if cur.rowcount > 0 else 0
+        stats["droid_runs"] += cur.rowcount if cur.rowcount > 0 else 0
+        key = f"dwr:{session_id}:{ts}"
         status = "ok" if rec.get("ok") else "error"
         cur = conn.execute(
             "INSERT OR IGNORE INTO tool_calls(id, session_id, ts, tool, target, agent, sidechain, status) "
@@ -1055,16 +1105,19 @@ def _ingest_lessons(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: s
         )
 
 
-_DELEGATION_FIELDS = ("ts", "task_id", "role", "host", "model", "brief_summary", "expected_agent_name")
+_DELEGATION_FIELDS = ("ts", "task_id", "role", "host", "model", "brief_summary",
+                      "expected_agent_name", "session_id")
 
 
 def _ingest_delegations(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: str) -> int:
     """Ingest the orchestrator's append-only ``.quality-loop/delegations.jsonl``.
 
     One JSON object per line: ts, task_id, role, host, model, brief_summary,
-    expected_agent_name. Mirrors the lessons/JSONL pattern. Malformed lines are
-    skipped and counted (returned), never crash the pass — the ledger is written
-    by hand/agent and a half-flushed line must not break indexing.
+    expected_agent_name, and (producer-side convention, v6) session_id — the
+    worker's session id, known at hand-off. Mirrors the lessons/JSONL pattern.
+    Malformed lines are skipped and counted (returned), never crash the pass —
+    the ledger is written by hand/agent and a half-flushed line must not break
+    indexing.
     """
     skipped = 0
     try:
@@ -1155,14 +1208,15 @@ def index_all(root: Path, all_projects: bool = False) -> dict[str, Any]:
     conn = open_db(root)
     try:
         started = time.time()
-        totals = {"files": 0, "lines": 0, "skipped": 0, "model_calls": 0, "tool_calls": 0}
+        totals = {"files": 0, "lines": 0, "skipped": 0, "model_calls": 0, "tool_calls": 0,
+                  "zero_usage": 0, "droid_runs": 0}
         for tdir, needs_cwd_check in transcript_dirs(root, all_projects):
             for path in sorted(tdir.glob("*.jsonl")):
                 if needs_cwd_check and not _file_in_root(path, root):
                     continue
                 totals["files"] += 1
                 fstats = _index_transcript_file(conn, path)
-                for key in ("lines", "skipped", "model_calls", "tool_calls"):
+                for key in ("lines", "skipped", "model_calls", "tool_calls", "zero_usage"):
                     totals[key] += fstats[key]
         # Rollout adapter: Codex CLI sessions (host='codex'), scoped to this
         # repo by session_meta.cwd (all_projects lifts the scope).
@@ -1170,11 +1224,11 @@ def index_all(root: Path, all_projects: bool = False) -> dict[str, Any]:
             fstats = _index_codex_file(conn, path, root, all_projects)
             if fstats["lines"]:
                 totals["files"] += 1
-            for key in ("lines", "skipped", "model_calls", "tool_calls"):
+            for key in ("lines", "skipped", "model_calls", "tool_calls", "zero_usage"):
                 totals[key] += fstats[key]
         # Wrapper adapter: Droid/GLM exec runs (host='droid'), scoped by cwd.
         dstats = _index_droid_wrapper(conn, root, all_projects)
-        for key in ("lines", "skipped", "model_calls", "tool_calls"):
+        for key in ("lines", "skipped", "model_calls", "tool_calls", "droid_runs"):
             totals[key] += dstats[key]
         # Deleted transcripts must not haunt the index.
         for row in conn.execute(
@@ -1184,14 +1238,26 @@ def index_all(root: Path, all_projects: bool = False) -> dict[str, Any]:
                 _purge_transcript_rows(conn, Path(row["path"]))
                 conn.execute("DELETE FROM file_state WHERE path=?", (row["path"],))
         totals["artifact_sources_changed"] = index_artifacts(conn, root, totals)
-        block = load_control_config(root)
-        days = block.get("retention_days")
-        days = days if isinstance(days, int) and not isinstance(days, bool) and days >= 1 else DEFAULT_RETENTION_DAYS
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        totals["events_pruned"] = conn.execute("DELETE FROM events WHERE ts < ?", (cutoff,)).rowcount
+        # retention_days prunes EVERY table by its own timestamp, not just
+        # events — one cutoff, one mental model. Rows with no timestamp are
+        # kept (they cannot be dated). Pruned rows stay pruned: the offset
+        # cache means an unchanged source file is never re-read.
+        cutoff = _retention_cutoff(root)
+        totals["rows_pruned"] = {
+            "events": conn.execute("DELETE FROM events WHERE ts < ?", (cutoff,)).rowcount,
+            "model_calls": conn.execute("DELETE FROM model_calls WHERE ts < ?", (cutoff,)).rowcount,
+            "tool_calls": conn.execute("DELETE FROM tool_calls WHERE ts < ?", (cutoff,)).rowcount,
+            "artifacts": conn.execute("DELETE FROM artifacts WHERE ts < ?", (cutoff,)).rowcount,
+            "sessions": conn.execute(
+                "DELETE FROM sessions WHERE COALESCE(last_activity_at, started_at) < ?",
+                (cutoff,)).rowcount,
+        }
         if totals["skipped"]:
             prior = int(_meta_get(conn, "skipped_lines") or 0)
             _meta_set(conn, "skipped_lines", str(prior + totals["skipped"]))
+        if totals["zero_usage"]:
+            prior = int(_meta_get(conn, "zero_usage_lines") or 0)
+            _meta_set(conn, "zero_usage_lines", str(prior + totals["zero_usage"]))
         _meta_set(conn, "last_index_at", datetime.now(timezone.utc).isoformat())
         _meta_set(conn, "last_index_monotonic", str(time.time()))
         totals["duration_ms"] = int((time.time() - started) * 1000)
@@ -1315,6 +1381,7 @@ def overview(conn: sqlite3.Connection, prices: dict[str, Any] | None = None) -> 
         "by_model": by_model,
         "last_index_at": _meta_get(conn, "last_index_at"),
         "skipped_lines": int(_meta_get(conn, "skipped_lines") or 0),
+        "zero_usage_lines": int(_meta_get(conn, "zero_usage_lines") or 0),
     }
 
 
@@ -1453,9 +1520,11 @@ def list_events(conn: sqlite3.Connection, limit: int = 200) -> list[dict[str, An
 # stored. Keeping the joins out of the DB keeps the cache disposable and the
 # joins honest (a stored join would silently rot when a source is reindexed).
 
-# A delegation is matched to a session that started in this window around the
-# delegation timestamp: the orchestrator records the delegation just before the
-# worker's session begins, and a worker session rarely runs longer than an hour.
+# Legacy fallback only: a delegation row that carries session_id joins
+# directly by id and never touches this window. A legacy row (no session_id)
+# is matched to a session that started in this window around the delegation
+# timestamp: the orchestrator records the delegation just before the worker's
+# session begins, and a worker session rarely runs longer than an hour.
 _DELEG_MATCH_BEFORE = timedelta(minutes=5)
 _DELEG_MATCH_AFTER = timedelta(minutes=60)
 
@@ -1484,61 +1553,86 @@ def _session_tokens(conn: sqlite3.Connection, session_id: str) -> dict[str, int]
                                 "cache_read_tokens", "cache_creation_tokens")}
 
 
-def _match_delegation(conn: sqlite3.Connection, expected: Any, ts: Any) -> dict[str, Any] | None:
-    """Find the session a delegation ran in: agent_name == expected_agent_name
-    AND started within [ts-5m, ts+60m]. Returns the session (+token totals) or
-    None. When several match, the one nearest the delegation ts wins."""
-    if not isinstance(expected, str) or not expected:
-        return None
-    when = _parse_ts(ts)
-    rows = conn.execute(
-        "SELECT id, host, agent_name, title, started_at, last_activity_at, ended_at "
-        "FROM sessions WHERE agent_name=?",
-        (expected,),
-    ).fetchall()
-    best: tuple[float, sqlite3.Row] | None = None
-    for row in rows:
-        started = _parse_ts(row["started_at"])
-        if when is not None and started is not None:
-            # Window is [ts-5m, ts+60m]: the session may start slightly before
-            # the ledger line is flushed, but mostly after it.
-            if not (when - _DELEG_MATCH_BEFORE <= started <= when + _DELEG_MATCH_AFTER):
-                continue
-            dist = abs((started - when).total_seconds())
-        else:
-            dist = 0.0
-        if best is None or dist < best[0]:
-            best = (dist, row)
-    if best is None:
-        return None
-    row = best[1]
+def _session_with_tokens(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
     out = dict(row)
     out["tokens"] = _session_tokens(conn, row["id"])
     return out
 
 
+_SESSION_JOIN_COLS = ("SELECT id, host, agent_name, title, started_at, last_activity_at, ended_at "
+                      "FROM sessions")
+
+
 def delegations_with_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Every delegation artifact joined to its matched session at query time."""
-    out = []
+    """Every delegation artifact joined to its session at query time.
+
+    Join order: a row carrying ``session_id`` (the producer-side convention —
+    the orchestrator records the worker's session id at hand-off) joins
+    directly by id and skips the heuristic entirely; an explicit id that is
+    not indexed stays unmatched rather than being guessed against. Legacy
+    rows without the field fall back to the fuzzy window match (agent_name ==
+    expected_agent_name, started within [ts-5m, ts+60m], nearest wins) with
+    two guarantees: a delegation whose ts cannot be parsed is flagged
+    ``unjoinable`` (never a distance-0 match against everything), and the
+    join is ONE-TO-ONE — each session is claimed by at most one delegation
+    (globally nearest pair first; the next-nearest goes unmatched instead of
+    double-counting the session's tokens).
+    """
+    items: list[dict[str, Any]] = []
+    claimed: set[str] = set()  # session ids already taken (direct or assigned)
+    candidates: list[tuple[float, int, sqlite3.Row]] = []  # (dist, item index, session)
     for art in list_artifacts(conn, ("delegation",)):
         detail = art["detail"] if isinstance(art["detail"], dict) else {}
-        matched = _match_delegation(conn, detail.get("expected_agent_name"),
-                                    detail.get("ts") or art["ts"])
         item = {
             "task_id": detail.get("task_id"), "role": detail.get("role"),
             "host": detail.get("host"), "model": detail.get("model"),
             "brief_summary": detail.get("brief_summary"),
             "expected_agent_name": detail.get("expected_agent_name"),
+            "session_id": detail.get("session_id"),
             "ts": detail.get("ts") or art["ts"], "title": art["title"],
+            "session": None, "unmatched": True, "unjoinable": False,
         }
-        if matched:
-            item["session"] = matched
-            item["unmatched"] = False
-        else:
-            item["session"] = None
-            item["unmatched"] = True
-        out.append(item)
-    return out
+        items.append(item)
+        sid = detail.get("session_id")
+        if isinstance(sid, str) and sid:
+            row = conn.execute(_SESSION_JOIN_COLS + " WHERE id=?", (sid,)).fetchone()
+            if row is not None:
+                item["session"] = _session_with_tokens(conn, row)
+                item["unmatched"] = False
+                claimed.add(sid)
+            continue  # explicit id: the heuristic never second-guesses it
+        expected = detail.get("expected_agent_name")
+        if not isinstance(expected, str) or not expected:
+            continue
+        when = _parse_ts(item["ts"])
+        if when is None:
+            # An unparseable ts cannot anchor the window; matching it at
+            # distance 0 would steal the nearest session from every honest
+            # row. Count it instead of guessing.
+            item["unjoinable"] = True
+            continue
+        idx = len(items) - 1
+        for row in conn.execute(_SESSION_JOIN_COLS + " WHERE agent_name=?", (expected,)):
+            started = _parse_ts(row["started_at"])
+            if started is None:
+                continue  # an undatable session cannot sit inside the window
+            # Window is [ts-5m, ts+60m]: the session may start slightly before
+            # the ledger line is flushed, but mostly after it.
+            if not (when - _DELEG_MATCH_BEFORE <= started <= when + _DELEG_MATCH_AFTER):
+                continue
+            candidates.append((abs((started - when).total_seconds()), idx, row))
+    # One-to-one greedy assignment: globally nearest (delegation, session)
+    # pair first; ties broken by ledger order for determinism.
+    candidates.sort(key=lambda c: (c[0], c[1]))
+    assigned: set[int] = set()
+    for _dist, idx, row in candidates:
+        if idx in assigned or row["id"] in claimed:
+            continue
+        assigned.add(idx)
+        claimed.add(row["id"])
+        items[idx]["session"] = _session_with_tokens(conn, row)
+        items[idx]["unmatched"] = False
+    return items
 
 
 _TIMELINE_KINDS = ("record", "decision", "plan", "delegation", "escalation", "review", "finding")
@@ -1817,9 +1911,11 @@ class _Handler(BaseHTTPRequestHandler):
             conn = open_db(root)
             try:
                 n = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+                zero_usage = int(_meta_get(conn, "zero_usage_lines") or 0)
             finally:
                 conn.close()
-            self._json(200, {"ok": True, "sessions": n, "root": str(root)})
+            self._json(200, {"ok": True, "sessions": n, "root": str(root),
+                             "zero_usage_lines": zero_usage})
             return
         if not path.startswith("/api/"):
             self._json(404, {"error": f"unknown path: {path}"})
@@ -1850,7 +1946,9 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(200, {"artifacts": list_artifacts(
                     conn, ("record", "review", "decision", "plan", "escalation", "models_used", "finding"))})
             elif path == "/api/delegations":
-                self._json(200, {"delegations": delegations_with_sessions(conn)})
+                rows = delegations_with_sessions(conn)
+                self._json(200, {"delegations": rows,
+                                 "unjoinable": sum(1 for r in rows if r.get("unjoinable"))})
             elif path == "/api/task":
                 task_id = query.get("task_id", "")
                 if not task_id:
@@ -2055,6 +2153,12 @@ def cmd_index(args: Any) -> int:
             f"{stats['artifact_sources_changed']} artifact source(s) refreshed, "
             f"{stats['skipped']} line(s) skipped, {stats['duration_ms']}ms"
         )
+        if stats["zero_usage"]:
+            print(
+                f"warning: {stats['zero_usage']} model line(s) carried zero/absent usage — "
+                "token counts may be stale (the transcript format may have changed; "
+                "check for renamed usage keys)"
+            )
         print(f"db: {db_path(root)}")
     return 0
 
@@ -2079,6 +2183,7 @@ def cmd_status(args: Any) -> int:
             payload["sessions"] = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
             payload["model_calls"] = conn.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0]
             payload["last_index_at"] = _meta_get(conn, "last_index_at")
+            payload["zero_usage_lines"] = int(_meta_get(conn, "zero_usage_lines") or 0)
         finally:
             conn.close()
     if getattr(args, "json", False):
@@ -2093,6 +2198,9 @@ def cmd_status(args: Any) -> int:
         if payload["db_exists"]:
             print(f"sessions: {payload.get('sessions')}  model_calls: {payload.get('model_calls')}  "
                   f"last_index: {payload.get('last_index_at')}")
+            if payload.get("zero_usage_lines"):
+                print(f"warning: {payload['zero_usage_lines']} zero-usage model line(s) indexed — "
+                      "token counts may be stale (transcript format may have changed)")
     return 0
 
 
@@ -2155,6 +2263,9 @@ def render_report_md(bundle: dict[str, Any]) -> str:
                 t = sess.get("tokens", {})
                 lines.append(f"    matched session {sess['id']} "
                              f"({t.get('input_tokens', 0)} in / {t.get('output_tokens', 0)} out)")
+            elif d.get("unjoinable"):
+                lines.append("    unjoinable (delegation ts is not ISO-8601 — "
+                             "record session_id at hand-off to join without a timestamp)")
             else:
                 lines.append("    unmatched (no session found in the delegation window)")
     lines += ["", "## Evidence", f"- Commands run: {bundle.get('evidence_count', 0)}"]
@@ -2196,15 +2307,78 @@ def render_report_md(bundle: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def arm_costs(conn: sqlite3.Connection, since: str | None = None) -> dict[str, Any]:
+    """Per-session token/duration figures shaped for a bench results arm.
+
+    A query, not a gate: emits tokens_in/tokens_out/duration_sec per indexed
+    session (plus totals) so a live bench run can fill its cost fields
+    (bench/runner.py COST_FIELDS) from the index instead of hand-copying host
+    UI numbers. ``since`` (ISO-8601) keeps only sessions whose last activity
+    is at or after the cutoff; sessions with no parseable timestamp are
+    excluded when ``since`` is given (they cannot be placed in the window).
+    """
+    cut = _parse_ts(since) if since else None
+    sessions: list[dict[str, Any]] = []
+    totals = {"sessions": 0, "tokens_in": 0, "tokens_out": 0, "duration_sec": 0.0}
+    for row in conn.execute(
+        "SELECT s.id, s.host, s.agent_name, s.started_at, s.last_activity_at, s.ended_at, "
+        f"(SELECT COALESCE(SUM(input_tokens),0) FROM model_calls m WHERE m.session_id=s.id AND {_REAL_MODEL_SQL}) AS tokens_in, "  # noqa: S608
+        f"(SELECT COALESCE(SUM(output_tokens),0) FROM model_calls m WHERE m.session_id=s.id AND {_REAL_MODEL_SQL}) AS tokens_out, "  # noqa: S608
+        "(SELECT GROUP_CONCAT(DISTINCT model) FROM model_calls m WHERE m.session_id=s.id) AS models "
+        "FROM sessions s ORDER BY COALESCE(s.started_at, s.last_activity_at)"
+    ).fetchall():
+        start = _parse_ts(row["started_at"])
+        end = _parse_ts(row["ended_at"]) or _parse_ts(row["last_activity_at"])
+        if cut is not None and (end is None or end < cut):
+            continue
+        duration = round((end - start).total_seconds(), 1) if (start and end and end >= start) else 0.0
+        sessions.append({
+            "session_id": row["id"], "host": row["host"], "agent_name": row["agent_name"],
+            "models": row["models"], "started_at": row["started_at"],
+            "tokens_in": row["tokens_in"], "tokens_out": row["tokens_out"],
+            "duration_sec": duration,
+        })
+        totals["sessions"] += 1
+        totals["tokens_in"] += row["tokens_in"]
+        totals["tokens_out"] += row["tokens_out"]
+        totals["duration_sec"] = round(totals["duration_sec"] + duration, 1)
+    return {
+        "since": since,
+        "sessions": sessions,
+        "totals": totals,
+        "note": ("Fill a bench results arm from totals (or a per-session slice): "
+                 "tokens_in/tokens_out/duration_sec map 1:1 to bench/runner.py COST_FIELDS; "
+                 "cost_usd stays yours to compute from your own prices."),
+    }
+
+
 def cmd_report(args: Any) -> int:
-    """Emit a per-task audit bundle (markdown default, --json optional).
+    """Emit a per-task audit bundle (markdown default, --json optional), or —
+    with --arm-costs — per-session cost figures for a bench results arm.
 
     Exit 0 on success; exit 2 with a helpful message when the task is unknown.
     """
     root = _root_from(args)
+    if getattr(args, "arm_costs", False):
+        since = getattr(args, "since", None)
+        if since and _parse_ts(since) is None:
+            print(
+                f"control-report: --since must be an ISO-8601 timestamp "
+                f"(got {since!r}; e.g. 2026-07-14T00:00:00Z)",
+                file=sys.stderr,
+            )
+            return 2
+        conn = open_db(root)
+        try:
+            payload = arm_costs(conn, since)
+        finally:
+            conn.close()
+        print(json.dumps(payload, indent=2))
+        return 0
     task_id = str(getattr(args, "task_id", "") or "")
     if not task_id:
-        print("control-report: --task-id is required", file=sys.stderr)
+        print("control-report: --task-id is required (or pass --arm-costs for "
+              "per-session bench cost figures)", file=sys.stderr)
         return 2
     conn = open_db(root)
     try:
@@ -2254,3 +2428,32 @@ def cmd_ingest(args: Any) -> int:
         except OSError:
             pass
     return 0
+
+
+def _main(argv: list[str] | None = None) -> int:
+    """Direct entry point (``python3 scripts/quality_loop_control.py ...``).
+
+    The full command set is registered by quality_loop.py; this standalone
+    parser carries only control-report so the --arm-costs bench-cost query is
+    usable before the gate CLI registers the new flags (cql: fold into
+    quality_loop.py's control-report parser and delete this note)."""
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Control-plane direct entry (full command set: scripts/quality_loop.py)")
+    sub = parser.add_subparsers(dest="command", required=True)
+    p_report = sub.add_parser(
+        "control-report",
+        help="Per-task audit bundle, or --arm-costs for bench cost capture")
+    p_report.add_argument("--cwd", default=".", help="Repo root (default .)")
+    p_report.add_argument("--task-id", help="Task id to report on (omit with --arm-costs)")
+    p_report.add_argument("--json", action="store_true", help="Emit the bundle as JSON instead of markdown")
+    p_report.add_argument("--arm-costs", action="store_true",
+                          help="Emit per-session tokens_in/tokens_out/duration_sec JSON for a bench results arm")
+    p_report.add_argument("--since", help="ISO-8601 cutoff: only sessions active at/after this instant")
+    p_report.set_defaults(func=cmd_report)
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

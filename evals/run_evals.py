@@ -132,6 +132,9 @@ def passing_medium(**overrides) -> dict:
         task_class="medium",
         status="done",
         implementer="agent-a",
+        # Medium+ requires provable criteria: an object AC whose proving_command
+        # matches the base pass command (string ACs block at medium+ risk).
+        acceptance_criteria=[{"criterion": "does the thing", "proving_command": "pytest"}],
         validation_contract=dict(COMPLETE_CONTRACT),
         completion_record=dict(COMPLETE_COMPLETION),
         independent_review={
@@ -1123,6 +1126,84 @@ def case_resolved_failures_dont_block(tmp: Path) -> tuple[bool, str]:
     )
 
 
+def case_string_acs_blocked_at_medium_not_low(tmp: Path) -> tuple[bool, str]:
+    """String ACs are unprovable at medium+ (blocking, with the object shape
+    named in the fix); the same string ACs stay valid at low risk."""
+    medium = passing_medium(acceptance_criteria=["does the thing"])
+    code_m, out_m = verify_gates(tmp, medium)
+    medium_flagged = (
+        code_m == 1
+        and "has no proving_command" in out_m
+        and "proving_command" in out_m
+        and "error:" in out_m
+    )
+
+    low = base_record(
+        risk_tier="low",
+        task_class="tiny",
+        acceptance_criteria=["does the thing"],
+        commands_run=[{"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "ok"}],
+        status="done",
+    )
+    code_l, out_l = verify_gates(tmp, low)
+    low_clean = code_l == 0 and "proving_command" not in out_l
+
+    ok = medium_flagged and low_clean
+    return ok, f"medium(exit={code_m},flagged={medium_flagged}); low(exit={code_l},clean={low_clean})"
+
+
+def case_shared_proving_command_warns(tmp: Path) -> tuple[bool, str]:
+    """>=3 ACs sharing one identical proving_command draws an advisory note
+    (never blocking); distinct per-criterion commands stay silent."""
+    shared = passing_medium(
+        acceptance_criteria=[
+            {"criterion": f"criterion {i}", "proving_command": "pytest"} for i in range(4)
+        ],
+    )
+    code_s, out_s = verify_gates(tmp, shared)
+    warned = code_s == 0 and "share one proving_command" in out_s and "note:" in out_s
+
+    distinct = passing_medium(
+        acceptance_criteria=[
+            {"criterion": "a", "proving_command": "pytest"},
+            {"criterion": "b", "proving_command": "mypy ."},
+        ],
+        commands_run=[
+            {"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "12 passed"},
+            {"cmd": "mypy .", "class": "typecheck", "result": "pass", "evidence": "clean"},
+        ],
+    )
+    code_d, out_d = verify_gates(tmp, distinct)
+    silent = code_d == 0 and "share one proving_command" not in out_d
+
+    ok = warned and silent
+    return ok, f"shared(exit={code_s},warned={warned}); distinct(exit={code_d},silent={silent})"
+
+
+def case_new_exec_classes_count(tmp: Path) -> tuple[bool, str]:
+    """e2e/security/format/migration_dry_run passes count as executable
+    evidence for the medium 'relevant executable check' rule."""
+    results = []
+    for cls in ("e2e", "security", "format", "migration_dry_run"):
+        record = passing_medium(
+            acceptance_criteria=[{"criterion": "does the thing", "proving_command": f"run-{cls}"}],
+            commands_run=[{"cmd": f"run-{cls}", "class": cls, "result": "pass", "evidence": "ok"}],
+        )
+        code, output = verify_gates(tmp, record)
+        results.append(code == 0 and "executable check" not in output)
+    ok = all(results)
+    return ok, f"clean={results} for e2e/security/format/migration_dry_run"
+
+
+def case_blocking_findings_print_as_error(tmp: Path) -> tuple[bool, str]:
+    """Blocking verify-gates findings print with the error: prefix, not
+    warning: (agents read warning-labeled blockers as ignorable)."""
+    record = passing_medium(implementer=None)
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and "error: " in output and "warning: " not in output
+    return ok, f"exit={code}; error_prefix={'error: ' in output}; warning_prefix={'warning: ' in output}"
+
+
 def case_v41_record_fixture_passes(tmp: Path) -> tuple[bool, str]:
     """The archived v4.1.0 dogfood record (predates models_used/escalations)
     still passes check-record: the v4.2 fields are strictly additive."""
@@ -1179,6 +1260,10 @@ CASES = [
     ("escalation must cite a recorded failing command (self-report is not evidence)", case_escalation_requires_failing_evidence),
     ("resolved RED->GREEN failures don't block; outstanding failures do", case_resolved_failures_dont_block),
     ("archived v4.1.0 record passes untouched (v4.2 fields are additive)", case_v41_record_fixture_passes),
+    ("string ACs block at medium+ but stay valid at low risk", case_string_acs_blocked_at_medium_not_low),
+    (">=3 ACs sharing one proving_command draws an advisory note only", case_shared_proving_command_warns),
+    ("e2e/security/format/migration_dry_run count as executable evidence", case_new_exec_classes_count),
+    ("blocking verify-gates findings print as error:, not warning:", case_blocking_findings_print_as_error),
 ]
 
 
