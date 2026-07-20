@@ -178,6 +178,12 @@
       "class": "lint",
       "result": "pass",
       "evidence": "config ok, preceded by the loud heterogeneity status line (SKIPPED — placeholder models in the example config, named explicitly instead of silent)"
+    },
+    {
+      "cmd": "python3 evals/run_hook_evals.py",
+      "class": "security",
+      "result": "pass",
+      "evidence": "41/41 hook cases incl. protect_harness deny/allow, destructive-wrapper FP/FN, truthful scan-text failure, record-deletion block"
     }
   ],
   "models_used": [
@@ -210,40 +216,45 @@
     }
   ],
   "independent_review": {
-    "reviewer": "v6-codex-reviewer (gpt-5-class)",
-    "validator": "codex",
-    "fresh_context": true,
-    "patched": false,
-    "ran_checks": false,
-    "verdict": "request_changes",
-    "findings": [
-      {
-        "severity": "blocking",
-        "summary": "20 findings incl. render-prompt token clobber, stop_gate blocks after install, reality classifier omits task_class, uninstall containment, cql-check accepts {} manifest"
-      }
-    ],
-    "note": "cross-family review; fixes dispatched in workflow wf_6ae2263b-d7b"
-  },
-  "security_review": {
-    "reviewer": "v6-security-reviewer",
+    "reviewer": "v6-fable-final-signoff (claude-fable-5, xhigh)",
+    "validator": "workflow-subagent",
     "fresh_context": true,
     "patched": false,
     "ran_checks": true,
-    "verdict": "request_changes",
+    "verdict": "approve",
     "findings": [
       {
-        "severity": "blocking",
-        "summary": "uninstall path traversal via symlinked dir component (reproduced): a crafted manifest deletes files outside the target root"
+        "severity": "note",
+        "detail": "Reached approve after 3 prior fresh-context review rounds (cross-family GPT/Codex + security + re-review) whose 39 findings were fixed with eval coverage or rejected with evidence; final sign-off verified every trust-chain mechanism empirically and ran all suites green (216 core + 35 add-on + 33 node)."
       },
       {
-        "severity": "major",
-        "summary": "destructive-guard wrapper-form coverage regression (bash -c/rm, /bin/rm, env/xargs/backslash rm now allowed)"
+        "severity": "info",
+        "detail": "Residual: one doc line '(216 core + a 35-case add-on)' stays invisible to the doc-count lint; non-blocking."
       }
     ],
-    "note": "executed hook/reality/memory/control suites; net security improvement with 2 fixable issues; fixes dispatched"
+    "diff_sha256": "c04ed7b29c3a4f0d4974f5122dec682e6ae48078a4fa8b946bd4b2a2e4a7ecba",
+    "attested_at": "2026-07-20T13:31:44"
+  },
+  "security_review": {
+    "reviewer": "v6-security-reviewer + fable-final battery",
+    "fresh_context": true,
+    "patched": false,
+    "ran_checks": true,
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "note",
+        "detail": "Round-1 security review found a reproduced uninstall path-traversal (blocking) + destructive-guard wrapper regression (major); both fixed and re-verified. Final Fable battery re-confirmed: uninstall symlink containment (victim survives), pre-existing-file protection, untracked-symlink non-disclosure + byte-faithful hashing, protect_harness 40-case deny/allow battery incl. all wrapper forms and sh -c payloads, secret patterns/redaction unweakened, control plane 127.0.0.1-bound and genuinely opt-in."
+      },
+      {
+        "severity": "note",
+        "detail": "Accepted residuals (documented): apply_patch best-effort protection (tamper-evidence), Bash sed/heredoc + python-mediated deletions outside the coarse guard grammar."
+      }
+    ],
+    "diff_sha256": "c04ed7b29c3a4f0d4974f5122dec682e6ae48078a4fa8b946bd4b2a2e4a7ecba",
+    "attested_at": "2026-07-20T13:31:44"
   },
   "open_risks": [
-    "Both fresh-context reviews returned request_changes; fixes in flight (wf_6ae2263b-d7b). Re-review + re-attest required before release.",
     "The live ablation (Wave 4.3) has still never been run — v6 pre-registers the protocol and decision rules but the retention evidence remains outstanding, and the README now says so honestly",
     "protect_harness covers Write/Edit/apply_patch targets and Bash rm patterns; Bash-mediated edits (sed/heredoc) of the gate scripts remain a documented residual bypass — tamper-evidence, not immutability",
     "docs/images/evidence-dashboard.png still renders v5.1.0 numbers (annotated 'as of v5.1.0'; regeneration needs matplotlib)"
