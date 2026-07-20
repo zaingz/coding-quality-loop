@@ -122,6 +122,42 @@ test(
   },
 );
 
+test(
+  "remove leaves a coincidentally-identical pre-existing user file alone",
+  { skip: (!hasPython() && "python3/python not on PATH") || (!hasGit() && "git not on PATH") },
+  async () => {
+    const target = await mkdtemp(join(tmpdir(), "cql-preexist-"));
+    assert.equal(spawnSync("git", ["init", "-q"], { cwd: target }).status, 0);
+    // The user already has a file byte-identical to one the installer ships.
+    const shipped = await readFile(
+      resolve(HERE, "..", "..", "..", "assets", "quality-loop.config.example.json"),
+      "utf8",
+    );
+    await mkdir(join(target, "assets"), { recursive: true });
+    await writeFile(join(target, "assets", "quality-loop.config.example.json"), shipped);
+
+    const init = spawnSync(
+      process.execPath,
+      [CLI, "init", "--yes", "--host", "claude-code", "--target", target],
+      { encoding: "utf8" },
+    );
+    assert.equal(init.status, 0, `init failed:\n${init.stderr}`);
+    const manifest = JSON.parse(
+      await readFile(join(target, ".quality-loop", "install-manifest.json"), "utf8"),
+    );
+    assert.ok(
+      (manifest.preexisting || []).includes("assets/quality-loop.config.example.json"),
+      "the coincidental user file is recorded as pre-existing",
+    );
+
+    const remove = spawnSync(process.execPath, [CLI, "remove", "--target", target], { encoding: "utf8" });
+    assert.equal(remove.status, 0, `remove failed:\n${remove.stderr}`);
+    // The user's file must survive uninstall unchanged — we never created it.
+    const after = await readFile(join(target, "assets", "quality-loop.config.example.json"), "utf8");
+    assert.equal(after, shipped, "pre-existing user file was deleted or altered by uninstall");
+  },
+);
+
 test("check rejects an empty {} manifest as unhealthy", async () => {
   const target = await mkdtemp(join(tmpdir(), "cql-check-shape-"));
   await mkdir(join(target, ".quality-loop"), { recursive: true });

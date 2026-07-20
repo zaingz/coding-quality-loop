@@ -6,7 +6,7 @@ config is well-formed. They run fully offline — no models, no network, no exte
 ## Gate suites and the canonical count
 
 The offline **gate** suites — the ones that can fail on a real regression — total
-**213 gate cases across 6 core suites**, plus **35 add-on cases** for the opt-in
+**216 gate cases across 6 core suites**, plus **35 add-on cases** for the opt-in
 control plane:
 
 | Suite | Cases | Runner |

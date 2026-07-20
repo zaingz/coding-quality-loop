@@ -149,6 +149,21 @@ def case_pretool_blocks_flag_order_variants(tmp: Path) -> tuple[bool, str]:
     return ok, "; ".join(details)
 
 
+def case_pretool_blocks_option_bearing_wrappers(tmp: Path) -> tuple[bool, str]:
+    # A wrapper may carry its own options before the real command; the guard
+    # must see through them (sudo -n, env -i, xargs -0, nice -n 5, command --,
+    # /bin/rm) and still catch the destructive rm.
+    repo = make_repo(tmp)
+    details, ok = [], True
+    for cmd in ("sudo -n rm -rf /x", "env -i rm -rf x", "xargs -0 rm -rf",
+                "nice -n 5 rm -rf x", "command -- rm -rf x", "/bin/rm -fr x"):
+        code, out, _ = _bash(repo, cmd)
+        good = code == 0 and deny_json(out)
+        ok = ok and good
+        details.append(f"{cmd!r}: denied={deny_json(out)}")
+    return ok, "; ".join(details)
+
+
 def case_pretool_allows_quoted_or_other_command(tmp: Path) -> tuple[bool, str]:
     # Anchoring to a command position: quoted/read-only mentions must not match,
     # and a force flag on a DIFFERENT command (cp -f) must not complete rm -r.
@@ -336,6 +351,12 @@ def case_pretool_canonical_config_required(tmp: Path) -> tuple[bool, str]:
 
 def case_stop_gate_blocks_phantom_done(tmp: Path) -> tuple[bool, str]:
     repo = make_repo(tmp, with_scripts=True)
+    # Genuine phantom completion: a real base (origin/main) exists and HEAD has
+    # nothing ahead of it, so the branch diff is legitimately empty — the agent
+    # claims 'done' with no change to ship. (A local-only repo with committed
+    # work is NOT phantom: auto-base falls to the empty tree so committed work
+    # stays visible, which is the commit-first-evasion fix.)
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
     (repo / "agent-record.json").write_text(json.dumps(done_record()))
     code, out, err = run_script(STOP, {"cwd": str(repo), "hook_event_name": "Stop", "stop_hook_active": False}, repo)
     try:
@@ -654,6 +675,7 @@ CASES = [
     ("PreToolUse required mode blocks medium edit before plan", case_pretool_required_blocks_edit_before_plan),
     ("PreToolUse allows safe Write", case_pretool_allows_safe_write),
     ("PreToolUse blocks rm with reordered/long recursive+force flags", case_pretool_blocks_flag_order_variants),
+    ("PreToolUse blocks rm behind option-bearing wrappers (sudo -n, env -i, xargs -0)", case_pretool_blocks_option_bearing_wrappers),
     ("PreToolUse allows quoted mentions and cross-command force flags", case_pretool_allows_quoted_or_other_command),
     ("PreToolUse blocks wrapper-invoked destructive forms (bash -c, /bin/rm, env, xargs)", case_pretool_blocks_wrapper_forms),
     ("PreToolUse allows git push --force-with-lease but denies --force/-f", case_pretool_allows_force_with_lease),

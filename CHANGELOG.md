@@ -8,7 +8,7 @@ existing promises mechanically true, fix first contact, shrink to what gates
 actually read, and pre-register the measurement that decides the rest. Net
 effect: the enforced local path re-executes evidence, the installer can
 uninstall itself, the medium paper trail halved, the control plane became an
-opt-in add-on, and the eval floor grew to **213 gate cases** across the six
+opt-in add-on, and the eval floor grew to **216 gate cases** across the six
 core suites plus **35 add-on cases** for the control plane.
 
 **Breaking changes:**
@@ -167,7 +167,29 @@ core suites plus **35 add-on cases** for the control plane.
   instrument for closing the cost loop is shipped; the live run itself is the
   next milestone (Wave 4.3).
 
-**Evals:** static 11→19, behavioral 44→50, reality 23→33, hook 16→30, memory
+**Reviewed:** two independent fresh-context reviews (a cross-family GPT/Codex
+reviewer and a security reviewer) ran on the diff and returned request_changes;
+26 findings were fixed with eval coverage, 2 rejected with evidence, then a
+third fresh-context re-review of the fix delta drove a second fix round
+(local-only-main auto-base, option-bearing destructive wrappers, untracked
+symlink disclosure + byte-faithful hashing, uninstall pre-existing-file
+protection, control-plane range validation, bench mode allow-list).
+
+**Known residual limits (documented, not defects):**
+
+- The Stop hook runs the `verify` umbrella under a 600s host timeout; a suite
+  whose evidence re-execution exceeds that budget should run in CI, not the Stop
+  hook. Local Stop is shape + fast checks; CI (`evals.yml` + the `verify`
+  umbrella) is ground truth.
+- `protect_harness` denies Write/Edit and record-deletion Bash patterns for the
+  gate scripts, hooks, record, and config; `apply_patch` targets are matched
+  best-effort by path reference. Bash-mediated `sed`/heredoc edits remain a
+  documented bypass — this is tamper-evidence, not immutability.
+- `ran_checks` is a warn-not-fail signal at medium+ by design (the plan's
+  make-ran-checks-real decision): an honest `false` must not block, so an
+  approving review without `ran_checks: true` is surfaced as a note.
+
+**Evals:** static 11→20, behavioral 44→54, reality 23→40, hook 16→41, memory
 26→32, routing 24→29 core suites; control 27→35 add-on suite. Canonical counts
 live in `evals/run_evals.py` (`CANONICAL_GATE_CASES`, `CONTROL_ADDON_CASES`).
 

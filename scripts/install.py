@@ -32,6 +32,10 @@ _WITH_CONTROL_PLANE = False
 # `cql check` can verify the install and --uninstall can reverse it.
 _MANIFEST_FILES: list[Path] = []
 _MANIFEST_HOOK_GROUPS: list[dict[str, str]] = []
+# Files that already existed (and were not ours from a prior install) when we
+# first touched them — byte-identical coincidences we must NOT delete on
+# uninstall. Overwritten user files are handled separately via .bak restore.
+_MANIFEST_PREEXISTING: set[Path] = set()
 
 # Paths a previous install manifest already records as ours. Overwriting our
 # own files (idempotent re-install, upgrade) must NOT create .bak backups —
@@ -85,10 +89,18 @@ def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _note_preexisting(path: Path) -> None:
+    """A file that exists, isn't already ours, is a coincidental match — record
+    it so uninstall never deletes a user file it did not create."""
+    if path.exists() and not _is_owned(path):
+        _MANIFEST_PREEXISTING.add(path)
+
+
 def write_json(path: Path, data: dict[str, Any], dry_run: bool) -> bool:
     _record_file(path)
     body = json.dumps(data, indent=2) + "\n"
     if path.exists() and path.read_text(encoding="utf-8") == body:
+        _note_preexisting(path)
         return False
     if dry_run:
         _say(f"would write {path}")
@@ -102,6 +114,7 @@ def write_json(path: Path, data: dict[str, Any], dry_run: bool) -> bool:
 def copy_file(src: Path, dest: Path, dry_run: bool) -> bool:
     _record_file(dest)
     if dest.exists() and dest.read_bytes() == src.read_bytes():
+        _note_preexisting(dest)
         return False
     if dry_run:
         _say(f"would copy {src} -> {dest}")
@@ -382,8 +395,12 @@ def write_manifest(target: Path, hosts_installed: list[str], dry_run: bool) -> N
     except (json.JSONDecodeError, OSError):
         previous = {}
         _say(f"warning: existing manifest at {path} was unreadable; rewriting it from this install only")
+    preexisting = {p.relative_to(target).as_posix() for p in _MANIFEST_PREEXISTING}
     hosts.update(h for h in str(previous.get("host") or "").split(",") if h)
     files.update(f for f in previous.get("files") or [] if isinstance(f, str))
+    preexisting.update(f for f in previous.get("preexisting") or [] if isinstance(f, str))
+    # A path recorded as pre-existing must not also be claimed as ours to delete.
+    preexisting &= files
     for group in previous.get("hook_groups") or []:
         if isinstance(group, dict) and group not in groups:
             groups.append(group)
@@ -391,6 +408,7 @@ def write_manifest(target: Path, hosts_installed: list[str], dry_run: bool) -> N
         "version": 1,
         "host": ",".join(sorted(hosts)),
         "files": sorted(files),
+        "preexisting": sorted(preexisting),
         "hook_groups": groups,
         "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
@@ -499,9 +517,12 @@ def uninstall(target: Path, dry_run: bool) -> tuple[int, list[str]]:
         )
         return 1, report
 
+    preexisting = {
+        f for f in (manifest.get("preexisting") or []) if isinstance(f, str)
+    }
     listed = sorted({
         f for f in (manifest.get("files") or [])
-        if isinstance(f, str) and _rel_inside_target(f)
+        if isinstance(f, str) and _rel_inside_target(f) and f not in preexisting
     })
     files = [f for f in listed if _resolves_inside_target(target, f)]
     lexical_groups = [

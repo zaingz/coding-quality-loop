@@ -129,6 +129,11 @@ def validate_results_doc(data: Any) -> tuple[int, list[str]]:
     if not isinstance(mode, str) or not mode:
         problems.append("MALFORMED: missing top-level 'mode' ('fixture' for synthetic smoke files; e.g. 'live' otherwise)")
         mode = ""
+    elif mode not in ("fixture", "live"):
+        problems.append(
+            f"MALFORMED: unknown top-level mode {mode!r} (must be 'fixture' or 'live'); "
+            "an unrecognized mode must not stand in for a live instrumented result"
+        )
     runs = data.get("runs")
     if not isinstance(runs, list) or not runs:
         problems.append("MALFORMED: missing or empty 'runs' — zero runs is not an instrumented result")

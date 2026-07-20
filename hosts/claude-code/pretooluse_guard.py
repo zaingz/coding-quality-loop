@@ -18,7 +18,14 @@ from hooklib import deny_pretool, json_input, load_json, project_root
 # `env rm -rf`, `xargs rm -rf`, `command rm -rf`, `nice rm -rf`, VAR=1
 # prefixes, and a path/backslash prefix on the binary (`/bin/rm`, `\rm`) all
 # stay anchored to the command position.
-_WRAPPER = r"(?:(?:\S*/)?(?:sudo|env|command|nice|nohup|time|xargs)\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+# A wrapper keyword may carry its own option/value tokens before the real
+# command: `sudo -n rm`, `env -i rm`, `xargs -0 rm`, `nice -n 5 rm`, `command
+# -- rm`. Consume leading `-flag` and bare-number tokens after each keyword so
+# an option-bearing wrapper cannot slip a destructive command past the guard.
+_WRAPPER = (
+    r"(?:(?:\S*/)?(?:sudo|env|command|nice|nohup|time|xargs)\s+(?:-\S+\s+|\d+\s+)*"
+    r"|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+)
 _CMD = r"(?:^|[;&|\n]|\$\(|`)\s*" + _WRAPPER + r"(?:\\|\S*/)?"
 # Rest of the same command segment: never crosses into the next command.
 _SEG = r"[^;&|\n]*"

@@ -30,6 +30,6 @@ Use `references/reviewer-checklists.md` as the checklist. Return strict JSON
 ```
 
 If approving, run
-`python3 scripts/quality_loop.py attest-review <review-json> --base HEAD`
+`python3 scripts/quality_loop.py attest-review <review-json>`
 or tell the caller to attest the JSON as the final reviewer act so review
 freshness is checkable, not self-attested.

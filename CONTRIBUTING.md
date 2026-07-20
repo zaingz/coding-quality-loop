@@ -38,8 +38,8 @@ the repo stays trustable.
       python3 evals/run_trigger_evals.py    # trigger smoke fixture (excluded from the headline count; its default grader cannot fail)
       ```
 
-      The six core gate suites total **213 offline gate cases** (20 static + 54 behavioral +
-      32 memory + 38 reality + 29 routing + 40 hook). The opt-in control plane adds
+      The six core gate suites total **216 offline gate cases** (20 static + 54 behavioral +
+      32 memory + 40 reality + 29 routing + 41 hook). The opt-in control plane adds
       **35 add-on cases** (`run_control_evals.py`), counted separately because the
       add-on is not installed by default. The trigger smoke fixture is run separately
       and is **not** part of either count. The canonical numbers live in

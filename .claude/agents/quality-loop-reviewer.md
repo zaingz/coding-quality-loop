@@ -22,4 +22,4 @@ Return strict JSON (same contract as `assets/prompts/reviewer.md`):
 }
 ```
 
-`ran_checks` is true only if you executed tests/benchmarks yourself, false if you only read evidence. If approving, run `python3 scripts/quality_loop.py attest-review <review-json> --base HEAD` (or tell the caller to) as the final act.
+`ran_checks` is true only if you executed tests/benchmarks yourself, false if you only read evidence. If approving, run `python3 scripts/quality_loop.py attest-review <review-json>` (or tell the caller to) as the final act.

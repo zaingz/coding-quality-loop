@@ -115,12 +115,33 @@ def _untracked_pseudo_diff(cwd: Path) -> str:
     for f in sorted(p.strip() for p in out.splitlines() if p.strip()):
         if _is_scaffolding_untracked(f):
             continue
+        path = cwd / f
+        # Never follow an untracked symlink: reading its target would disclose a
+        # file outside the tree through render-prompt. Represent it by its link
+        # value so a change still stales the hash, without reading the target.
+        if path.is_symlink():
+            try:
+                target = os.readlink(path)
+            except OSError:
+                target = "(unreadable)"
+            chunks.append(f"diff --untracked a/{f} b/{f}\nsymlink -> {target}\n")
+            continue
         try:
-            content = (cwd / f).read_text(encoding="utf-8", errors="replace")
+            raw = path.read_bytes()
         except OSError as exc:
-            content = f"(unreadable untracked file: {exc.__class__.__name__})\n"
+            chunks.append(
+                f"diff --untracked a/{f} b/{f}\n(unreadable untracked file: {exc.__class__.__name__})\n"
+            )
+            continue
+        # A raw-byte sha keeps the hash byte-faithful (CRLF/final-newline/
+        # invalid-byte changes all stale it); the decoded +lines stay human-
+        # reviewable in the rendered prompt.
+        digest = hashlib.sha256(raw).hexdigest()
+        content = raw.decode("utf-8", errors="replace")
         body = "".join("+" + line + "\n" for line in content.splitlines())
-        chunks.append(f"diff --untracked a/{f} b/{f}\n--- /dev/null\n+++ b/{f}\n{body}")
+        chunks.append(
+            f"diff --untracked a/{f} b/{f}\n--- /dev/null\n+++ b/{f}\nsha256 {digest}\n{body}"
+        )
     return "".join(chunks)
 
 

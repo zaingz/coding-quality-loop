@@ -173,7 +173,10 @@ export async function checkInstall(target) {
     (f) => typeof f === "string",
   );
   const isUnsafe = (f) =>
-    f.startsWith("/") || /^[A-Za-z]:[\\/]/.test(f) || f.split(/[\\/]+/).includes("..");
+    f.trim() === "" ||
+    f.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(f) ||
+    f.split(/[\\/]+/).includes("..");
   const files = allFiles.filter((f) => !isUnsafe(f));
   const shapeProblems = [];
   if (manifest.version !== 1) {

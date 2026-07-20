@@ -971,6 +971,52 @@ def case_auto_base_never_falls_back_to_head(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; floor={floor_fired}; no_phantom={no_phantom}; output={ (out + err).strip()[:200]!r}"
 
 
+def case_auto_base_local_main_keeps_work_visible(tmp: Path) -> tuple[bool, str]:
+    """Auto-base on a local-only main/master (no remote): merge-base(main,HEAD)
+    IS HEAD's commit, which would empty the diff for committed work. The auto
+    default must fall to the empty tree so committed work stays visible — while
+    a genuine origin/main==HEAD stays an empty diff (phantom), covered elsewhere."""
+    repo = make_repo(tmp)  # git init defaults to main/master, no remote
+    auth = repo / "src" / "auth"
+    auth.mkdir(parents=True)
+    (auth / "login.py").write_text("def login(token): return token\n")
+    _git(repo, "add", "src/auth/login.py")
+    _git(repo, "commit", "-m", "add auth login")  # committed; HEAD == local main
+    record = passing_record(
+        repo, goal="tidy a helper", risk_tier="low", task_class="small", status="done",
+        commands_run=[{"cmd": "read", "class": "lint", "result": "pass", "evidence": "ok"}],
+        validation_contract=None, independent_review=None, completion_record=None,
+        repo_map={"entry_points": [], "likely_files": [], "callers_checked": [], "tests": []},
+        plan=[], review_findings=[],
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", cwd=str(repo))
+    combined = (out + err).lower()
+    floor_fired = "diff-derived risk floor" in combined  # auth path is visible
+    no_phantom = "phantom completion" not in combined
+    ok = code == 1 and floor_fired and no_phantom
+    return ok, f"exit={code}; floor={floor_fired}; no_phantom={no_phantom}; out={combined.strip()[:160]!r}"
+
+
+def case_untracked_symlink_not_disclosed(tmp: Path) -> tuple[bool, str]:
+    """The untracked pseudo-diff must NOT follow a symlink: reading its target
+    would disclose a file outside the tree through render-prompt. It is
+    represented by its link value, and the outside content never appears."""
+    repo = make_repo(tmp)
+    secret = tmp / "outside-secret.txt"
+    secret.write_text("SUPER_SECRET_TOKEN_VALUE\n")
+    link = repo / "link.txt"
+    try:
+        link.symlink_to(secret)
+    except (OSError, NotImplementedError) as exc:
+        return True, f"symlinks unsupported here ({exc.__class__.__name__}); skipped"
+    patch = qlreal.diff_patch("HEAD", cwd=repo, exclude_record_dir=True)
+    disclosed = "SUPER_SECRET_TOKEN_VALUE" in patch
+    represented = "link.txt" in patch and "symlink ->" in patch
+    ok = (not disclosed) and represented
+    return ok, f"disclosed={disclosed}; represented={represented}"
+
+
 def case_attest_covers_untracked_content(tmp: Path) -> tuple[bool, str]:
     """Canonical diff covers untracked files: a new (never git-added) source
     file changed AFTER attestation must stale the review — with a tracked-only
@@ -1077,6 +1123,8 @@ CASES = [
     ("task_class=medium with risk_tier=low still fires scope integrity (classifier parity)", case_task_class_medium_low_risk_scope_integrity),
     ("'add a test fixture' is not a bugfix; 'fix the rounding' is (explicit inflections)", case_bugfix_fixture_not_bugfix),
     ("auto base never falls back to HEAD (empty tree keeps committed work visible)", case_auto_base_never_falls_back_to_head),
+    ("auto base on local-only main/master keeps committed work visible", case_auto_base_local_main_keeps_work_visible),
+    ("untracked symlink is not followed/disclosed by the canonical diff", case_untracked_symlink_not_disclosed),
     ("untracked file content is pinned by attestation (edit after attest goes stale)", case_attest_covers_untracked_content),
     ("render-prompt keeps a literal {evidence} token in the diff intact (single pass)", case_render_prompt_literal_token_survives),
 ]

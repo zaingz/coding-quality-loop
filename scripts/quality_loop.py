@@ -687,9 +687,23 @@ def _resolve_default_base() -> tuple[str, str | None]:
     if resolved == _EMPTY_TREE_SHA:
         return resolved, hint
     code, out, _ = qlcore.git_capture(["merge-base", resolved, "HEAD"])
-    if code == 0 and out.strip():
-        return out.strip(), hint
-    return resolved, hint
+    base = out.strip() if code == 0 and out.strip() else resolved
+    # A local-only checkout (no remote) resolves the base to the current branch
+    # main/master, whose merge-base with HEAD IS HEAD's commit — that would empty
+    # the diff for committed work, recreating commit-first evasion. Fall to the
+    # empty tree so committed work stays visible. This only applies to the LOCAL
+    # fallback: when a real origin/* base resolves to HEAD, the empty diff is a
+    # genuine "nothing shipped" signal (phantom completion) and must be kept.
+    if resolved in ("main", "master"):
+        hc, head_sha, _ = qlcore.git_capture(["rev-parse", "HEAD^{commit}"])
+        bc, base_sha, _ = qlcore.git_capture(["rev-parse", base + "^{commit}"])
+        if hc == 0 and bc == 0 and head_sha.strip() and head_sha.strip() == base_sha.strip():
+            return _EMPTY_TREE_SHA, (
+                "auto-base resolved to HEAD (local-only main/master with no distinct "
+                "base ref); diffing against the empty tree so committed work stays "
+                "visible (pass --base HEAD explicitly to compare against the last commit only)."
+            )
+    return base, hint
 
 
 # Intentional simplifications (P3.17) are marked with an inline `cql:` comment
@@ -1383,12 +1397,23 @@ def _control_plane_shape_errors(control: Any) -> list[str]:
     errors: list[str] = []
     if "enabled" in control and not isinstance(control["enabled"], bool):
         errors.append("control_plane.enabled must be a boolean")
+    if "autostart" in control and not isinstance(control["autostart"], bool):
+        errors.append("control_plane.autostart must be a boolean")
     port = control.get("port")
-    if port is not None and (isinstance(port, bool) or not isinstance(port, int)):
-        errors.append("control_plane.port must be an integer")
+    if port is not None:
+        if isinstance(port, bool) or not isinstance(port, int):
+            errors.append("control_plane.port must be an integer")
+        elif not (1 <= port <= 65535):
+            errors.append("control_plane.port must be between 1 and 65535")
     days = control.get("retention_days")
-    if days is not None and (isinstance(days, bool) or not isinstance(days, int)):
-        errors.append("control_plane.retention_days must be an integer")
+    if days is not None:
+        if isinstance(days, bool) or not isinstance(days, int):
+            errors.append("control_plane.retention_days must be an integer")
+        elif days < 0:
+            errors.append("control_plane.retention_days must be >= 0")
+    prices = control.get("prices")
+    if prices is not None and not isinstance(prices, dict):
+        errors.append("control_plane.prices must be an object (model-id -> USD per million tokens)")
     return errors
 
 

@@ -52,10 +52,10 @@ SCRIPT = ROOT / "scripts" / "quality_loop.py"
 # phrased "<n> add-on cases" in docs.
 #
 # BUMP THESE whenever a suite's case count changes. Current breakdown:
-#   20 static + 54 behavioral + 32 memory + 38 reality + 29 routing + 40 hook
-#   = 213 core; control add-on = 35
+#   20 static + 54 behavioral + 32 memory + 40 reality + 29 routing + 41 hook
+#   = 216 core; control add-on = 35
 # (behavioral is this file: len(CASES); run each suite to confirm.)
-CANONICAL_GATE_CASES = 213
+CANONICAL_GATE_CASES = 216
 CONTROL_ADDON_CASES = 35
 
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -1454,15 +1454,26 @@ def case_check_config_core_control_plane_shape(tmp: Path) -> tuple[bool, str]:
     code_p, out_p = check({"enabled": False, "port": "8080"})
     bad_port_fails = code_p == 1 and "control_plane.port must be an integer" in out_p
 
+    # A disabled block with an out-of-range port / negative retention / non-bool
+    # autostart must still fail in core, not slip through because the add-on's
+    # full validator is absent.
+    code_r, out_r = check({"enabled": False, "port": 99999, "retention_days": -1, "autostart": "yes"})
+    range_fails = code_r == 1 and all(s in out_r for s in (
+        "control_plane.port must be between 1 and 65535",
+        "control_plane.retention_days must be >= 0",
+        "control_plane.autostart must be a boolean",
+    ))
+
     code_n, out_n = check("on")
     non_dict_fails = code_n == 1 and "control_plane must be an object" in out_n
 
     code_v, out_v = check(None)  # the example's own valid disabled block
     valid_passes = code_v == 0 and "config ok" in out_v
 
-    ok = bad_port_fails and non_dict_fails and valid_passes
+    ok = bad_port_fails and range_fails and non_dict_fails and valid_passes
     return ok, (
         f"bad_port(exit={code_p},flagged={bad_port_fails}); "
+        f"range(exit={code_r},flagged={range_fails}); "
         f"non_dict(exit={code_n},flagged={non_dict_fails}); valid(exit={code_v})"
     )
 
