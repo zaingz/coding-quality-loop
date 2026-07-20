@@ -554,11 +554,17 @@ def case_settings_stop_timeout_covers_verify(tmp: Path) -> tuple[bool, str]:
     # hook must carry a generous terminal-status budget (>= 600s). Tradeoff: a
     # genuinely hung suite can hold the stop for that long — acceptable, since
     # the alternative silently kills truthful evidence re-execution.
-    settings = json.loads((ROOT / "hosts" / "claude-code" / "settings.json").read_text(encoding="utf-8"))
-    stop_hooks = [h for entry in settings["hooks"]["Stop"] for h in entry["hooks"]]
-    timeouts = [h.get("timeout") for h in stop_hooks]
+    # Pin BOTH host wirings — Claude Code settings.json AND Codex hooks.json —
+    # so a future regression of either Stop timeout is caught (v6.0.1 fixed the
+    # Codex copy, which had been left at 30s).
+    timeouts = []
+    for rel in (("hosts", "claude-code", "settings.json"), ("hosts", "codex", "hooks.json")):
+        cfg = json.loads(ROOT.joinpath(*rel).read_text(encoding="utf-8"))
+        for entry in cfg.get("hooks", {}).get("Stop", []):
+            for h in entry.get("hooks", []):
+                timeouts.append(h.get("timeout"))
     ok = bool(timeouts) and all(isinstance(t, int) and t >= 600 for t in timeouts)
-    return ok, f"stop_timeouts={timeouts} (need >= 600 to cover 120s/command evidence re-execution)"
+    return ok, f"stop_timeouts={timeouts} (both hosts; need >= 600 to cover 120s/command evidence re-execution)"
 
 
 def case_stop_gate_terminal_runs_verify_umbrella(tmp: Path) -> tuple[bool, str]:

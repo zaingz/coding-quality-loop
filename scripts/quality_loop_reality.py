@@ -295,7 +295,11 @@ def verify_gates_against_diff(
     # 2. Scope integrity: changed files ⊄ repo_map ∪ plan ∪ completion_record.
     if files and non_trivial:
         paths, globs, dirs = _allowed_paths_and_globs(record)
-        plan_text = " ".join(str(p) for p in record.get("plan", []) or []).lower()
+        # A malformed record (scalar plan) must degrade to a finding, not crash:
+        # str-join on a non-iterable raises TypeError.
+        plan_val = record.get("plan")
+        plan_items = plan_val if isinstance(plan_val, list) else ([plan_val] if plan_val else [])
+        plan_text = " ".join(str(p) for p in plan_items).lower()
         unmapped = [
             f for f in files
             if not _file_is_mapped(f, paths, globs, dirs, plan_text)
