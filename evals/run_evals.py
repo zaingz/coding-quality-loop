@@ -43,17 +43,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "quality_loop.py"
 
-# Canonical count of offline GATE cases. This is the single source of truth the
-# count-consistency lint (case_doc_counts_match_canonical) asserts every public
-# doc agrees with. It EXCLUDES the trigger smoke fixture, whose default grader is
-# reverse-engineered from its own prompts and cannot fail (see
-# evals/run_trigger_evals.py, evals/README.md).
+# Canonical count of offline CORE gate cases. This is the single source of truth
+# the count-consistency lint (case_doc_counts_match_canonical) asserts every
+# public doc agrees with. It EXCLUDES the trigger smoke fixture, whose default
+# grader is reverse-engineered from its own prompts and cannot fail (see
+# evals/run_trigger_evals.py, evals/README.md), and the opt-in control-plane
+# add-on suite, which is tracked separately as CONTROL_ADDON_CASES and must be
+# phrased "<n> add-on cases" in docs.
 #
-# BUMP THIS whenever a gate suite's case count changes. Current breakdown:
-#   11 static + 44 behavioral + 26 memory + 23 reality + 24 routing + 16 hook
-#   + 27 control = 171
-# (behavioral is this file: len(CASES); run it to confirm the number.)
-CANONICAL_GATE_CASES = 171
+# BUMP THESE whenever a suite's case count changes. Current breakdown:
+#   20 static + 54 behavioral + 32 memory + 40 reality + 29 routing + 41 hook
+#   = 216 core; control add-on = 35
+# (behavioral is this file: len(CASES); run each suite to confirm.)
+CANONICAL_GATE_CASES = 216
+CONTROL_ADDON_CASES = 35
 
 sys.path.insert(0, str(ROOT / "scripts"))
 import quality_loop  # noqa: E402  (SECRET_PATTERNS reused by the untracked-secret case)
@@ -132,6 +135,9 @@ def passing_medium(**overrides) -> dict:
         task_class="medium",
         status="done",
         implementer="agent-a",
+        # Medium+ requires provable criteria: an object AC whose proving_command
+        # matches the base pass command (string ACs block at medium+ risk).
+        acceptance_criteria=[{"criterion": "does the thing", "proving_command": "pytest"}],
         validation_contract=dict(COMPLETE_CONTRACT),
         completion_record=dict(COMPLETE_COMPLETION),
         independent_review={
@@ -903,14 +909,19 @@ def case_require_terminal_noop_when_done(tmp: Path) -> tuple[bool, str]:
 
 
 def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
-    # Numbers-consistency lint (critical review R2): every public doc that states an
-    # offline gate-case count must state CANONICAL_GATE_CASES. Guards against the
-    # 116->121 drift the review flagged. The trigger smoke fixture is counted
-    # separately and always as "10-case ..." (hyphen + singular), which this pattern
-    # deliberately does not match.
+    # Numbers-consistency lint (critical review R2 + improvement plan 2.5): every
+    # public doc that states an offline gate-case count must state
+    # CANONICAL_GATE_CASES (core suites), and every "<n> add-on cases" mention
+    # must state CONTROL_ADDON_CASES (the opt-in control-plane suite). Guards
+    # against the 116->121 drift the review flagged. Two deliberate exemptions:
+    # the trigger smoke fixture is always "10-case ..." (hyphen + singular,
+    # which the pattern does not match), and any LINE annotated "as of vX.Y" is
+    # historical by declaration — the lint must never rewrite history again
+    # (it once overwrote ROADMAP's v3.0-era count with the then-current one).
     docs = [
         ROOT / "README.md",
         ROOT / "ROADMAP.md",
+        ROOT / "CONTRIBUTING.md",
         ROOT / "docs" / "README.md",
         ROOT / "docs" / "comparison.md",
         ROOT / "docs" / "launch-kit.md",
@@ -918,26 +929,57 @@ def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
         ROOT / "evals" / "README.md",
     ]
     # CHANGELOG holds historical counts by design; only its TOP entry must be
-    # current. Dated snapshot docs (docs/critical-review-*, docs/spec-*) are
-    # deliberately excluded: they describe the tree they audited.
+    # current. Dated snapshot docs (docs/critical-review-*, docs/spec-*,
+    # docs/improvement-plan-*) are deliberately excluded: they describe the
+    # tree they audited.
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     top_entry = re.split(r"\n## ", changelog)[1] if "\n## " in changelog else changelog
     # Matches the headline phrasings only: "<n> cases", "<n> gate cases",
     # "<n> eval cases", "<n> offline cases", "<n> offline gate/eval cases".
-    pattern = re.compile(r"(\d+)\s+(?:offline\s+)?(?:gate\s+|eval\s+)?cases\b", re.IGNORECASE)
+    # Also catches "<n> core cases" — including URL-encoded ("<n>%20core%20cases")
+    # so a shields.io badge cannot drift invisibly — and "| **<n>** |" /
+    # "| <n> |" table cells, the two phrasings the v6 final review found the
+    # plain word-boundary regex could not see.
+    pattern = re.compile(
+        r"(\d+)(?:\s+|%20)(?:offline(?:\s+|%20))?(?:gate(?:\s+|%20)|eval(?:\s+|%20)|core(?:\s+|%20))?cases\b",
+        re.IGNORECASE,
+    )
+    table_pattern = re.compile(r"\|\s*\*{0,2}(\d+)\*{0,2}\s*\|")
+    # The add-on suite's own phrasing ("<n> add-on cases"), invisible to the
+    # core pattern above and vice versa.
+    addon_pattern = re.compile(r"(\d+)(?:-case)?\s+add-on\s+(?:gate\s+|eval\s+)?cases?\b", re.IGNORECASE)
+    historical = re.compile(r"\bas of v\d", re.IGNORECASE)
+    # Only lint table cells inside the canonical "Total core gate cases" row —
+    # per-suite rows carry their own (varying) counts that are not the total.
+    total_row = re.compile(r"total\s+core\s+gate\s+cases", re.IGNORECASE)
     mismatches = []
+
+    def check_text(text: str, rel: str, allow_trigger: bool) -> None:
+        for line in text.splitlines():
+            if historical.search(line):
+                continue  # "as of vX.Y" marks a historical count; exempt
+            for m in addon_pattern.finditer(line):
+                if int(m.group(1)) != CONTROL_ADDON_CASES:
+                    mismatches.append(f"{rel}: {m.group(0)!r} != {CONTROL_ADDON_CASES} (add-on)")
+            stripped = addon_pattern.sub("", line)
+            for m in pattern.finditer(stripped):
+                n = int(m.group(1))
+                if allow_trigger and n == 10:
+                    continue
+                if n != CANONICAL_GATE_CASES:
+                    mismatches.append(f"{rel}: {m.group(0)!r} != {CANONICAL_GATE_CASES}")
+            if total_row.search(line):
+                for m in table_pattern.finditer(line):
+                    if int(m.group(1)) != CANONICAL_GATE_CASES:
+                        mismatches.append(f"{rel}: total-row cell {m.group(0)!r} != {CANONICAL_GATE_CASES}")
+
     for doc in docs:
-        rel = doc.relative_to(ROOT)
+        rel = str(doc.relative_to(ROOT))
         if not doc.exists():
             mismatches.append(f"{rel}: MISSING")
             continue
-        for m in pattern.finditer(doc.read_text(encoding="utf-8")):
-            n = int(m.group(1))
-            if n != CANONICAL_GATE_CASES:
-                mismatches.append(f"{rel}: {m.group(0)!r} != {CANONICAL_GATE_CASES}")
-    for m in pattern.finditer(top_entry):
-        if int(m.group(1)) not in (CANONICAL_GATE_CASES, 10):
-            mismatches.append(f"CHANGELOG.md (top entry): says {m.group(1)}")
+        check_text(doc.read_text(encoding="utf-8"), rel, allow_trigger=False)
+    check_text(top_entry, "CHANGELOG.md (top entry)", allow_trigger=True)
 
     ok = not mismatches
     return ok, ("all docs match canonical" if ok else f"mismatches={mismatches}")
@@ -978,10 +1020,49 @@ def case_bench_validate_requires_cost_fields(tmp: Path) -> tuple[bool, str]:
         encoding="utf-8",
     )
     bad_code, bad_out = run("--validate", str(bad_live))
-    live_fails = bad_code == 1 and "MISSING-COST" in bad_out
+    live_fails = bad_code == 1 and "MISSING-COST" in bad_out and "MISSING-PROVENANCE" in bad_out
 
-    ok = fixture_ok and live_fails
-    return ok, f"fixture_validates={fixture_ok}; live_missing_cost_fails={live_fails}"
+    # v6 validator hardening (codex review): an empty-runs document fails
+    # instead of passing as "0 runs"; a live document whose rows self-label
+    # mode=fixture to dodge cost enforcement fails on mode consistency; a
+    # fully instrumented live row passes; the COMMITTED fixture smoke passes.
+    empty = tmp / "empty-runs.json"
+    empty.write_text(json.dumps({"mode": "live", "runs": []}), encoding="utf-8")
+    empty_code, empty_out = run("--validate", str(empty))
+    empty_fails = empty_code == 1 and "empty 'runs'" in empty_out
+
+    dodge = tmp / "live-fixture-dodge.json"
+    dodge.write_text(
+        json.dumps({"mode": "live", "runs": [
+            {"task_id": "webapp", "arm": "full", "seed": 0, "mode": "fixture",
+             "host": "claude-code 3.1.0", "model": "m", "skill_version": "6.0.0",
+             "prompt_file": "SPEC.md",
+             "tokens_in": 0, "tokens_out": 0, "duration_sec": 0.0}]}),
+        encoding="utf-8",
+    )
+    dodge_code, dodge_out = run("--validate", str(dodge))
+    dodge_fails = dodge_code == 1 and "MODE-MISMATCH" in dodge_out
+
+    good_live = tmp / "live-good.json"
+    good_live.write_text(
+        json.dumps({"mode": "live", "runs": [
+            {"task_id": "webapp", "arm": "full", "seed": 0, "mode": "live",
+             "host": "claude-code 3.1.0", "model": "m", "skill_version": "6.0.0",
+             "prompt_file": "SPEC.md",
+             "tokens_in": 1200, "tokens_out": 400, "duration_sec": 33.5}]}),
+        encoding="utf-8",
+    )
+    good_code, good_out = run("--validate", str(good_live))
+    good_live_ok = good_code == 0 and "OK:" in good_out
+
+    committed = ROOT / "bench" / "results" / "fixture-smoke-2026-07-20.json"
+    com_code, com_out = run("--validate", str(committed))
+    committed_ok = com_code == 0 and "OK:" in com_out
+
+    ok = fixture_ok and live_fails and empty_fails and dodge_fails and good_live_ok and committed_ok
+    return ok, (f"fixture_validates={fixture_ok}; live_missing_cost_fails={live_fails}; "
+                f"empty_runs_fails={empty_fails}; fixture_dodge_fails={dodge_fails}; "
+                f"instrumented_live_passes={good_live_ok}; committed_fixture_passes={committed_ok}")
 
 
 def case_models_used_shape(tmp: Path) -> tuple[bool, str]:
@@ -1123,6 +1204,84 @@ def case_resolved_failures_dont_block(tmp: Path) -> tuple[bool, str]:
     )
 
 
+def case_string_acs_blocked_at_medium_not_low(tmp: Path) -> tuple[bool, str]:
+    """String ACs are unprovable at medium+ (blocking, with the object shape
+    named in the fix); the same string ACs stay valid at low risk."""
+    medium = passing_medium(acceptance_criteria=["does the thing"])
+    code_m, out_m = verify_gates(tmp, medium)
+    medium_flagged = (
+        code_m == 1
+        and "has no proving_command" in out_m
+        and "proving_command" in out_m
+        and "error:" in out_m
+    )
+
+    low = base_record(
+        risk_tier="low",
+        task_class="tiny",
+        acceptance_criteria=["does the thing"],
+        commands_run=[{"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "ok"}],
+        status="done",
+    )
+    code_l, out_l = verify_gates(tmp, low)
+    low_clean = code_l == 0 and "proving_command" not in out_l
+
+    ok = medium_flagged and low_clean
+    return ok, f"medium(exit={code_m},flagged={medium_flagged}); low(exit={code_l},clean={low_clean})"
+
+
+def case_shared_proving_command_warns(tmp: Path) -> tuple[bool, str]:
+    """>=3 ACs sharing one identical proving_command draws an advisory note
+    (never blocking); distinct per-criterion commands stay silent."""
+    shared = passing_medium(
+        acceptance_criteria=[
+            {"criterion": f"criterion {i}", "proving_command": "pytest"} for i in range(4)
+        ],
+    )
+    code_s, out_s = verify_gates(tmp, shared)
+    warned = code_s == 0 and "share one proving_command" in out_s and "note:" in out_s
+
+    distinct = passing_medium(
+        acceptance_criteria=[
+            {"criterion": "a", "proving_command": "pytest"},
+            {"criterion": "b", "proving_command": "mypy ."},
+        ],
+        commands_run=[
+            {"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "12 passed"},
+            {"cmd": "mypy .", "class": "typecheck", "result": "pass", "evidence": "clean"},
+        ],
+    )
+    code_d, out_d = verify_gates(tmp, distinct)
+    silent = code_d == 0 and "share one proving_command" not in out_d
+
+    ok = warned and silent
+    return ok, f"shared(exit={code_s},warned={warned}); distinct(exit={code_d},silent={silent})"
+
+
+def case_new_exec_classes_count(tmp: Path) -> tuple[bool, str]:
+    """e2e/security/format/migration_dry_run passes count as executable
+    evidence for the medium 'relevant executable check' rule."""
+    results = []
+    for cls in ("e2e", "security", "format", "migration_dry_run"):
+        record = passing_medium(
+            acceptance_criteria=[{"criterion": "does the thing", "proving_command": f"run-{cls}"}],
+            commands_run=[{"cmd": f"run-{cls}", "class": cls, "result": "pass", "evidence": "ok"}],
+        )
+        code, output = verify_gates(tmp, record)
+        results.append(code == 0 and "executable check" not in output)
+    ok = all(results)
+    return ok, f"clean={results} for e2e/security/format/migration_dry_run"
+
+
+def case_blocking_findings_print_as_error(tmp: Path) -> tuple[bool, str]:
+    """Blocking verify-gates findings print with the error: prefix, not
+    warning: (agents read warning-labeled blockers as ignorable)."""
+    record = passing_medium(implementer=None)
+    code, output = verify_gates(tmp, record)
+    ok = code == 1 and "error: " in output and "warning: " not in output
+    return ok, f"exit={code}; error_prefix={'error: ' in output}; warning_prefix={'warning: ' in output}"
+
+
 def case_v41_record_fixture_passes(tmp: Path) -> tuple[bool, str]:
     """The archived v4.1.0 dogfood record (predates models_used/escalations)
     still passes check-record: the v4.2 fields are strictly additive."""
@@ -1132,6 +1291,220 @@ def case_v41_record_fixture_passes(tmp: Path) -> tuple[bool, str]:
     code, out, err = run_cli("check-record", str(fixture))
     ok = code == 0
     return ok, f"exit={code}; {(out + err).strip()!r}"
+
+
+def case_reviewer_contract_surfaces_agree(tmp: Path) -> tuple[bool, str]:
+    """Drift lint: the reviewer contract (verdict enum + ran_checks) must appear
+    consistently in the canonical prompt card, the security prompt card, the two
+    .claude agents, the two droid copies, and the record schema — so the
+    surfaces cannot silently diverge again."""
+    verdicts = ("approve", "request_changes", "needs_discussion", "reject")
+    md_surfaces = [
+        ROOT / "assets" / "prompts" / "reviewer.md",
+        ROOT / "assets" / "prompts" / "security-reviewer.md",
+        ROOT / ".claude" / "agents" / "quality-loop-reviewer.md",
+        ROOT / ".claude" / "agents" / "quality-loop-security-reviewer.md",
+        ROOT / "examples" / "droid" / ".factory" / "droids" / "quality-loop-reviewer.md",
+        ROOT / "examples" / "droid" / ".factory" / "droids" / "quality-loop-security-reviewer.md",
+    ]
+    problems = []
+    for path in md_surfaces:
+        rel = path.relative_to(ROOT)
+        if not path.is_file():
+            problems.append(f"{rel}: MISSING")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for verdict in verdicts:
+            if verdict not in text:
+                problems.append(f"{rel}: verdict {verdict!r} absent")
+        if "ran_checks" not in text:
+            problems.append(f"{rel}: ran_checks absent")
+
+    schema = json.loads((ROOT / "assets" / "agent-record.schema.json").read_text(encoding="utf-8"))
+    for key in ("independent_review", "security_review"):
+        props = schema["properties"][key]["properties"]
+        enum = props.get("verdict", {}).get("enum")
+        if enum != list(verdicts):
+            problems.append(f"schema.{key}.verdict enum is {enum!r}, want {list(verdicts)!r}")
+        if props.get("ran_checks", {}).get("type") != "boolean":
+            problems.append(f"schema.{key}.ran_checks missing or not boolean")
+    reason = schema["properties"]["commands_run"]["items"]["properties"]
+    if "reason" not in reason or "rationale" not in reason:
+        problems.append("schema.commands_run items missing reason/rationale (blocked-row escape hatch)")
+
+    ok = not problems
+    return ok, ("all surfaces agree" if ok else f"drift={problems}")
+
+
+def case_paper_trail_is_four_artifacts(tmp: Path) -> tuple[bool, str]:
+    """The medium paper trail is exactly contract / plan / completion record /
+    progress (plus the context map): the merged contract exists, the folded
+    standalone templates stay deleted, and the completion-record template is a
+    blank current-lifecycle template, not the stale filled v2.4.0 record."""
+    assets = ROOT / "assets"
+    must_exist = ["contract.md", "plan.md", "completion-record.md", "progress.md", "context-map.md"]
+    must_not_exist = [
+        "task-contract-template.md",
+        "validation-contract.md",
+        "pr-summary-template.md",
+        "decision-log.md",
+        "execution-log.md",
+    ]
+    problems = []
+    for name in must_exist:
+        if not (assets / name).is_file():
+            problems.append(f"assets/{name}: MISSING")
+    for name in must_not_exist:
+        if (assets / name).exists():
+            problems.append(f"assets/{name}: should be deleted (folded into the 4-artifact trail)")
+
+    contract = (assets / "contract.md").read_text(encoding="utf-8") if (assets / "contract.md").is_file() else ""
+    if "proving" not in contract.lower():
+        problems.append("assets/contract.md: no per-criterion proving-command pairing")
+
+    record = (assets / "completion-record.md").read_text(encoding="utf-8") if (assets / "completion-record.md").is_file() else ""
+    for stale in ("context-check", "verify-phases", "trace-audit", "archive/v240"):
+        if stale in record:
+            problems.append(f"assets/completion-record.md: stale reference {stale!r}")
+    for section in ("Goal", "Files Changed", "Evidence", "Rollback", "Follow-ups"):
+        if section not in record:
+            problems.append(f"assets/completion-record.md: missing section {section!r}")
+
+    ok = not problems
+    return ok, ("4-artifact trail intact" if ok else f"problems={problems}")
+
+
+def case_ran_checks_warns_not_fails(tmp: Path) -> tuple[bool, str]:
+    """make-ran-checks-real: at medium+ an APPROVING independent_review without
+    ran_checks: true draws an advisory note (never blocking); the same review
+    with ran_checks: true stays silent."""
+    without = passing_medium()  # its independent_review omits ran_checks
+    code_w, out_w = verify_gates(tmp, without)
+    warned = code_w == 0 and "ran_checks" in out_w and "note:" in out_w and "error:" not in out_w
+
+    with_flag = passing_medium(
+        independent_review={
+            "reviewer": "agent-b",
+            "verdict": "approve",
+            "fresh_context": True,
+            "patched": False,
+            "findings": [],
+            "ran_checks": True,
+        },
+    )
+    code_f, out_f = verify_gates(tmp, with_flag)
+    silent = code_f == 0 and "ran_checks" not in out_f
+
+    ok = warned and silent
+    return ok, f"without(exit={code_w},warned={warned}); with(exit={code_f},silent={silent})"
+
+
+def case_brief_caps_over_budget_lesson(tmp: Path) -> tuple[bool, str]:
+    """recall_pool always admits the first (highest-scoring) lesson even when
+    it alone exceeds the recall budget; brief must cap the rendered digest in
+    both text and --json output instead of emitting the full lesson body."""
+    qdir = tmp / ".quality-loop"
+    (qdir / "memory").mkdir(parents=True)
+    (qdir / "agent-record.json").write_text(json.dumps({
+        "task_id": "t-b", "goal": "billing rounding overflow cleanup", "status": "review",
+        "risk_tier": "medium", "open_risks": [], "review_findings": [], "task_class": "medium",
+    }), encoding="utf-8")
+    lesson = {
+        "id": "l1", "created": "2026-01-01", "source_task_id": "t0", "kind": "gotcha",
+        "risk_tier": "medium", "scope_globs": [], "keywords": ["billing", "rounding", "overflow"],
+        "lesson": "billing rounding overflow " + ("padword " * 400) + "ZZZENDMARKER",
+        "hits": 0,
+    }
+    (qdir / "memory" / "lessons.jsonl").write_text(json.dumps(lesson) + "\n", encoding="utf-8")
+
+    code_t, out_t, _ = run_cli("brief", "--cwd", str(tmp), "--budget", "200")
+    text_capped = code_t == 0 and "ZZZENDMARKER" not in out_t and "recalled)" in out_t
+
+    code_j, out_j, _ = run_cli("brief", "--cwd", str(tmp), "--budget", "200", "--json")
+    try:
+        data = json.loads(out_j)
+        json_capped = (
+            code_j == 0
+            and data.get("lessons_recalled", 0) >= 1
+            and "ZZZENDMARKER" not in data.get("lessons_digest", "")
+            and len(data.get("lessons_digest", "")) <= 200
+        )
+    except json.JSONDecodeError:
+        json_capped = False
+
+    ok = text_capped and json_capped
+    return ok, f"text(exit={code_t},capped={text_capped}); json(exit={code_j},capped={json_capped})"
+
+
+EXAMPLE_CONFIG = ROOT / "assets" / "quality-loop.config.example.json"
+
+
+def case_check_config_core_control_plane_shape(tmp: Path) -> tuple[bool, str]:
+    """Config validation must not depend on the opt-in control-plane add-on:
+    with quality_loop_control.py absent, a malformed control_plane block (even
+    a disabled one) still fails the core shape check, and a valid disabled
+    block still passes."""
+    partial = tmp / "partial"
+    partial.mkdir()
+    src = ROOT / "scripts"
+    for name in (
+        "quality_loop.py", "quality_loop_core.py", "quality_loop_memory.py",
+        "quality_loop_reality.py", "quality_loop_routing.py",
+    ):
+        (partial / name).write_text((src / name).read_text(encoding="utf-8"), encoding="utf-8")
+    base = json.loads(EXAMPLE_CONFIG.read_text(encoding="utf-8"))
+
+    def check(control) -> tuple[int, str]:
+        cfg = dict(base)
+        if control is not None:
+            cfg["control_plane"] = control
+        cfg_path = tmp / "config.json"
+        cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(partial / "quality_loop.py"), "check-config", str(cfg_path)],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(tmp), check=False,
+        )
+        return proc.returncode, proc.stdout + proc.stderr
+
+    code_p, out_p = check({"enabled": False, "port": "8080"})
+    bad_port_fails = code_p == 1 and "control_plane.port must be an integer" in out_p
+
+    # A disabled block with an out-of-range port / negative retention / non-bool
+    # autostart must still fail in core, not slip through because the add-on's
+    # full validator is absent.
+    code_r, out_r = check({"enabled": False, "port": 99999, "retention_days": -1, "autostart": "yes"})
+    range_fails = code_r == 1 and all(s in out_r for s in (
+        "control_plane.port must be between 1 and 65535",
+        "control_plane.retention_days must be >= 0",
+        "control_plane.autostart must be a boolean",
+    ))
+
+    code_n, out_n = check("on")
+    non_dict_fails = code_n == 1 and "control_plane must be an object" in out_n
+
+    code_v, out_v = check(None)  # the example's own valid disabled block
+    valid_passes = code_v == 0 and "config ok" in out_v
+
+    ok = bad_port_fails and range_fails and non_dict_fails and valid_passes
+    return ok, (
+        f"bad_port(exit={code_p},flagged={bad_port_fails}); "
+        f"range(exit={code_r},flagged={range_fails}); "
+        f"non_dict(exit={code_n},flagged={non_dict_fails}); valid(exit={code_v})"
+    )
+
+
+def case_check_config_always_prints_heterogeneity(tmp: Path) -> tuple[bool, str]:
+    """check-config always emits a heterogeneity_status line — including the
+    no-model_routing SKIPPED case — so a passing config without routing is
+    visibly unverified rather than silently status-free."""
+    cfg = json.loads(EXAMPLE_CONFIG.read_text(encoding="utf-8"))
+    cfg.pop("model_routing", None)
+    cfg_path = tmp / "config.json"
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    code, out, err = run_cli("check-config", str(cfg_path))
+    skipped_line = "reviewer heterogeneity: SKIPPED" in out and "model_routing not configured" in out
+    ok = code == 0 and skipped_line and "config ok" in out
+    return ok, f"exit={code}; skipped_line={skipped_line}; out={out.strip()[:160]!r}"
 
 
 CASES = [
@@ -1173,12 +1546,22 @@ CASES = [
     ("verify --require-terminal blocks an unclosed loop (implement + dirty diff)", case_require_terminal_blocks_unclosed_loop),
     ("verify --require-terminal is a no-op at done status", case_require_terminal_noop_when_done),
     ("public docs state the canonical gate-case count (numbers-consistency lint)", case_doc_counts_match_canonical),
-    ("bench --validate requires cost fields on live runs (exempts fixtures)", case_bench_validate_requires_cost_fields),
+    ("bench --validate enforces doc mode + runs + live cost/provenance (fixture docs exempt)", case_bench_validate_requires_cost_fields),
     ("optional models_used entries validate shape, attempts, and costs", case_models_used_shape),
     ("escalations entries require verified_failure trigger and differing models", case_escalations_shape),
     ("escalation must cite a recorded failing command (self-report is not evidence)", case_escalation_requires_failing_evidence),
     ("resolved RED->GREEN failures don't block; outstanding failures do", case_resolved_failures_dont_block),
     ("archived v4.1.0 record passes untouched (v4.2 fields are additive)", case_v41_record_fixture_passes),
+    ("string ACs block at medium+ but stay valid at low risk", case_string_acs_blocked_at_medium_not_low),
+    (">=3 ACs sharing one proving_command draws an advisory note only", case_shared_proving_command_warns),
+    ("e2e/security/format/migration_dry_run count as executable evidence", case_new_exec_classes_count),
+    ("blocking verify-gates findings print as error:, not warning:", case_blocking_findings_print_as_error),
+    ("reviewer contract (verdict enum + ran_checks) agrees across prompt/agents/schema", case_reviewer_contract_surfaces_agree),
+    ("paper trail is four artifacts (contract/plan/record/progress)", case_paper_trail_is_four_artifacts),
+    ("approving review without ran_checks draws a note at medium+ (never blocking)", case_ran_checks_warns_not_fails),
+    ("brief caps an over-budget recalled lesson in text and --json output", case_brief_caps_over_budget_lesson),
+    ("control_plane shape is validated in core even without the add-on installed", case_check_config_core_control_plane_shape),
+    ("check-config prints heterogeneity_status even without model_routing (SKIPPED)", case_check_config_always_prints_heterogeneity),
 ]
 
 

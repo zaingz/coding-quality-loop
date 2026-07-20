@@ -47,7 +47,14 @@ _HIGH_TIER_FILE_NAMES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
     "Pipfile.lock", "go.sum", "Cargo.lock", "Gemfile.lock",
 }
-_BUGFIX_GOAL_KEYWORDS = ("bug", "broken", "crash", "regression", "defect")
+# Explicit inflections, word-boundary matched: "fix"/"fixed"/"fixes"/"fixing"
+# and "bugfix" count, but "fixture"/"prefix" do not (the old greedy \w* suffix
+# classified "add a test fixture" as a bugfix) and "debugging" does not trigger
+# via the "bug" substring.
+_BUGFIX_GOAL_PATTERNS = [
+    re.compile(r"\b(?:fix(?:ed|es|ing)?|bugfix(?:es)?)\b"),
+    re.compile(r"\b(?:bugs?|broken|crash(?:e[sd]|ing)?|regressions?|defects?)\b"),
+]
 _WAIVER_KEYS = ("test_waiver", "no_test_waiver", "bugfix_test_waiver")
 
 
@@ -81,6 +88,63 @@ def changed_files(base: str = "HEAD", cwd: Path | None = None) -> list[str]:
     return files
 
 
+def _is_scaffolding_untracked(path: str) -> bool:
+    """Loop scaffolding (the record, .quality-loop/, caches) is process output,
+    not the change under review — mirrors diff-audit's untracked sweep."""
+    norm = path.replace("\\", "/")
+    if norm.startswith(".quality-loop/") or "/.quality-loop/" in norm:
+        return True
+    if "__pycache__/" in norm or norm.endswith(".pyc"):
+        return True
+    return norm.split("/")[-1] == "agent-record.json"
+
+
+def _untracked_pseudo_diff(cwd: Path) -> str:
+    """Deterministic diff-shaped view of untracked (non-ignored) files.
+
+    ``git diff <base>`` is blind to untracked files, so a brand-new source file
+    would be invisible to the reviewer render and the attestation hash — a
+    reviewer could approve without seeing it, and it could change afterwards
+    without staling the review. Appending the content in a stable pseudo-diff
+    closes that hole for render and hash alike.
+    """
+    code, out, _ = _git(["ls-files", "--others", "--exclude-standard"], cwd)
+    if code != 0:
+        return ""
+    chunks: list[str] = []
+    for f in sorted(p.strip() for p in out.splitlines() if p.strip()):
+        if _is_scaffolding_untracked(f):
+            continue
+        path = cwd / f
+        # Never follow an untracked symlink: reading its target would disclose a
+        # file outside the tree through render-prompt. Represent it by its link
+        # value so a change still stales the hash, without reading the target.
+        if path.is_symlink():
+            try:
+                target = os.readlink(path)
+            except OSError:
+                target = "(unreadable)"
+            chunks.append(f"diff --untracked a/{f} b/{f}\nsymlink -> {target}\n")
+            continue
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            chunks.append(
+                f"diff --untracked a/{f} b/{f}\n(unreadable untracked file: {exc.__class__.__name__})\n"
+            )
+            continue
+        # A raw-byte sha keeps the hash byte-faithful (CRLF/final-newline/
+        # invalid-byte changes all stale it); the decoded +lines stay human-
+        # reviewable in the rendered prompt.
+        digest = hashlib.sha256(raw).hexdigest()
+        content = raw.decode("utf-8", errors="replace")
+        body = "".join("+" + line + "\n" for line in content.splitlines())
+        chunks.append(
+            f"diff --untracked a/{f} b/{f}\n--- /dev/null\n+++ b/{f}\nsha256 {digest}\n{body}"
+        )
+    return "".join(chunks)
+
+
 def diff_patch(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir: bool = False) -> str:
     cwd = cwd or Path.cwd()
     args = ["diff", base]
@@ -89,7 +153,7 @@ def diff_patch(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir: 
         # record itself) legitimately change after a review is attested; they
         # must not invalidate the attestation.
         args += ["--", ".", ":(exclude).quality-loop"]
-    return _git_or_fail(args, cwd)
+    return _git_or_fail(args, cwd) + _untracked_pseudo_diff(cwd)
 
 
 def diff_sha256(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir: bool = False) -> str:
@@ -109,7 +173,7 @@ def _path_matches_high_tier(path: str) -> bool:
     return False
 
 
-def _allowed_paths_and_globs(record: dict[str, Any]) -> tuple[set[str], set[str]]:
+def _allowed_paths_and_globs(record: dict[str, Any]) -> tuple[set[str], set[str], set[str]]:
     paths: set[str] = set()
     repo_map = record.get("repo_map") or {}
     # likely_files/entry_points are the primary mapped scope; tests and
@@ -126,24 +190,34 @@ def _allowed_paths_and_globs(record: dict[str, Any]) -> tuple[set[str], set[str]
             p = str(f).strip()
             if p:
                 paths.add(p)
-    globs: set[str] = set()
+    # Explicit mapped entries may themselves be globs and stay fnmatch-checked;
+    # a mapped FILE additionally whitelists its own directory but only one
+    # level (dirs, exact-match), never a recursive parent/'/**' glob —
+    # fnmatch's '*' crosses '/', so that glob whitelisted whole subtrees.
+    globs: set[str] = set(paths)
+    dirs: set[str] = set()
     for p in paths:
-        globs.add(p)
         parts = p.split("/")
         if len(parts) > 1:
-            globs.add("/".join(parts[:-1]) + "/**")
-    return paths, globs
+            dirs.add("/".join(parts[:-1]))
+    return paths, globs, dirs
 
 
-def _file_is_mapped(path: str, paths: set[str], globs: set[str], plan_text: str) -> bool:
+def _file_is_mapped(
+    path: str, paths: set[str], globs: set[str], dirs: set[str], plan_text: str
+) -> bool:
     if path in paths:
+        return True
+    if "/".join(path.split("/")[:-1]) in dirs:
         return True
     for g in globs:
         if fnmatch.fnmatch(path, g):
             return True
     # Fuzzy: the plan is prose; accept a basename or path substring mention.
+    # plan_text is lowercased by the caller, so lowercase this side too
+    # (Button.tsx-style paths must not silently miss).
     basename = path.split("/")[-1]
-    if path in plan_text or basename in plan_text:
+    if path.lower() in plan_text or basename.lower() in plan_text:
         return True
     return False
 
@@ -173,6 +247,9 @@ def _diff_audit_blocking_warnings(base: str, cwd: Path) -> list[str]:
             "possible test-weakening (added skip/xfail/.only) in test files: "
             + ", ".join(weakened)
         )
+    # Deleted/gutted tests (net declaration or assertion loss) are the other
+    # half of Hard Rule 6; like the skip patterns, blocking at medium+ only.
+    warnings.extend(qlc.test_shrinkage_hits(patch))
     return warnings
 
 
@@ -200,7 +277,14 @@ def verify_gates_against_diff(
     # must not trip scope integrity or mask phantom completion as real work.
     files = [f for f in files if not f.startswith(".quality-loop/")]
     status = record.get("status")
-    non_trivial = risk in {"medium", "high"} or bool(record.get("security_sensitive"))
+    # Same non-trivial definition as the engine's collect_gate_findings: a
+    # task_class=medium/mission record must not skip scope integrity, review
+    # freshness, or the medium+ promotions by self-declaring risk_tier=low.
+    non_trivial = (
+        record.get("task_class") in {"medium", "mission"}
+        or risk in {"medium", "high"}
+        or bool(record.get("security_sensitive"))
+    )
 
     # 1. Phantom completion: package/done ∧ empty diff → fail.
     if status in {"package", "done"} and not files:
@@ -210,11 +294,11 @@ def verify_gates_against_diff(
 
     # 2. Scope integrity: changed files ⊄ repo_map ∪ plan ∪ completion_record.
     if files and non_trivial:
-        paths, globs = _allowed_paths_and_globs(record)
+        paths, globs, dirs = _allowed_paths_and_globs(record)
         plan_text = " ".join(str(p) for p in record.get("plan", []) or []).lower()
         unmapped = [
             f for f in files
-            if not _file_is_mapped(f, paths, globs, plan_text)
+            if not _file_is_mapped(f, paths, globs, dirs, plan_text)
         ]
         if unmapped:
             findings.append(
@@ -233,7 +317,7 @@ def verify_gates_against_diff(
 
     # 4. Bugfix-test co-presence: bugfix + no test in diff + no waiver → fail.
     goal = str(record.get("goal", "")).lower()
-    is_bugfix = any(k in goal for k in _BUGFIX_GOAL_KEYWORDS)
+    is_bugfix = any(p.search(goal) for p in _BUGFIX_GOAL_PATTERNS)
     if is_bugfix and files and not _has_waiver(record):
         tests_in_diff = [
             f for f in files if any(m in f.lower() for m in qlc.TEST_PATH_MARKERS)
@@ -394,9 +478,15 @@ def run_evidence(
             "stderr_tail": qlc.redact(result["stderr"]) if result["stderr"] else "",
         })
         if not passed:
+            detail = (
+                f"timeout after {timeout}s — if the suite is legitimately slow, "
+                "increase the limit with --timeout or QUALITY_LOOP_TIMEOUT"
+                if result["timed_out"]
+                else f"exit {result['exit_code']}"
+            )
             findings.append(
                 "run-evidence: recorded-pass command did not pass on rerun: %s (%s)"
-                % (qlc.redact(cmd), "timeout" if result["timed_out"] else f"exit {result['exit_code']}")
+                % (qlc.redact(cmd), detail)
             )
 
     red_green_results: list[dict[str, Any]] = []

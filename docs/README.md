@@ -7,11 +7,14 @@ Extended documentation for the [Coding Quality Loop](../README.md). The top-leve
 
 | If you want to… | Read |
 |---|---|
-| Try it in 60 seconds | [`quickstart.md`](quickstart.md) |
+| Get started (drop-in prompt, npx, or manual copy) | [`quickstart.md`](quickstart.md) |
 | Understand how the pieces fit | [`architecture.md`](architecture.md) |
 | Compare it to superpowers, addyosmani/agent-skills, or ponytail | [`comparison.md`](comparison.md) |
 | Learn how project memory works | [`memory.md`](memory.md) |
-| Watch sessions in the local control plane | [`control-plane.md`](control-plane.md) |
+| Watch sessions in the local control plane (opt-in add-on) | [`control-plane.md`](control-plane.md) |
+| Run the cross-CLI reviewer legs by hand | [`cross-cli-recipe.md`](cross-cli-recipe.md) |
+| Read the project's own adversarial audit of itself | [`critical-review-2026-07-09.md`](critical-review-2026-07-09.md) |
+| See the improvement plan v6.0.0 executed against | [`improvement-plan-2026-07-20.md`](improvement-plan-2026-07-20.md) |
 | See the whole skill body, task classes, and roles | [`../SKILL.md`](../SKILL.md) |
 | Read the manifesto | [`../references/philosophy.md`](../references/philosophy.md) |
 
@@ -42,7 +45,7 @@ regenerable diagrams whose sources are in [`images/src/`](images/src/README.md).
 
 - `art/hero-art.png` — README hero (PLAN → EXECUTE → REVIEW ring).
 - `art/orchestrator-layer.png`, `art/loop-phases.png`, `art/gates.png` — v5 section art (orchestrator topology, loop phases, enforcement gates).
-- `terminal-demo.gif` (+ `terminal-demo-poster.png` fallback) — 60-second quickstart demo.
+- `terminal-demo.gif` (+ `terminal-demo-poster.png` fallback) — quickstart demo.
 - `anatomy-of-a-change.png` — seven-card walkthrough traced on `examples/walkthrough/agent-record.json`.
-- `evidence-dashboard.png` — 171 offline gate cases across 7 suites + honest per-agent lift, with the Codex webapp regression published in red.
+- `evidence-dashboard.png` — offline gate-case dashboard + honest per-agent lift, with the Codex webapp regression published in red (rendered with the 171 gate cases as of v5.1.0; regenerate for the current counts).
 - `gate-gaming.png` — three-panel comic of the 2026-07-07 gate-gaming incident and its harness fix.

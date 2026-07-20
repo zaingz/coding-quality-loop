@@ -25,23 +25,34 @@ implementer context) unless you explicitly resume one.
 | planner | `cat assets/prompts/planner.md task.md \| claude -p --model claude-fable-5` | strong_reasoning leg |
 | implementer | `cat assets/prompts/implementer.md slice-prompt.md \| claude -p --model claude-fable-5` | the main-session leg; run in a git worktree for isolation on parallel slices |
 | verification runner | run the validation-contract commands yourself and record exact output | `run-evidence` re-executes them from the allowlist anyway |
-| fresh reviewer | `cat assets/prompts/reviewer.md \| codex exec -s read-only -m gpt-5.6-sol` | fresh session, read-only sandbox — the reviewer needs no writes; run inside the repo (codex requires a trusted git dir; close stdin or pipe the card) |
-| security reviewer | `cat assets/prompts/security-reviewer.md \| codex exec -s read-only -m gpt-5.6-sol` | boundary changes only |
+| fresh reviewer | `python3 scripts/quality_loop.py render-prompt --role reviewer --record agent-record.json \| codex exec -s read-only -m gpt-5.6-sol` | fresh session, read-only sandbox — the reviewer needs no writes; run inside the repo (codex requires a trusted git dir; close stdin or pipe the prompt) |
+| security reviewer | `python3 scripts/quality_loop.py render-prompt --role security-reviewer --record agent-record.json \| codex exec -s read-only -m gpt-5.6-sol` | boundary changes only |
 
-### Agent-os override
+`render-prompt` substitutes `{contract}`/`{diff}`/`{evidence}` from the record
+into the prompt card, so the reviewer receives the actual contract slice and
+diff instead of a raw template (`--base` defaults to the auto merge-base).
 
-Agent-os owns model selection outside CQL and keeps `model_routing` host-neutral:
+### One user's setup (not shipped): the agent-os override
 
-| Role | Command | Effective route |
+**This is one user's personal harness, not part of the CQL package** — the
+`droid-glm-exec` / `codex-exec` wrappers below are not shipped here. It is kept
+as a worked example of an explicit higher-level harness owning model selection.
+When such a harness (here, "agent-os") is active, it owns model selection and
+replaces the stock routing table: Fable/max planning → Droid/GPT-5.6 Sol/high
+implementation → fresh Codex/GPT-5.6 Sol/xhigh review. CQL `model_routing`
+stays host-neutral rather than claiming model heterogeneity.
+
+| Role | Command (user-local wrappers, not shipped) | Effective route |
 |---|---|---|
 | planner | `cat assets/prompts/planner.md task.md \| claude -p --model claude-fable-5 --effort max --permission-mode plan` | Fable/max; one fresh Sol/max planning attempt after a benign safeguard refusal |
 | implementer | `droid-glm-exec --cwd "$PWD" --mode patch --allow-shell --prompt-file slice-prompt.md` | Droid/GPT-5.6 Sol/high |
 | verification runner | `droid-glm-exec --cwd "$PWD" --mode verify --prompt-file verify-prompt.md` | Droid/GPT-5.6 Sol/high |
 | fresh or security reviewer | `codex-exec --cwd "$PWD" --mode review --prompt-file reviewer-prompt.md` | fresh Codex/GPT-5.6 Sol/xhigh, read-only |
 
-This same-model implementation/review route is not model heterogeneity. Fresh
+This same-model implementation/review route is an explicit same-model,
+separate-host/session exception — it is not model heterogeneity. Fresh
 context, separate hosts, a non-editing reviewer, deterministic gates, and
-supervisor verification provide the independence boundary.
+supervisor verification remain mandatory and provide the independence boundary.
 
 The reviewer legs run read-only; `codex exec -s workspace-write` exists for a
 Codex-implementer topology, not for review legs.
@@ -55,7 +66,8 @@ Codex-implementer topology, not for review legs.
   it in the agent record —
 
   ```bash
-  cat assets/prompts/reviewer.md | codex exec -s read-only -m gpt-5.6-sol; echo "exit=$?"
+  python3 scripts/quality_loop.py render-prompt --role reviewer --record agent-record.json |
+    codex exec -s read-only -m gpt-5.6-sol; echo "exit=$?"
   ```
 
   then append the command to `commands_run` with `result: pass|fail` and the

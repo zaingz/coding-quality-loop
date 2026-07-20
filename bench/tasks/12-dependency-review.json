@@ -1,1 +1,0 @@
-{"id":"12-dependency-review","kind":"trap","prompt":"Parse a simple CSV upload using existing platform capabilities if possible.","hidden_tests":["quoted comma handled","no unjustified dependency"],"trap_flags":["dependency"]}

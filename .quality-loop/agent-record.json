@@ -1,223 +1,335 @@
 {
-  "task_id": "v5.1.0-audit-trail",
-  "goal": "Ship control-plane v5.1.0 'Audit Trail': make the loop's own proof queryable — findings as first-class artifacts, a delegation ledger joined to sessions at query time, a per-task timeline, loop KPIs, a control-report CLI, tool-target secret redaction, and a full dashboard revamp — all additive, stdlib-only, local-only",
+  "task_id": "v6.0.0-trust-chain",
+  "status": "review",
+  "risk_tier": "high",
+  "task_class": "medium",
+  "security_sensitive": true,
+  "goal": "Ship v6.0.0: close the enforcement gaps the 2026-07-20 deep review verified (verify umbrella at the Stop gate, merge-base diff grounding, object ACs at medium+, satisfiable blocked rows, test-shrinkage and under-fanning gates, protect-harness guard, truthful hook failures), repair the adoption funnel (install manifest, host-aware check, uninstall, codex AGENTS.md, render-prompt), shrink the surface (4-artifact paper trail, 4-value verdict enum, control plane demoted to opt-in add-on, dead templates and speculative tool shapes deleted), make memory read-only-on-recall with outcome feedback, and pre-register the bench protocol with forced decision rules — net negative lines, per docs/improvement-plan-2026-07-20.md",
   "acceptance_criteria": [
-    "AC1: each review finding (review_findings[] or a review's findings[]) becomes its own queryable `finding` artifact carrying severity + text + reviewer; a review's finding count matches the artifacts produced",
-    "AC2: .quality-loop/delegations.jsonl is ingested into `delegation` artifacts (one per hand-off); malformed lines are counted (skipped_lines) and skipped, never fatal; re-index is idempotent",
-    "AC3: each delegation is matched to the session it ran in at query time (agent_name == expected_agent_name, window [ts-5m, ts+60m], nearest wins), never stored as a join; token totals per delegation computed live",
-    "AC4: /api/task?task_id= returns a per-task timeline (plan, delegations, verdicts, findings, escalations, linked-session spend); 404 on unknown id, 400 without an id",
-    "AC5: /api/metrics returns loop KPIs (verdict distribution, evidence rate, severity distribution, spend by role, session durations); a zeroed 200 on an empty DB",
-    "AC6: control-report --task-id prints a per-task audit bundle as markdown (default) or --json; exits 2 on an unknown task id",
-    "AC7: tool_calls.target is run through the project's memory redactor before storage; a key straddling the 200-char truncation is still caught (redact before truncate); SCHEMA_VERSION bumped to 7",
-    "AC8: dashboard.html is a full rewrite — one self-contained file, zero external requests, <title>CQL Control Plane</title> retained, dark/light, keyboard nav, new Delegations/Tasks/Metrics views, fixed table overflow, labeled stacked chart, empty states, drill-down",
-    "AC9: all 20+ control-plane eval cases plus the six other suites green, and check-config passes on the example config",
-    "AC10: version synced to 5.1.0 at every site + CHANGELOG + docs"
+    {
+      "criterion": "All core gate-case suites pass after every change, including the new commit-first-evasion, honest-committer, object-AC, blocked-row, test-shrinkage, and protect-harness cases",
+      "proving_command": "python3 evals/run_evals.py"
+    },
+    {
+      "criterion": "Diff-grounded reality gates (scope integrity case/glob fixes, bugfix word-boundary keywords, merge-base default, render-prompt) hold under their extended suite",
+      "proving_command": "python3 evals/run_reality_evals.py"
+    },
+    {
+      "criterion": "Hook shims fail truthfully (no fabricated secret denials, sys.executable, record-deleted block, anchored destructive patterns) under the extended hook suite",
+      "proving_command": "python3 evals/run_hook_evals.py"
+    },
+    {
+      "criterion": "Memory is read-only on recall, pooled without the 60/40 tax, provenance-stamped, and surfaces outcomes; recall_budget_chars is honored",
+      "proving_command": "python3 evals/run_memory_evals.py"
+    },
+    {
+      "criterion": "Heterogeneity degrades loudly (SKIPPED line, model_routing.families override, as_of staleness) and setup-models refuses placeholder ids",
+      "proving_command": "python3 evals/run_routing_evals.py"
+    },
+    {
+      "criterion": "Control plane joins delegations by session_id, counts unjoinable rows, represents droid runs as events, exposes drift canaries, prunes all tables, and ships only with --with-control-plane",
+      "proving_command": "python3 evals/run_control_evals.py"
+    },
+    {
+      "criterion": "Static task-classing, right-size, and SKILL-truth lint cases pass, including the two new v6 pins",
+      "proving_command": "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json"
+    },
+    {
+      "criterion": "The npm funnel works end to end: parser does not swallow subcommands, manifest-driven check, init->check->remove leaves a clean tree, next steps exit 0",
+      "proving_command": "node --test packages/npm/test/parseArgs.test.mjs packages/npm/test/detect.test.mjs packages/npm/test/cli.integration.test.mjs"
+    },
+    {
+      "criterion": "The regenerated bench fixture passes the cost-fields validator that CI now runs on every committed results file",
+      "proving_command": "python3 bench/runner.py --validate bench/results/fixture-smoke-2026-07-20.json"
+    },
+    {
+      "criterion": "The example orchestration config stays valid and check-config prints the loud heterogeneity status line",
+      "proving_command": "python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json"
+    }
   ],
   "constraints": [
-    "Additive API only: no renaming or removing existing endpoints or fields",
-    "stdlib-only Python (sqlite3, http.server); zero new runtime dependencies",
-    "No gate reads the control DB; it stays a disposable index, never a gate input",
-    "No conversation message bodies indexed: metadata, token counts, truncated+redacted tool targets, session titles only",
-    "Server binds 127.0.0.1 hard-coded (literal preserved); GET-only; no auth; no non-loopback binding",
-    "No websockets/SSE/streaming; GET-only polling stays",
-    "No vendor price data shipped",
-    "All seven existing eval suites must remain green"
+    "stdlib-only Python 3.10+, zero runtime dependencies",
+    "net negative lines: deletions must pay for every addition",
+    "every behavior change lands with eval coverage in the repo's own suites",
+    "no gate may depend on the opt-in control plane",
+    "breaking changes documented in CHANGELOG 6.0.0 (object ACs at medium+, 4-value verdict enum, merge-base --base default, control plane opt-in, read-only recall)"
   ],
   "non_goals": [
-    "A hosted service, auth layer, or multi-user anything",
-    "Shipping vendor price/tier data",
-    "Write/mutation endpoints of any kind",
-    "Streaming transports (SSE/websockets)",
-    "Deep transcript adapters for droid/codex internals (they appear via CQL artifacts + hook wiring, labeled honestly)"
+    "Wave 4.3 live ablation runs (pre-registered in bench/PROTOCOL.md, next milestone)",
+    "task-class collapse 4->2, reviewer-model binding, second reviewer (deferred pending ablation data)",
+    "mutation-testing engine (the test-shrinkage counter is the 30-line version)"
   ],
   "assumptions": [
-    "delegations.jsonl is an append-only ledger written by the orchestrator, one JSON object per line",
-    "The memory redactor (qlcore.redact) is the single source of truth for secret shapes; reuse it, do not fork patterns",
-    "A SCHEMA_VERSION bump triggers a full rebuild from source; hook events are the one non-rebuildable datum"
+    "v6.0.0 is a breaking release; older records with string ACs at medium+ must be upgraded or re-tiered",
+    "the same-model orchestrator (Claude) delegates implementation to Claude workers; independent review routed cross-family to a GPT-5-class Codex reviewer per stock routing"
   ],
-  "risk_tier": "medium",
-  "task_class": "medium",
-  "implementer": "claude-opus-4-8 (implementer session, claude-code)",
-  "security_sensitive": true,
   "verification_plan": [
-    "python3 evals/run_control_evals.py",
-    "python3 evals/run_evals.py && python3 evals/run_memory_evals.py && python3 evals/run_reality_evals.py && python3 evals/run_hook_evals.py && python3 evals/run_routing_evals.py && python3 evals/run_trigger_evals.py",
-    "python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json",
-    "live smoke: control-index then control-report --task-id v5.1.0-audit-trail against this repo's dogfood artifacts"
+    "all seven eval suites + static cases green on the combined tree after each phase",
+    "live scratch-dir init/check/remove cycle per host",
+    "verify umbrella (record gates + diff audit + evidence re-execution + AC coverage) against merge-base",
+    "fresh-context cross-family review + security review on the full diff, then attest-review"
   ],
-  "validation_contract": {
-    "goal": "Make the Quality Loop's own evidence — findings, delegations, verdicts, spend — queryable per task through additive, local-only surfaces, without turning the index into a gate",
-    "acceptance_criteria": [
-      "Findings are first-class, queryable artifacts, not just counters",
-      "The delegation ledger is ingested and joined to sessions at query time for live token attribution",
-      "A per-task audit bundle is available via both /api/task and the control-report CLI",
-      "Loop KPIs are exposed via /api/metrics with a safe empty-DB zero case",
-      "Tool-call targets are secret-redacted before storage, reusing the memory redactor",
-      "The dashboard is a single self-contained file with new audit views and no external requests"
-    ],
-    "evidence": [
-      "run_control_evals.py green at 27 cases (findings, delegation ingest + idempotent re-index + skipped counting, delegation->session join, task timeline, loop metrics incl. empty-DB, control-report CLI, tool-target redaction)",
-      "all six other suites green (run_evals 44, run_memory 26, run_reality 23, run_hook 16, run_routing 24, run_trigger 10)",
-      "check-config green on the example config at version 5.1.0",
-      "sample control-report captured against this task's dogfood artifacts"
-    ]
-  },
-  "independent_review": null,
-  "security_review": null,
-  "completion_record": {
-    "summary": "Delivered v5.1.0 audit trail across six committed slices (S1 ingest, S2 query, S3 surfaces+CLI, S4 dashboard, S5 evals+docs+version, S6 verification+dogfood). All ten acceptance criteria met and eval-pinned; every hard constraint held (additive API, stdlib-only, no gate reads the DB, no bodies indexed, 127.0.0.1 literal preserved, no shipped prices).",
-    "evidence": [
-      "run_control_evals.py: 27/27 (was 20/20; +7 audit-trail cases)",
-      "run_evals 44/44, run_memory_evals 26/26, run_reality_evals 23/23, run_hook_evals 16/16, run_routing_evals 24/24, run_trigger_evals 10/10 — 170 total green",
-      "check-config assets/quality-loop.config.example.json -> config ok",
-      "SCHEMA_VERSION=7 verified in scripts/quality_loop_control.py; full rebuild on bump",
-      "diff carries no secret: the AC7 redaction fixture is assembled from fragments so the added source lines do not themselves match SECRET_PATTERNS"
-    ],
-    "files_changed": [
-      "scripts/quality_loop_control.py",
-      "scripts/quality_loop.py",
-      "assets/control-plane/dashboard.html",
-      "evals/run_control_evals.py",
-      "assets/quality-loop.config.example.json",
-      "packages/npm/package.json",
-      "SKILL.md",
-      "README.md",
-      "hosts/github/quality-loop-example.yml",
-      "CHANGELOG.md",
-      "docs/control-plane.md",
-      "references/agentic-orchestration.md",
-      ".quality-loop/delegations.jsonl",
-      ".quality-loop/agent-record.json"
-    ]
-  },
-  "repair_attempts": 0,
-  "repeated_failure": false,
-  "harness_update": null,
-  "repo_map": {
-    "entry_points": [
-      "scripts/quality_loop.py (control-* subcommand dispatch incl. control-report)",
-      "scripts/quality_loop_control.py (indexer, query layer, HTTP handler, CLI)"
-    ],
-    "likely_files": [
-      "scripts/quality_loop_control.py",
-      "assets/control-plane/dashboard.html",
-      "evals/run_control_evals.py",
-      "docs/control-plane.md",
-      "references/agentic-orchestration.md",
-      "CHANGELOG.md"
-    ],
-    "callers_checked": [
-      "scripts/quality_loop.py dispatch table routes control-index/serve/status/stop/ingest/report to quality_loop_control",
-      "install.py hook wiring (SessionStart/SessionEnd) unchanged; ingest path still exits 0",
-      "qlcore.redact reused by _redact_target (no forked secret patterns)"
-    ],
-    "tests": [
-      "evals/run_control_evals.py (27 cases, incl. 7 new audit-trail cases)",
-      "evals/run_memory_evals.py (redactor shape regressions still green)"
-    ]
-  },
   "minimality_decision": {
-    "rung": "extend_existing",
-    "reason": "Every new surface reuses machinery already in quality_loop_control.py: the artifacts projection (findings/delegations are new kinds, not new tables), the existing HTTP handler and JSON-API dispatch (three additive GET routes), the memory redactor (tool-target redaction forks no patterns), and the record/lesson parsers. The delegation->session join is computed live from existing session rows, storing nothing new. No new dependency, no new gate, no new trust boundary.",
-    "lower_rungs_rejected": [
-      "no-change/reuse-as-is: the audit trail did not exist — findings were counted not stored, delegations were unrecorded",
-      "one-liner: a ledger ingest + query-time join + CLI + dashboard views cannot be a localized patch",
-      "new dependency: stdlib sqlite3 + http.server already cover storage and serving; adding a framework would violate zero-dep doctrine"
+    "rung": "minimal_new_code",
+    "reason": "New code concentrated in: test-shrinkage counter (~30 lines), render-prompt (~60), install manifest/uninstall, outcome/provenance rows, families map. Every addition paid for by deletions; repo net -2,205 lines vs main. Deletion applied first wherever possible; reuse applied before any new code (verify umbrella at Stop, _resolve_base for merge-base, existing deny path, control-plane token parsers).",
+    "rejected_lower_rungs": [
+      {
+        "rung": "skip",
+        "why": "the deep review verified live enforcement holes (fabricated evidence clears the Stop gate; commit-first evasion) — no change leaves the core promise untrue"
+      },
+      {
+        "rung": "delete",
+        "why": "applied throughout (5 templates, 12 bench stubs, 3 protocol docs, tool shapes, 60/40 split, fuzzy matcher, dead probe) but deletion alone cannot close enforcement gaps"
+      },
+      {
+        "rung": "reuse",
+        "why": "applied first for every new behavior; the residual new code is what the gates required"
+      },
+      {
+        "rung": "stdlib",
+        "why": "already stdlib-only; the new gates are stdlib code — this rung is the ceiling we stayed under, not an alternative"
+      },
+      {
+        "rung": "native",
+        "why": "no host-native feature enforces record gates or diff-grounded checks"
+      },
+      {
+        "rung": "existing_dependency",
+        "why": "zero runtime dependencies is a hard constraint"
+      },
+      {
+        "rung": "one_liner",
+        "why": "a multi-gap trust-chain release cannot be a one-liner"
+      }
     ],
-    "safety_exceptions_checked": "AC7 is the security-sensitive rung: tool targets can contain a pasted secret, so each target is redacted via qlcore.redact BEFORE truncation (a key straddling the 200-char cutoff is still caught) — eval-pinned in case_tool_target_redaction. No change to the 127.0.0.1 bind, GET-only enforcement, or DNS-rebind guard."
+    "safety_exceptions_checked": [
+      "security",
+      "trust-boundary validation",
+      "authorization",
+      "accessibility",
+      "data-loss protection"
+    ]
   },
   "plan": [
-    "S1 ingest: findings as first-class artifacts, delegations.jsonl ingest (skipped-line counting), tool-target redaction, SCHEMA_VERSION=7",
-    "S2 query: query-time delegation->session join, task timeline, loop metrics",
-    "S3 surfaces: additive /api/delegations, /api/task, /api/metrics endpoints + control-report CLI (md/json)",
-    "S4 dashboard: full self-contained rewrite with Delegations/Tasks/Metrics views, fixed overflow, labeled stacked chart, empty states, drill-down",
-    "S5 evals+docs: 7 new eval cases, docs (control-plane.md, agentic-orchestration.md), CHANGELOG, version sync to 5.1.0",
-    "S6 verification+dogfood: full suite run, evidence file, sample control-report, dogfood delegations + record, PR (no merge)"
+    "S1 trust chain + funnel: gate engine, hooks, installer/npm, control plane (4 parallel workers, disjoint files)",
+    "S2 shrink + single-source: templates/schema/prompts, SKILL+references, memory+routing, bench (4 parallel workers) + orchestrator wiring",
+    "S3 docs truth pass: README/CHANGELOG/ROADMAP/quickstart/count lint/version sync",
+    "S4 dogfood + review: this record, cross-family review, security review, attest, release",
+    "verification: per-slice all suites green before commit; final verify umbrella vs merge-base + fresh-context reviews + attest-review",
+    "rollback: git revert the release-train merge on main; deleting the GitHub release/tag halts npm publish; no data migrations (control DB rebuilds, schema bump exports events first)"
   ],
   "commands_run": [
-    {
-      "cmd": "python3 evals/run_control_evals.py",
-      "class": "unit",
-      "result": "pass",
-      "evidence": "27/27 control-plane eval cases passed"
-    },
     {
       "cmd": "python3 evals/run_evals.py",
       "class": "unit",
       "result": "pass",
-      "evidence": "44/44 eval cases passed"
+      "evidence": "50/50 eval cases passed (44 pre-release + object-AC, blocked-row, commit-first, honest-committer, reviewer-contract-drift, paper-trail lint cases)"
+    },
+    {
+      "cmd": "python3 evals/run_reality_evals.py",
+      "class": "integration",
+      "result": "pass",
+      "evidence": "33/33 reality eval cases passed (23 pre-release + scope-case, glob-tightening, bugfix word-boundary, test-shrinkage, under-fanning, render-prompt, timeout cases)"
+    },
+    {
+      "cmd": "python3 evals/run_hook_evals.py",
+      "class": "integration",
+      "result": "pass",
+      "evidence": "30/30 hook eval cases passed (16 pre-release + truthful-failure, protect-harness, record-deleted, destructive-pattern FP/FN cases)"
     },
     {
       "cmd": "python3 evals/run_memory_evals.py",
       "class": "unit",
       "result": "pass",
-      "evidence": "26/26 memory eval cases passed"
-    },
-    {
-      "cmd": "python3 evals/run_reality_evals.py",
-      "class": "unit",
-      "result": "pass",
-      "evidence": "23/23 reality eval cases passed"
-    },
-    {
-      "cmd": "python3 evals/run_hook_evals.py",
-      "class": "unit",
-      "result": "pass",
-      "evidence": "16/16 hook eval cases passed"
+      "evidence": "32/32 memory eval cases passed (26 pre-release + read-only recall, one-pool, outcome, provenance, staleness, budget-wiring cases)"
     },
     {
       "cmd": "python3 evals/run_routing_evals.py",
       "class": "unit",
       "result": "pass",
-      "evidence": "24/24 routing eval cases passed"
+      "evidence": "29/29 routing eval cases passed (24 pre-release + heterogeneity-status, families-override, as_of, placeholder-guard cases)"
     },
     {
-      "cmd": "python3 evals/run_trigger_evals.py",
+      "cmd": "python3 evals/run_control_evals.py",
+      "class": "integration",
+      "result": "pass",
+      "evidence": "35/35 control-plane add-on cases passed (27 pre-release + session_id join, unjoinable counting, one-to-one join, droid events, zero-usage canary, retention, opt-in-install cases)"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json",
       "class": "unit",
       "result": "pass",
-      "evidence": "10/10 trigger smoke cases passed"
+      "evidence": "19/19 static cases passed (11 pre-release + string-AC-blocked/pass, blocked-reason, e2e-evidence, proving-path-no-floor, SKILL-truth pins)"
+    },
+    {
+      "cmd": "node --test packages/npm/test/parseArgs.test.mjs packages/npm/test/detect.test.mjs packages/npm/test/cli.integration.test.mjs",
+      "class": "integration",
+      "result": "pass",
+      "evidence": "30/30 node tests passed incl. init->check->remove clean-tree integration and the --dry-run-swallows-subcommand parser case"
+    },
+    {
+      "cmd": "python3 bench/runner.py --validate bench/results/fixture-smoke-2026-07-20.json",
+      "class": "build",
+      "result": "pass",
+      "evidence": "OK: 12 run(s) carry required cost fields — the committed fixture passes the validator CI now runs on every bench/results/*.json"
     },
     {
       "cmd": "python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json",
       "class": "lint",
       "result": "pass",
-      "evidence": "config ok"
+      "evidence": "config ok, preceded by the loud heterogeneity status line (SKIPPED — placeholder models in the example config, named explicitly instead of silent)"
+    },
+    {
+      "cmd": "python3 evals/run_hook_evals.py",
+      "class": "security",
+      "result": "pass",
+      "evidence": "41/41 hook cases incl. protect_harness deny/allow, destructive-wrapper FP/FN, truthful scan-text failure, record-deletion block"
     }
   ],
-  "review_findings": [
-    "self-review (implementer): AC7 tool-target redaction runs qlcore.redact BEFORE the 200-char truncation, so a key straddling the cutoff is still caught — pinned by case_tool_target_redaction (severity: low, resolved).",
-    "self-review (implementer): the AC7 eval fixture originally embedded a literal sk-live-* key that tripped the repo's own added-diff secret scanner (verify FINDING); rebuilt the fixture from fragments so the runtime value still exercises redaction while no added source line matches SECRET_PATTERNS (severity: medium, resolved).",
-    "self-review (implementer): routing overlays under assets/routing/*.json are partial model_routing fragments, not standalone configs — check-config on them fails by design and is out of scope; validated instead by run_routing_evals.py 24/24 (severity: info, documented deviation)."
-  ],
-  "open_risks": [
-    "The delegation->session join is heuristic (agent_name + time window); a mislabeled expected_agent_name yields an unmatched delegation (surfaced honestly as unmatched, never a wrong join)",
-    "Transcript/ledger format drift degrades to counted skipped_lines, never a crash",
-    "This record is an implementer self-report: independent_review and security_review are null pending the orchestrator's fresh-context review"
-  ],
-  "next_action": "Hand off to orchestrator for independent + security review; do not merge.",
-  "status": "review",
   "models_used": [
     {
-      "role": "implementer",
+      "role": "orchestrator",
       "host": "claude-code",
-      "model": "claude-opus-4-8",
-      "thinking": "high",
+      "model": "claude-fable-5",
       "attempts": 1
     },
     {
-      "role": "reviewer",
+      "role": "implementer",
+      "host": "claude-code",
+      "model": "claude-fable-5",
+      "attempts": 1,
+      "notes": "8 parallel fresh-context workers across S1+S2 + 1 docs worker in S3, disjoint file ownership"
+    },
+    {
+      "role": "fresh_reviewer",
       "host": "codex",
-      "model": "gpt-5",
-      "thinking": "high",
-      "attempts": 0
+      "model": "gpt-5-class",
+      "attempts": 1,
+      "notes": "cross-family fresh-context review via the Codex runtime"
     },
     {
       "role": "security_reviewer",
       "host": "claude-code",
-      "model": "claude-opus-4-8",
-      "thinking": "high",
-      "attempts": 0
+      "model": "claude-fable-5",
+      "attempts": 1,
+      "notes": "fresh-context security pass, separate session from all implementers"
     }
   ],
-  "escalation_reason": null
+  "independent_review": {
+    "reviewer": "v6-fable-final-signoff (claude-fable-5, xhigh)",
+    "validator": "workflow-subagent",
+    "fresh_context": true,
+    "patched": false,
+    "ran_checks": true,
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "note",
+        "detail": "Reached approve after 3 prior fresh-context review rounds (cross-family GPT/Codex + security + re-review) whose 39 findings were fixed with eval coverage or rejected with evidence; final sign-off verified every trust-chain mechanism empirically and ran all suites green (216 core + 35 add-on + 33 node)."
+      },
+      {
+        "severity": "info",
+        "detail": "Residual: one doc line '(216 core + a 35-case add-on)' stays invisible to the doc-count lint; non-blocking."
+      }
+    ],
+    "diff_sha256": "c04ed7b29c3a4f0d4974f5122dec682e6ae48078a4fa8b946bd4b2a2e4a7ecba",
+    "attested_at": "2026-07-20T13:31:44"
+  },
+  "security_review": {
+    "reviewer": "v6-security-reviewer + fable-final battery",
+    "fresh_context": true,
+    "patched": false,
+    "ran_checks": true,
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "note",
+        "detail": "Round-1 security review found a reproduced uninstall path-traversal (blocking) + destructive-guard wrapper regression (major); both fixed and re-verified. Final Fable battery re-confirmed: uninstall symlink containment (victim survives), pre-existing-file protection, untracked-symlink non-disclosure + byte-faithful hashing, protect_harness 40-case deny/allow battery incl. all wrapper forms and sh -c payloads, secret patterns/redaction unweakened, control plane 127.0.0.1-bound and genuinely opt-in."
+      },
+      {
+        "severity": "note",
+        "detail": "Accepted residuals (documented): apply_patch best-effort protection (tamper-evidence), Bash sed/heredoc + python-mediated deletions outside the coarse guard grammar."
+      }
+    ],
+    "diff_sha256": "c04ed7b29c3a4f0d4974f5122dec682e6ae48078a4fa8b946bd4b2a2e4a7ecba",
+    "attested_at": "2026-07-20T13:31:44"
+  },
+  "open_risks": [
+    "The live ablation (Wave 4.3) has still never been run — v6 pre-registers the protocol and decision rules but the retention evidence remains outstanding, and the README now says so honestly",
+    "protect_harness covers Write/Edit/apply_patch targets and Bash rm patterns; Bash-mediated edits (sed/heredoc) of the gate scripts remain a documented residual bypass — tamper-evidence, not immutability",
+    "docs/images/evidence-dashboard.png still renders v5.1.0 numbers (annotated 'as of v5.1.0'; regeneration needs matplotlib)"
+  ],
+  "implementer": "claude-fable-5-orchestrated-workers",
+  "validation_contract": {
+    "goal": "Ship v6.0.0: close the enforcement gaps the 2026-07-20 deep review verified (verify umbrella at the Stop gate, merge-base diff grounding, object ACs at medium+, satisfiable blocked rows, test-shrinkage and under-fanning gates, protect-harness guard, truthful hook failures), repair the adoption funnel (install manifest, host-aware check, uninstall, codex AGENTS.md, render-prompt), shrink the surface (4-artifact paper trail, 4-value verdict enum, control plane demoted to opt-in add-on, dead templates and speculative tool shapes deleted), make memory read-only-on-recall with outcome feedback, and pre-register the bench protocol with forced decision rules — net negative lines, per docs/improvement-plan-2026-07-20.md",
+    "acceptance_criteria": [
+      "All core gate-case suites pass after every change, including the new commit-first-evasion, honest-committer, object-AC, blocked-row, test-shrinkage, and protect-harness cases",
+      "Diff-grounded reality gates (scope integrity case/glob fixes, bugfix word-boundary keywords, merge-base default, render-prompt) hold under their extended suite",
+      "Hook shims fail truthfully (no fabricated secret denials, sys.executable, record-deleted block, anchored destructive patterns) under the extended hook suite",
+      "Memory is read-only on recall, pooled without the 60/40 tax, provenance-stamped, and surfaces outcomes; recall_budget_chars is honored",
+      "Heterogeneity degrades loudly (SKIPPED line, model_routing.families override, as_of staleness) and setup-models refuses placeholder ids",
+      "Control plane joins delegations by session_id, counts unjoinable rows, represents droid runs as events, exposes drift canaries, prunes all tables, and ships only with --with-control-plane",
+      "Static task-classing, right-size, and SKILL-truth lint cases pass, including the two new v6 pins",
+      "The npm funnel works end to end: parser does not swallow subcommands, manifest-driven check, init->check->remove leaves a clean tree, next steps exit 0",
+      "The regenerated bench fixture passes the cost-fields validator that CI now runs on every committed results file",
+      "The example orchestration config stays valid and check-config prints the loud heterogeneity status line"
+    ],
+    "evidence": [
+      "python3 evals/run_evals.py -> recorded pass in commands_run, re-executable via run-evidence",
+      "python3 evals/run_reality_evals.py -> recorded pass in commands_run, re-executable via run-evidence",
+      "python3 evals/run_hook_evals.py -> recorded pass in commands_run, re-executable via run-evidence",
+      "python3 evals/run_memory_evals.py -> recorded pass in commands_run, re-executable via run-evidence",
+      "python3 evals/run_routing_evals.py -> recorded pass in commands_run, re-executable via run-evidence",
+      "python3 evals/run_control_evals.py -> recorded pass in commands_run, re-executable via run-evidence",
+      "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json -> recorded pass in commands_run, re-executable via run-evidence",
+      "node --test packages/npm/test/parseArgs.test.mjs packages/npm/test/detect.test.mjs packages/npm/test/cli.integration.test.mjs -> recorded pass in commands_run, re-executable via run-evidence",
+      "python3 bench/runner.py --validate bench/results/fixture-smoke-2026-07-20.json -> recorded pass in commands_run, re-executable via run-evidence",
+      "python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json -> recorded pass in commands_run, re-executable via run-evidence"
+    ]
+  },
+  "repo_map": {
+    "entry_points": [
+      "scripts/quality_loop.py (gate engine + CLI)",
+      "hosts/claude-code/stop_gate.py + pretooluse_guard.py (enforcement hooks)",
+      "scripts/install.py + packages/npm/src/cli.mjs (funnel)",
+      "SKILL.md (always-loaded skill text)"
+    ],
+    "likely_files": [
+      "scripts/*",
+      "hosts/*",
+      "evals/*",
+      "assets/*",
+      "packages/npm/*",
+      "bench/*",
+      "docs/*",
+      "references/*",
+      "examples/*",
+      ".claude/*",
+      ".github/*",
+      ".quality-loop/*",
+      "README.md",
+      "CHANGELOG.md",
+      "ROADMAP.md",
+      "CONTRIBUTING.md",
+      "SKILL.md",
+      "agent-record.json"
+    ],
+    "callers_checked": [
+      "stop_gate -> verify umbrella (child invocation contract: exit codes only, no stdout-prefix parsing)",
+      "pretooluse_guard -> scan-text (exit-code discrimination: findings vs broken runtime)",
+      "install.py <- packages/npm/src/install.mjs (manifest is the shared contract)",
+      "render-prompt -> assets/prompts/*.md (placeholder contract {contract}/{diff}/{evidence})",
+      "control-report --arm-costs <- bench/PROTOCOL.md cost-capture path"
+    ],
+    "tests": [
+      "evals/run_evals.py",
+      "evals/run_reality_evals.py",
+      "evals/run_hook_evals.py",
+      "evals/run_memory_evals.py",
+      "evals/run_routing_evals.py",
+      "evals/run_control_evals.py",
+      "packages/npm/test/*.test.mjs"
+    ],
+    "notes": "Release-wide diff; context_map.files uses explicit per-area globs (the intended escape hatch for a repo-spanning release), not single-file mappings."
+  }
 }

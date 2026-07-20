@@ -151,7 +151,9 @@ land as five concrete parts:
    `execution-log.md`, `decision-log.md`, `completion-record.md`. Shared state that makes
    long-horizon work orchestratable.
 4. **Independent verification** — implementer and validator separated for non-trivial work; the
-   implementer is never the final validator, and the reviewer runs on a different vendor.
+   implementer is never the final validator. Different-family review is the portable default;
+   an explicit higher-level harness may pin the same model across separate hosts/sessions when
+   deterministic gates and supervisor verification retain final truth.
 5. **Complexity discipline** — the right-size gate, applied before planning and again before
    review. Canonical rung ladder: SKILL.md §Right-Size Gate.
 

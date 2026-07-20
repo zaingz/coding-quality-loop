@@ -1,18 +1,33 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Coding Quality Loop Lesson",
+  "description": "One row of .quality-loop/memory/lessons.jsonl. kind=outcome rows are shipped-status feedback (memory-commit --outcome) surfaced by brief, not recallable advice. source is best-effort write-time provenance; rows without it predate v6 and render as [unattributed] on recall.",
   "type": "object",
   "required": ["id", "created", "kind", "risk_tier", "lesson"],
   "properties": {
     "id": {"type": "string", "minLength": 1},
     "created": {"type": "string", "minLength": 1},
     "source_task_id": {"type": "string"},
-    "kind": {"type": "string", "enum": ["failure_mode", "convention", "gotcha", "preference"]},
+    "kind": {"type": "string", "enum": ["failure_mode", "convention", "gotcha", "preference", "outcome"]},
     "risk_tier": {"type": "string", "enum": ["low", "medium", "high"]},
     "scope_globs": {"type": "array", "items": {"type": "string"}},
     "keywords": {"type": "array", "items": {"type": "string"}},
     "lesson": {"type": "string", "minLength": 1},
-    "hits": {"type": "integer", "minimum": 0}
+    "hits": {"type": "integer", "minimum": 0},
+    "outcome": {
+      "type": "string",
+      "enum": ["clean", "regressed", "reverted"],
+      "description": "Present only on kind=outcome rows: how the shipped change fared."
+    },
+    "source": {
+      "type": "object",
+      "description": "Write-time provenance (poisoning defense). Best-effort: absent fields are omitted; pre-v6 rows lack the object entirely and stay valid.",
+      "properties": {
+        "task_id": {"type": "string", "minLength": 1},
+        "git_author": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
+    }
   },
   "additionalProperties": true
 }

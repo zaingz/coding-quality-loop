@@ -6,7 +6,7 @@
     "goal": "Add bounded exponential backoff to the HTTP client retry path and update its callers",
     "task_class": "medium",
     "risk_tier": "medium",
-    "acceptance_criteria": ["Retries use bounded exponential backoff; caller behavior unchanged"],
+    "acceptance_criteria": [{"criterion": "Retries use bounded exponential backoff; caller behavior unchanged", "proving_command": "pytest tests/test_client.py"}],
     "verification_plan": ["unit tests for the backoff schedule"],
     "minimality_decision": {"rung": "extend", "reason": "extend the existing retry helper; no new dependency"},
     "plan": ["add backoff to client", "update callers"],

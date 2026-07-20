@@ -1,13 +1,13 @@
 # Quickstart
 
-Two ways to try the Coding Quality Loop, ordered by commitment. Pick the lightest one
+Three ways to try the Coding Quality Loop, ordered by commitment. Pick the lightest one
 that fits your task.
 
 <div align="center">
 <img src="images/terminal-demo.gif" alt="Animated terminal capture — the quality loop detects the host, copies the skill, wires hooks, and runs verify to a green Overall: PASS." width="820">
 </div>
 
-## A. No install — drop-in prompt (30 seconds)
+## A. No install — drop-in prompt
 
 Copy this into your agent's system prompt, project instructions, or the top of your
 `CLAUDE.md` / `AGENTS.md` / `.cursor/rules`:
@@ -22,7 +22,7 @@ Follow the Coding Quality Loop for this task.
 5. Implement the smallest reviewable slice. No new dependencies unless the contract asks for it.
 6. Verify: run the checks, record the exact commands and outputs. Prefer a failing-then-passing test.
 7. Independent review: a distinct reviewer, fresh context, checks the diff against the contract.
-8. Ship: PR summary with evidence table, risk note, rollback line.
+8. Ship: a completion record with evidence table, risk note, rollback line.
 
 Ship the smallest correct change with verifiable evidence, not the biggest possible diff.
 ```
@@ -32,7 +32,42 @@ Then prompt: *"Use the Coding Quality Loop to fix the invoice rounding bug and o
 This works in **every** agent host that accepts a system prompt. No files to copy, no
 scripts to run, nothing to install.
 
-## B. Skill install — copy the folder (2 minutes)
+## B. One-command install — `npx`
+
+One command. Auto-detects your host (Claude Code, Codex, or Droid), copies the skill,
+wires the hooks, and writes an install manifest so later `check` and `remove` are exact.
+
+```bash
+npx coding-quality-loop init
+```
+
+Shipped on [npm](https://www.npmjs.com/package/coding-quality-loop) with signed
+provenance. Requires Node 18+ and Python 3; zero runtime dependencies. Interactive by
+default:
+
+```bash
+npx coding-quality-loop init --dry-run --yes   # preview only
+npx coding-quality-loop init --host codex      # skip host detection
+npx coding-quality-loop add git                # add the pre-commit backstop later
+npx coding-quality-loop check                  # verify a prior install against its manifest
+npx coding-quality-loop remove                 # uninstall from the manifest; restores your .bak backups
+```
+
+The installer is a thin UX wrapper around
+[`scripts/install.py`](../scripts/install.py), so the npx and manual paths land the
+exact same files. The npm tarball does **not** ship `evals/` or the control-plane
+module — those live in the repo checkout (control is an opt-in add-on:
+`python3 scripts/install.py --with-control-plane`).
+
+After install, three commands that each exit 0 on a fresh setup:
+
+```bash
+cp assets/quality-loop.config.example.json quality-loop.config.json  # 1. create the root config
+python3 scripts/quality_loop.py setup-models --host claude-code      # 2. apply per-role model routing
+claude "Use coding-quality-loop to fix a small bug"                  # 3. try it
+```
+
+## C. Manual copy — per host
 
 Copy the whole repo as a skill folder. Every host that speaks the [Agent Skills spec](https://agentskills.io/specification)
 will discover it, keep the frontmatter always-loaded, and lazy-load the rest.
@@ -65,7 +100,19 @@ codex "Follow the Coding Quality Loop in AGENTS.md to fix the bug."
 </details>
 
 <details>
-<summary><strong>Cursor</strong></summary>
+<summary><strong>Droid (Factory)</strong></summary>
+
+```bash
+cp examples/droid/.factory/droids/*.md .factory/droids/
+```
+
+```bash
+droid exec "Follow the Coding Quality Loop in SKILL.md to fix the bug and summarize verification evidence."
+```
+</details>
+
+<details>
+<summary><strong>Cursor — advisory rules only, no runtime</strong></summary>
 
 ```bash
 cp -r examples/cursor/.cursor ./.cursor
@@ -76,30 +123,23 @@ In chat:
 ```text
 @coding-quality-loop fix the retry bug with verification evidence
 ```
+
+Cursor loads the loop's instructions but none of the hook runtime; gates run only if
+you invoke `scripts/quality_loop.py` yourself.
 </details>
 
 <details>
-<summary><strong>Pi</strong></summary>
+<summary><strong>Pi — advisory rules only, no runtime</strong></summary>
 
 ```bash
 cp -r . ~/.agents/skills/coding-quality-loop
 ```
 
 ```text
-/skill:coding-quality-loop implement the change with a validation contract and independent review
-```
-</details>
-
-<details>
-<summary><strong>Droid (Factory)</strong></summary>
-
-```bash
-cp examples/droid/.factory/droids/*.md .factory/droids/
+/skill:coding-quality-loop implement the change with a contract and independent review
 ```
 
-```bash
-droid exec "Follow the Coding Quality Loop in SKILL.md to fix the bug and summarize verification evidence."
-```
+Pi loads the skill text; the hook runtime is not wired by the npm installer.
 </details>
 
 ## Full host wiring (optional)
@@ -112,7 +152,8 @@ python3 scripts/install.py --host all
 
 This copies the stdlib runtime, Claude/Codex host hooks, `.claude/settings.json`,
 reviewer subagents, pre-commit config, git hooks, and an example GitHub Actions workflow,
-with backups.
+with backups and a manifest. Add `--with-control-plane` for the opt-in observability
+add-on; `--uninstall` reverses an install from its manifest.
 
 Then wire model routing to the models your team actually uses:
 
@@ -146,13 +187,13 @@ The loop scales ceremony to risk. Match your work to the smallest class that is 
 |---|---|---|
 | **Tiny** | Typo, copy, one-line config, obvious test update | Inspect, edit, smallest check. No mission artifacts. |
 | **Small** | Local bug, one module, low risk | Quick context map, mini spec, minimal fix, targeted test. |
-| **Medium** | Multiple files, a feature, a migration, auth/payment/data risk | Validation contract, plan, right-size gate, independent review, completion record. |
+| **Medium** | Multiple files, a feature, a migration, auth/payment/data risk | Contract, plan, right-size gate, independent review, completion record. |
 | **Mission** | Multi-day, multi-module, multi-repo, uncertain architecture | Orchestrator + workers + validators + milestones + shared artifacts. |
 
 A tiny task must **not** be forced through mission ceremony. A medium task must **not**
-ship without a validation contract and an independent review. The detected-risk floor
-(`verify-gates`) refuses to let a task self-downgrade around auth, payments, migrations,
-crypto, or PII.
+ship without a contract and an independent review. Risk trumps size: any risk-boundary
+change is medium+ regardless of diff size, and the detected-risk floor (`verify-gates`)
+refuses to let a task self-downgrade around auth, payments, migrations, crypto, or PII.
 
 ## Next
 

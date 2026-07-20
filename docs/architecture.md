@@ -4,8 +4,9 @@
 > the "how it is put together on disk".
 
 The Coding Quality Loop is deliberately boring under the hood: three layers, no runtime
-dependencies, and every non-negotiable enforceable by a single Python script you can read
-in one sitting.
+dependencies, and every non-negotiable enforceable by a small stdlib-only Python CLI —
+six modules under `scripts/`, one of which (`quality_loop_control.py`, the observability
+add-on) is opt-in and not installed by default.
 
 ## Three layers
 
@@ -22,7 +23,7 @@ coding-quality-loop/
 ├── references/         # deep-dive docs pulled only when needed
 ├── examples/           # host-native copy-paste installs + walkthroughs
 ├── evals/              # offline eval cases + harness proving the gates fire
-├── scripts/            # quality_loop.py — stdlib-only helper CLI
+├── scripts/            # quality_loop*.py — six stdlib-only modules (control is the opt-in add-on)
 └── .quality-loop/      # per-project lessons memory + run journal
 ```
 
@@ -37,20 +38,29 @@ Advisory text drifts across sessions; a gate either fires or it does not.
 
 | Command | What it enforces |
 |---|---|
-| `verify-gates` | Reads the state record. Confirms every recorded field is present, well-formed, and non-empty. Rejects bare booleans, empty strings, and nonexistent paths. |
-| `verify-gates --against-diff` | Adds diff-grounded checks against the real `git diff`: phantom completion, scope integrity, diff-derived risk floor, bugfix-test co-presence, and stale review hashes. |
-| `verify` | Umbrella command: runs `verify-gates --against-diff`, `diff-audit`, `run-evidence`, and AC-to-command coverage in one pass. Fails if any constituent section fails; emits a single unified report. Survives a non-git repo (records the diff-dependent sections as failed instead of exiting with no report). |
+| `verify-gates` | Reads the state record. Confirms every recorded field is present, well-formed, and non-empty. Rejects bare booleans, empty strings, and nonexistent paths. At medium+ risk, every acceptance criterion must be an object whose `proving_command` matches a pass-labeled recorded command; `blocked` command rows need a non-empty `reason`. Blocking findings print as `error:`, advisories as `note:`. |
+| `verify-gates --against-diff` | Adds diff-grounded checks against the real `git diff`: phantom completion, scope integrity, diff-derived risk floor, bugfix-test co-presence, net test-declaration/assertion loss, and stale review hashes. |
+| `verify` | Umbrella command: runs `verify-gates --against-diff`, `diff-audit`, `run-evidence`, and AC-to-command coverage in one pass. `--base` defaults to the **merge-base with `origin/main`** (ladder: origin/main → origin/master → main → master), so committed-but-unpushed work stays in the diff; `--timeout <s>` (or `QUALITY_LOOP_TIMEOUT`, default 120) bounds evidence re-execution. Fails if any constituent section fails; emits a single unified report. Survives a non-git repo (records the diff-dependent sections as failed instead of exiting with no report). |
 | `diff-audit` | Scans the diff (or `--staged` for pre-commit) for possible secrets, dependency edits, migrations, oversized changes, and test weakening. Flags untracked files too. |
 | `run-evidence` | Re-executes recorded pass commands from the record's allowlist. `--red-green` replays a red_green command in a worktree at base and HEAD. |
 | `attest-review` | Embeds a recomputed diff hash so a review verdict cannot silently outlast the diff it approved. |
+| `render-prompt` | Renders `assets/prompts/reviewer.md` or `security-reviewer.md` with `{contract}`/`{diff}`/`{evidence}` substituted from a record — pipe its stdout to the reviewing CLI. |
 | `scan-text --stdin` | Secret-scan-as-a-service, for hook shims and paste boxes. |
 | `check-record` | Structural lint of a state record against `assets/agent-record.schema.json`. The record's state machine is the `status` field; a legacy `phase` field is tolerated and ignored. |
-| `check-config` | Structural lint of `quality-loop.config.json` against `assets/quality-loop.config.schema.json`. |
+| `check-config` | Structural lint of the root `quality-loop.config.json` against `assets/quality-loop.config.schema.json`, including reviewer family heterogeneity. |
 | `eval-cases` | Runs offline eval cases that pin task-class, risk-tier, gate, security-reviewer, completion-record, and right-size-gate logic. |
+| `memory-recall` / `memory-commit` / `memory-prune` / `memory-status` | Read-only budget-capped lesson recall, distillation with provenance and `--outcome` feedback, and store housekeeping. |
 | `init-record` / `brief` / `setup-models` | Housekeeping and reporting. `init-record` scaffolds the record and the run-evidence allowlist. |
+| `control-index` / `control-serve` / `control-status` / `control-stop` / `control-ingest` / `control-report` | The opt-in control-plane add-on (`install.py --with-control-plane`). Registered only when `quality_loop_control.py` is present; absent from `--help` otherwise. |
 
 These commands are **portable and stdlib-only**. They complement CI, tests, scanners, and
 human review; they do not replace them. The runtime dependency count is zero.
+
+On Claude Code, the **Stop hook runs the `verify` umbrella** (evidence re-execution and
+AC coverage included) when the record is at a terminal status (`package`/`done`);
+non-terminal dirty-tree stops run `verify-gates --against-diff`. A `protect_harness`
+config key (default on) makes edits to the gate scripts, the active record, or the
+config tamper-evident at the PreToolUse hook.
 
 ### 3. Multi-agent roles (the loop)
 
@@ -63,9 +73,9 @@ The loop narrative groups work into three phases — **PLAN → EXECUTE → REVI
 | Role | Owns | Default profile |
 |---|---|---|
 | `orchestrator` | State machine, journal, review isolation, every routing decision | The main session (Claude Code) |
-| `context_mapper` | Task-scoped repo map, entry points, callers | Cheap/fast model (e.g. Claude Haiku) |
-| `implementer` | Diff, tests, execution log | Strong code model (Claude Sonnet on Claude Code) |
-| `validator` | Independent review against contract + diff + evidence | Strong reasoning model on a **different vendor** (Codex), separate session |
+| `context_mapper` | Task-scoped repo map, entry points, callers | Fast/cheap capability class |
+| `implementer` | Diff, tests, recorded commands | Strong code-specialized class (on Claude Code) |
+| `validator` | Independent review against contract + diff + evidence | Strong reasoning class on a **different family** (Codex), separate session |
 | `security_reviewer` | Escalated review for auth, payments, migrations, secrets | Strong reasoning model, security-focused prompt |
 | `policy_guard` | Deterministic hooks (secrets, protected paths, dependency approval) | Host hooks + git hooks + CI |
 | `package` | Completion record, PR handoff, retro | Cheap model — this step is largely mechanical |
@@ -88,14 +98,18 @@ gets checked at each gate. Its shape is pinned by [`assets/agent-record.schema.j
   "minimality": { "chosen_rung": "localized fix", "rejected_rungs": [...] },
   "plan": { "slices": [...], "verification": [...], "rollback": "..." },
   "commands_run": [ { "cmd": "npm test -- --run", "class": "pass", "evidence": "..." } ],
-  "review": { "reviewer": "validator-b", "verdict": "approved", "diff_hash": "sha256:..." },
+  "review": { "reviewer": "validator-b", "verdict": "approve", "ran_checks": true, "diff_hash": "sha256:..." },
   "completion": { "pr_summary_path": "PR.md", "rollback": "revert this diff" }
 }
 ```
 
+The review verdict enum is pinned to `approve | request_changes | needs_discussion |
+reject`, and `ran_checks` records whether the reviewer actually executed checks.
+
 The record is not a document written for humans; it is the substrate the gates check
-against. Templates for the human-authored parts (task contract, validation contract,
-plan, PR summary) live under `assets/`.
+against. The four-artifact paper trail for the human-authored parts — `contract.md`,
+`plan.md`, `completion-record.md`, `progress.md` (plus `context-map.md` for EXPLORE) —
+lives under `assets/`.
 
 ## Host integrations
 
@@ -105,13 +119,16 @@ The same package drops cleanly into every major agent host:
 |---|---|---|
 | **Claude Code** | `.claude/skills/coding-quality-loop/` or `~/.claude/skills/` | Skill loader + `.claude/settings.json` hooks (`SessionStart`, `PreToolUse`, `Stop`) |
 | **Codex** | `AGENTS.md` at repo root + `codex/skills/` | `hooks.json` project-hook schema |
-| **Cursor** | `.cursor/rules/*.mdc` | Rule loader |
-| **Pi** | `~/.agents/skills/` or in-repo `.agents/skills/` | Skill loader + `/model` per role |
 | **Droid (Factory)** | `.factory/droids/*.md` + skill at repo root | Custom droids per role |
+| **Cursor** (advisory rules only, no runtime) | `.cursor/rules/*.mdc` | Rule loader; no hooks |
+| **Pi** (advisory rules only, no runtime) | `~/.agents/skills/` or in-repo `.agents/skills/` | Skill loader + `/model` per role; no hooks |
 | **Standalone** | `assets/quality-loop.config.example.json` | `scripts/quality_loop.py` gates |
 
 Host wiring is idempotently installed by `python3 scripts/install.py --host all`, which
-prints exactly what is **enforced** by hooks versus **advisory** in text.
+prints exactly what is **enforced** by hooks versus **advisory** in text, records every
+written file in `.quality-loop/install-manifest.json`, and reverses cleanly with
+`--uninstall` (npm: `cql remove`). The control plane is installed only with
+`--with-control-plane`.
 
 ## Data flow
 

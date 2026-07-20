@@ -12,3 +12,5 @@ python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.
 python3 evals/run_control_evals.py
 python3 -m py_compile scripts/quality_loop_control.py hosts/claude-code/control_plane.py
 python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
+node --test packages/npm/test/parseArgs.test.mjs packages/npm/test/detect.test.mjs packages/npm/test/cli.integration.test.mjs
+python3 bench/runner.py --validate bench/results/fixture-smoke-2026-07-20.json

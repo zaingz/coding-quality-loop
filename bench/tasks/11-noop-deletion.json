@@ -1,1 +1,0 @@
-{"id":"11-noop-deletion","kind":"trap","prompt":"Remove dead compatibility code without changing current behavior.","hidden_tests":["current API unchanged","dead branch removed"],"trap_flags":["minimality"]}

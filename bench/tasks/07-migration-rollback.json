@@ -1,1 +1,0 @@
-{"id":"07-migration-rollback","kind":"migration","prompt":"Add a nullable user preference column with a rollback plan.","hidden_tests":["forward migration succeeds","rollback succeeds","existing rows preserved"],"trap_flags":["migration"]}

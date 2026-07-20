@@ -10,18 +10,18 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-5.1.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-6.0.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-171%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-216%20core%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-routed-111111?style=flat-square)](#install--use-matrix)
 [![Codex](https://img.shields.io/badge/Codex-routed-111111?style=flat-square)](#install--use-matrix)
-[![more install targets](https://img.shields.io/badge/also%20installs-Cursor%20·%20Droid%20·%20Pi%20·%20git%20·%20GitHub-111111?style=flat-square)](#install--use-matrix)
+[![more install targets](https://img.shields.io/badge/also%20installs-Droid%20·%20git%20·%20GitHub-111111?style=flat-square)](#install--use-matrix)
 [![Anthropic Agent Skills](https://img.shields.io/badge/Anthropic%20Agent%20Skills-compatible-111111?style=flat-square)](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills)
 
-[Quickstart](#quickstart-60-seconds) · [Orchestrator layer](#the-orchestrator-layer) · [The loop](#the-loop-visualized) · [Proof](#proof-you-can-run) · [Install](#install--use-matrix) · [Compare](#how-it-compares) · [FAQ](#faq) · [Docs](docs/)
+[Quickstart](#quickstart) · [Orchestrator layer](#the-orchestrator-layer) · [The loop](#the-loop-visualized) · [Proof](#proof-you-can-run) · [Install](#install--use-matrix) · [Compare](#how-it-compares) · [FAQ](#faq) · [Docs](docs/)
 
 </div>
 
@@ -29,13 +29,13 @@ AI coding agents are fast. Point one at a vague ticket and it can refactor thing
 
 **Coding Quality Loop makes the agent work like a careful engineer instead.** It pins down what "done" means before writing code, changes as little as possible, proves the change with a test you can see, and has a *separate* agent review the work before it reaches you. What comes back is small, checked, and reversible: something you can read, trust, and merge in minutes.
 
-It is a portable [Agent Skill](https://agentskills.io/specification). In v5 the loop **routes across two frontier hosts** — Claude Code plans and implements, Codex reviews in a different model family — and it still **installs into more** (Cursor, Droid, Pi, git, GitHub) as instruction and hook targets outside that routed loop. Use it as a copy-paste prompt, a loadable skill, or a multi-agent config. No new tools, no lock-in.
+It is a portable [Agent Skill](https://agentskills.io/specification). The loop **routes across two frontier hosts** — Claude Code plans and implements, Codex reviews in a different model family — and it still **installs into more** (Droid, git, GitHub) as instruction and hook targets outside that routed loop. Cursor and Pi get advisory rules recipes in [`examples/`](examples/), not a runtime install. Use it as a copy-paste prompt, a loadable skill, or a multi-agent config. No new tools, no lock-in.
 
 ---
 
 ## Why the loop
 
-Same agent, same model. The difference is the process wrapped around it.
+Same agent, same model — a different process wrapped around it. Two honesty notes up front: the process asks for the table below, and our own published runs show the payoff is **model-specific, not uniform** — Claude cells measure positive code-quality lift, Codex cells measure flat-to-negative (−1.11, −9.0). Both numbers are on [the dashboard](#the-published-eval-runs), in red.
 
 You ask your agent to *"fix the checkout retry bug."*
 
@@ -61,7 +61,7 @@ That is the whole idea: smaller changes, real proof, a second set of eyes, and m
 | Small diff | One focused change, existing conventions, no new deps. |
 | Verification evidence | A failing-then-passing test plus typecheck, recorded. |
 | Independent review | A separate agent checks the diff against the contract, then approves or blocks. |
-| Handoff | A PR summary with evidence, risk note, and rollback. |
+| Handoff | A completion record with evidence, risk note, and rollback. |
 
 The state record in the walkthrough passes the same [`verify-gates`](scripts/quality_loop.py) check the loop enforces.
 
@@ -79,7 +79,7 @@ The state record in the walkthrough passes the same [`verify-gates`](scripts/qua
 
 **New in v5.0.0 — and the headline of the release.** The main session is the **orchestrator**: it thinks hard and makes *every* decision — task class, context map, contract, right-size rung, plan, model routing, the verdict on findings, and the stop-if-unsafe call. Workers (the implementer and the reviewer) never see the skill: they receive a **brief, not context** — goal, contract slice, files, commands, done-check, one screen max. No skill text, no references, no repository tour.
 
-That inversion is a **token diet**. The always-loaded agent surface (`SKILL.md`) is now roughly **half its former size**, and workers load none of it. Decisions concentrate where the reasoning is; execution stays cheap and narrow. The rule that earns it: **every gate must earn its tokens** — a gate is kept only on measured eval lift, and a deletion is a win.
+That inversion is a **token diet**. The always-loaded agent surface (`SKILL.md`) is now roughly **half its former size**, and workers load none of it. Decisions concentrate where the reasoning is; execution stays cheap and narrow. The rule that earns it: **every gate must earn its tokens** — that is the retention standard, and honestly, we have not yet run the live ablation that enforces it. The pre-registered protocol that will is [`bench/PROTOCOL.md`](bench/PROTOCOL.md); until it runs, deletions are still wins.
 
 Routing is pinned to **two hosts, two vendors**: Claude Code plans and implements on frontier Anthropic models; Codex reviews on a frontier OpenAI model, always a **different family** than the implementer. This is a floor the config enforces (`check-config`), not a suggestion.
 
@@ -93,9 +93,9 @@ See [`SKILL.md`](SKILL.md#orchestrator-layer) for the canonical contract and [`r
 
 ---
 
-## Quickstart: 60 seconds
+## Quickstart
 
-One command. Auto-detects your host (Claude Code, Codex, Cursor, Droid, or Pi), copies the skill, and wires the hooks.
+One command. Auto-detects your host (Claude Code, Codex, or Droid), copies the skill, wires the hooks, and writes an install manifest so `check` and `remove` are exact.
 
 ```bash
 npx coding-quality-loop init
@@ -112,48 +112,11 @@ Shipped on [npm](https://www.npmjs.com/package/coding-quality-loop) with signed 
 ```bash
 npx coding-quality-loop init --dry-run --yes   # preview only
 npx coding-quality-loop add git                # add the pre-commit backstop
-npx coding-quality-loop check                  # verify a prior install
+npx coding-quality-loop check                  # verify a prior install against its manifest
+npx coding-quality-loop remove                 # uninstall from the manifest; restores your backups
 ```
 
-Prefer manual? Any of the paths below still work — the installer is a thin UX wrapper around [`scripts/install.py`](scripts/install.py), so both paths land the exact same files.
-
-<details>
-<summary><strong>A. Drop-in prompt</strong></summary>
-
-```bash
-# A — no install: copy the skill into your agent's instructions, then prompt it
-#   "Follow the Coding Quality Loop. Ship the smallest correct change with validation evidence."
-```
-
-Then ask: *"Use the coding-quality-loop skill to fix the invoice rounding bug and open a PR."*
-
-</details>
-
-<details>
-<summary><strong>B. Install as a skill</strong></summary>
-
-```bash
-# B — install as a portable skill (Claude Code shown; see the matrix for other hosts)
-cp -r . .claude/skills/coding-quality-loop        # project scope
-#   ~/.claude/skills/coding-quality-loop           # or user scope
-```
-
-Copying the folder into any skills-aware host is the install. There is no build step.
-
-</details>
-
-### 30-second demo (transcript)
-
-```text
-user: Fix checkout retry losing the final error.
-agent: Contract: preserve retry count, expose final error, no new deps, medium risk.
-agent: Context map: src/checkout/retry.py, tests/test_retry.py, caller api/checkout.py.
-agent: Minimality: one localized branch; no retry framework.
-agent: Diff: retry.py + regression test.
-agent: Evidence: new test fails on base with swallowed error; passes on HEAD; targeted suite green.
-reviewer: Fresh-context review approves against the contract; no API or dependency change.
-agent: PR: summary, files changed, evidence table, risk note, rollback: revert this diff.
-```
+Lighter or heavier paths — a no-install drop-in prompt, or a manual per-host copy — plus the demo transcript and the task-class table live in **[`docs/quickstart.md`](docs/quickstart.md)**, the single onboarding doc.
 
 ---
 
@@ -188,7 +151,7 @@ Every older sub-step inherits one of these three phases; nothing is unlabeled. T
 |---|---|---|
 | PLAN | `INTAKE` | task contract: goal, acceptance criteria, risk tier |
 | PLAN | `EXPLORE` | the files that matter, callers, tests — not the whole tree |
-| PLAN | `INTAKE`+`PLAN` | `validation-contract.md` — what "done" means before writing code |
+| PLAN | `INTAKE`+`PLAN` | `contract.md` — goal, per-criterion proving commands, what "done" means before writing code |
 | PLAN | `MINIMALITY_GATE` | the smallest valid rung; bigger rewrites rejected with reasons |
 | PLAN | `PLAN` | files to change, slices, verification commands, rollback |
 | EXECUTE | `IMPLEMENT_SLICE` | one small, reviewable, revertible slice at a time |
@@ -217,7 +180,7 @@ Every claim on this page is checkable on a clean checkout with no dependencies. 
 
 <div align="center">
 
-<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard — 171 offline gate cases across 7 suites (11 static, 44 behavioral, 26 memory, 23 reality, 24 routing, 16 hook, 27 control), plus a 10-case trigger smoke fixture; per-agent code-quality lift excluding process artifacts, negatives shown next to positives; zero runtime dependencies; two routed hosts (Claude Code + Codex); five published eval runs." width="900">
+<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard (rendered as of v5.1.0; counts have since grown — run the block below for current numbers) — offline gate cases across the eval suites, per-agent code-quality lift excluding process artifacts with negatives shown next to positives, zero runtime dependencies, two routed hosts (Claude Code + Codex), five published eval runs." width="900">
 
 </div>
 
@@ -229,12 +192,13 @@ python3 evals/run_evals.py                                                      
 python3 evals/run_memory_evals.py                                                            # 5. memory gates
 python3 evals/run_reality_evals.py                                                           # 6. reality gates (record↔diff)
 python3 evals/run_hook_evals.py                                                              # 7. host hook fixtures
-python3 evals/run_trigger_evals.py                                                           # 8. activation smoke
-python3 evals/run_routing_evals.py                                                           # 9. model routing
-python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 10. bench fixture smoke
+python3 evals/run_routing_evals.py                                                           # 8. model routing
+python3 evals/run_control_evals.py                                                           # 9. control-plane add-on (in-repo checkout only; not in the npm tarball)
+python3 evals/run_trigger_evals.py                                                           # 10. activation smoke (excluded from the count)
+python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 11. bench fixture smoke
 ```
 
-Current result: **11/11 static** + **44/44 behavioral** + **26/26 memory** + **23/23 reality** + **24/24 routing** + **16/16 hook** + **27/27 control** = **171 gate cases** across 7 suites, re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). A separate **10-case trigger smoke** fixture runs locally (step 8 above): its default grader is keyword-overlap and structurally cannot fail, so it is excluded from the gate count — a real activation check needs `--judge-command` with an LLM judge.
+Current result: **20/20 static** + **54/54 behavioral** + **32/32 memory** + **40/40 reality** + **29/29 routing** + **41/41 hook** = **216 gate cases** across the six core suites, plus **35 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml). A separate **10-case trigger smoke** fixture runs locally (step 10 above): its default grader is keyword-overlap and structurally cannot fail, so it is excluded from the gate count — a real activation check needs `--judge-command` with an LLM judge.
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -259,7 +223,7 @@ Five eval directories are committed with source, numbers, and caveats. Read them
 | [procmon 07-03](examples/rust-procmon-eval-2026-07-03/README.md) | 2026-07-03 | Rust process manager | Codex (GPT-5), Claude Code (Sonnet 4.6) | Model-proxy (Perplexity subagents) | Overall +5.75 (Codex +4.0, Claude +7.5) — almost all from D7 artifacts; code-quality dims flat-to-worse |
 | [Webapp 07-07](examples/webapp-agent-eval-2026-07-07/README.md) | 2026-07-07 | Browser task manager | Codex (gpt-5.5), Claude Code (claude-fable-5) | Live CLI + real browser verification (drop-in delivery) | Code-quality **excl. D7**: Claude Code **+6.67**, Codex **−1.11** (totals with D7: +16.0 / +7.5) |
 
-All directional, not durable benchmark claims. The webapp run also caught an agent silently softening its local copy of the gate script and reporting PASS against it — see the panel below. The benchmark harness, fixture-smoke result, and ablation protocol live in [`bench/`](bench/ablation-protocol.md).
+All directional, not durable benchmark claims — and note the sign flips: the lift is model-specific (Claude positive, Codex flat-to-negative), which is exactly why the live ablation is pre-registered before it runs. The webapp run also caught an agent silently softening its local copy of the gate script and reporting PASS against it — see the panel below. The benchmark harness, fixture-smoke result, and the pre-registered protocol live in [`bench/PROTOCOL.md`](bench/PROTOCOL.md).
 
 ### The gate-gaming story
 
@@ -277,25 +241,18 @@ For medium/high-risk work, create a state record and run the primary verificatio
 
 ```bash
 python3 scripts/quality_loop.py init-record --goal "Fix checkout retry bug" --risk-tier medium --output agent-record.json
-python3 scripts/quality_loop.py verify agent-record.json --base origin/main --red-green
+python3 scripts/quality_loop.py verify agent-record.json --red-green   # --base defaults to the merge-base with origin/main
 ```
 
 ---
 
 ## Ceremony scales with risk
 
-A tiny task must **not** be forced through mission ceremony. A medium task must **not** ship without a validation contract and an independent review. ([Task classes](SKILL.md))
-
-| Class | Looks like | Process |
-|---|---|---|
-| **Tiny** | Typo, copy, one-line config, obvious test update. | Inspect, edit, smallest check. No mission artifacts. |
-| **Small** | Local bug, one module, low risk. | Quick context map, mini spec, minimal fix, targeted test. |
-| **Medium** | Multiple files, a feature, a migration, auth/payment/data risk. | Validation contract, plan, right-size gate, **independent review**, completion record. |
-| **Mission** | Multi-day, multi-module, multi-repo, uncertain architecture. | Orchestrator + worker tasks + validators, milestones, shared artifacts. |
+A tiny task must **not** be forced through mission ceremony. A medium task must **not** ship without a contract and an independent review. Risk trumps size: any risk-boundary change is medium+ regardless of diff size. The task-class table (tiny → small → medium → mission) lives in [`docs/quickstart.md`](docs/quickstart.md#which-class-is-my-task); the canonical definitions are in [`SKILL.md`](SKILL.md).
 
 ### What the loop costs
 
-Process is not free, and we measure it like everything else. A full **medium** loop adds roughly **15,000–22,000 tokens** of process scaffolding (skill text, pulled references, role prompts, subcommand output) before the agent reads a line of your code, and the live webapp run measured **3–6× wall time** versus baseline. That is the bill for the contract, the evidence, and the second set of eyes. Two controls keep the bill honest: ceremony scales with risk (a tiny task pays almost none of it), and **every gate must earn its tokens** — gates are added or kept only on measured eval lift, and deletions are wins ([policy](references/philosophy.md)). Live sweeps must record per-arm cost, and `python3 bench/runner.py --validate` fails any that don't.
+Process is not free. A full **medium** loop adds an *estimated* **15,000–22,000 tokens** of process scaffolding (skill text, pulled references, role prompts, subcommand output) before the agent reads a line of your code — an estimate from the 2026-07-09 critical review, not yet a measured figure — and the live webapp run measured **3–6× wall time** versus baseline. That is the bill for the contract, the evidence, and the second set of eyes. Two controls are meant to keep the bill honest: ceremony scales with risk (a tiny task pays almost none of it), and **every gate must earn its tokens** — the retention standard we have not yet met, because the live ablation that enforces it has not been run ([policy](references/philosophy.md), [pre-registered protocol](bench/PROTOCOL.md)). Live sweeps must record per-arm cost, and `python3 bench/runner.py --validate` fails any that don't.
 
 ---
 
@@ -319,7 +276,7 @@ Most tools hide this table. Ours is one of the best marketing artifacts in the r
 | **Repeated failure -> durable change.** A recurring mistake must become a rule/test/hook/checklist/template, so a clean final record cannot bury a mistake corrected only in chat. | Host hooks are advisory unless the host or repo chooses to trust and enable them. Git hooks and CI are the portable backstop. |
 | **Helper-integrity reporting.** `verify` prints the sha256 of each helper module so a hook or CI can catch a locally modified gate script. Motivated by the [gate-gaming incident](#the-gate-gaming-story). | Helper-integrity is a *report*, not an enforcement action by itself — pair it with a CI check that compares against a known-good sha to make it blocking. |
 
-The runtime entry points are `verify` (the umbrella: record gates + diff audit + evidence re-execution + AC coverage), `verify-gates`, `verify-gates --against-diff`, `check-record`, `diff-audit`, `run-evidence`, `attest-review`, and `scan-text --stdin`, pinned by [evals](evals/).
+The runtime entry points are `verify` (the umbrella: record gates + diff audit + evidence re-execution + AC coverage), `verify-gates`, `verify-gates --against-diff`, `check-record`, `diff-audit`, `run-evidence`, `attest-review`, `render-prompt`, and `scan-text --stdin`, pinned by [evals](evals/). On Claude Code, the Stop hook runs the full `verify` umbrella (evidence re-execution included) at terminal statuses — fabricated pass rows no longer clear the local gate.
 
 **Reviewer heterogeneity.** `check-config` now hard-fails when the implementer and fresh_reviewer resolve to the same model on medium+ tasks. **Tool-using evaluator.** The reviewer must execute tests and benchmarks when available, not just read the diff; the verdict records `ran_checks: true|false`. **Communication-bridge rule.** After the reviewer produces findings, the implementer filters them against the contract: in-scope findings become fix tasks, out-of-scope findings become follow-ups. This prevents review loops.
 
@@ -334,11 +291,13 @@ Pick your host. Full copy-paste files live in [`examples/`](examples/); every pa
 | **Any host** (auto-detect) | `npx coding-quality-loop init` | follow the printed "Next steps" for your host |
 | **Claude Code** (skill) | `cp -r . .claude/skills/coding-quality-loop` (project) or `~/.claude/skills/coding-quality-loop` (user) | `claude "Use the coding-quality-loop skill to fix the failing test and open a PR."` |
 | **Claude Code** (instruction-only) | `cp examples/claude-code/CLAUDE.md ./CLAUDE.md` (or `/init`, then paste the loop) | `claude "Follow the Coding Quality Loop to fix the failing test."` |
-| **Codex** | `cp examples/codex/AGENTS.md ./AGENTS.md` | `codex "Follow the Coding Quality Loop in AGENTS.md to fix the bug."` |
-| **Cursor** | `cp -r examples/cursor/.cursor ./.cursor` | in chat: `@coding-quality-loop fix the retry bug with verification evidence` |
-| **Pi** | `cp -r . ~/.agents/skills/coding-quality-loop` (or in-repo `.agents/skills/`) | `/skill:coding-quality-loop implement the change with a validation contract and independent review` |
+| **Codex** | `npx coding-quality-loop init --host codex` (ships `AGENTS.md` + hooks) or `cp examples/codex/AGENTS.md ./AGENTS.md` | `codex "Follow the Coding Quality Loop in AGENTS.md to fix the bug."` |
 | **Droid (Factory)** | `cp examples/droid/.factory/droids/*.md .factory/droids/` (role droids) + skill in repo root | `droid exec "Follow the Coding Quality Loop in SKILL.md to fix the bug and summarize verification evidence."` |
+| **Cursor** — *advisory rules only, no runtime* | `cp -r examples/cursor/.cursor ./.cursor` | in chat: `@coding-quality-loop fix the retry bug with verification evidence` |
+| **Pi** — *advisory rules only, no runtime* | `cp -r . ~/.agents/skills/coding-quality-loop` (or in-repo `.agents/skills/`) | `/skill:coding-quality-loop implement the change with a contract and independent review` |
 | **Standalone / custom** | route each step from `assets/quality-loop.config.example.json` | follow [`examples/standalone/`](examples/standalone/run-quality-loop.md) |
+
+Cursor and Pi are no longer offered by the npm installer's host picker: they load the *instructions* but none of the hook runtime, so they get honest advisory-only labels instead of surface parity.
 
 > **Provenance note:** the `npx` installer ships from the [`coding-quality-loop`](https://www.npmjs.com/package/coding-quality-loop) npm package (source: [`packages/npm/`](packages/npm/)) with signed [Sigstore provenance](https://search.sigstore.dev/?logIndex=2050768324) tying the tarball to a specific GitHub Actions build. It is a thin UX wrapper around [`scripts/install.py`](scripts/install.py), so both paths land the exact same files. This repo is not yet on the [agentskills.io](https://agentskills.io) Skills Hub; `gh skill install` works once a maintainer publishes a release. See [Release & pinning](#release--pinning).
 
@@ -366,13 +325,15 @@ Release 1.6 adds first-class host wiring without making any host mandatory:
 
 **Config-based model routing** — the `model_routing` section in `quality-loop.config.json` maps each model class to a real model per host. `python3 scripts/quality_loop.py setup-models --host <host>` applies it: it rewrites `model:` frontmatter for Claude Code (`.claude/agents/*.md`) and Droid (`.factory/droids/*.md`), or prints the Codex `config.toml` / Pi `/model` settings to apply. Multi-host topologies are first-class: an `agents` entry may pin a role to another harness (`{"host": "codex", "class": "strong_reasoning"}`), `main_session` declares where the implementer runs, and one `setup-models` run applies every host — print hosts (codex, pi) are labeled `PRINT-ONLY — settings not applied or verified by CQL`. Reviewer independence is enforced on the resolved model **family** across hosts (`family` field or well-known prefix; unknown ids skip; `allow_same_family` is the explicit escape hatch). Three pre-validated variants along the intelligence↔cost dial ship in [`assets/routing/`](assets/routing/). `brief` shows the active routing per host and flags drift on file hosts. Agent files ship with `model: inherit` so they are host-neutral at rest. Route reasoning effort at **`high`**: `check-config` rejects `xhigh`/`max` unless a model-class block sets `"allow_overthink": true`, because effort is per-step, not per-task endurance — above `high`, models overthink and overspend each step. See the [model capability glossary](references/agentic-orchestration.md#model-capability-glossary) (intelligence / taste / cost, the effort ceiling, and the escalation policy) and [config-driven model setup](references/agentic-orchestration.md#config-driven-model-setup).
 
-**Agent-os override.** Zain's global harness keeps CQL routing host-neutral and pins Fable/max planning → Droid/GPT-5.6 Sol/high implementation → fresh Codex/GPT-5.6 Sol/xhigh review externally. This same-model, separate-host/session route is not model heterogeneity; fresh context, deterministic gates, and supervisor verification provide the independence boundary.
+One user's personal cross-CLI setup (an external harness that overrides CQL routing) is documented — labeled as exactly that — in [`docs/cross-cli-recipe.md`](docs/cross-cli-recipe.md#one-users-setup-not-shipped-the-agent-os-override).
 
-A repo can opt into required edit-before-plan blocking with `.quality-loop/config.json`:
+A repo can opt into required edit-before-plan blocking in the canonical root config, `quality-loop.config.json`:
 
 ```json
 {"enforcement": "required"}
 ```
+
+(`.quality-loop/config.json` still works as a fallback for one release, with a deprecation warning.)
 
 </details>
 
@@ -391,43 +352,45 @@ A single Agent Skill package following the open [Agent Skills specification](htt
 ```text
 coding-quality-loop/
 ├── SKILL.md            # the skill: when-to-use, lifecycle, task classes, roles, gates
-├── assets/             # templates + schemas loaded on demand (contract, validation contract,
-│                       #   plan, logs, completion record, PR summary, progress, record schema,
+├── assets/             # templates + schemas loaded on demand (contract, plan,
+│                       #   completion record, progress, context map, record schema,
 │                       #   config, per-role prompt cards)
 ├── references/         # deep-dive docs pulled only when needed (lifecycle, orchestration,
 │                       #   reviewer checklists, tool contracts, philosophy,
 │                       #   the memory contract, enforcement matrix)
-├── examples/           # host-native copy-paste: claude-code, codex, cursor, pi, droid,
-│                       #   standalone, a real before/after walkthrough, + committed live evals
-├── evals/              # offline eval cases + harness that prove the gates fire
-├── scripts/            # quality_loop.py + quality_loop_memory.py — stdlib-only, no third-party deps
+├── examples/           # host-native copy-paste: claude-code, codex, droid, standalone,
+│                       #   advisory rules for cursor/pi, a real walkthrough, + committed live evals
+├── evals/              # offline eval cases + harness that prove the gates fire (repo only, not in the npm tarball)
+├── scripts/            # quality_loop*.py — six stdlib-only modules, no third-party deps
+│                       #   (quality_loop_control.py is the opt-in control-plane add-on)
 └── .quality-loop/      # per-project lessons memory + runs/progress (git-diffable; grows as the agent learns)
 ```
 
 Minimum tool surface: read, search, edit, shell, run tests, `git diff` / branch / commit / PR. Useful extensions include repo-map generator, AST search, browser automation, GitHub CLI, issue tracker, CI logs, Sentry/Datadog logs, read-only DB access, design docs, and MCP connectors. MCP only when context lives outside the repo, changes frequently, or should be repeatable via a tool. Suggested tool contracts are in `references/tool-contracts.md`.
 
-Medium/high-risk and long-running work maintains a compact state record. Tiny tasks may omit it when the handoff still includes contract, evidence, and risks. Use `assets/agent-record.schema.json` as the canonical schema and the templates in `assets/`: `task-contract-template.md`, `context-map.md`, `validation-contract.md`, `plan.md`, `execution-log.md`, `decision-log.md`, `completion-record.md`, `pr-summary-template.md`, and `AGENTS.template.md`.
+Medium/high-risk and long-running work maintains a compact state record. Tiny tasks may omit it when the handoff still includes contract, evidence, and risks. Use `assets/agent-record.schema.json` as the canonical schema. The medium paper trail is **four artifacts** (eval-pinned): `assets/contract.md`, `assets/plan.md`, `assets/completion-record.md`, and `assets/progress.md` — plus `assets/context-map.md` for EXPLORE and `assets/AGENTS.template.md` for Codex installs. Decisions are recorded inline in progress bullets; commands live in the record's `commands_run`.
 
 ### Optional helper commands
 
 Helper script commands are advisory. They do not replace human review, tests, scanners, or CI.
 
 ```bash
-python3 scripts/quality_loop.py verify agent-record.json --base origin/main --red-green   # primary: record gates + diff audit + evidence + AC coverage
+python3 scripts/quality_loop.py verify agent-record.json --red-green      # primary: record gates + diff audit + evidence + AC coverage (--base defaults to the origin/main merge-base; --timeout for slow suites)
 python3 scripts/quality_loop.py init-record --goal "Fix invoice total rounding" --risk-tier medium --output agent-record.json
 python3 scripts/quality_loop.py check-record agent-record.json
 python3 scripts/quality_loop.py diff-audit --base origin/main
 python3 scripts/quality_loop.py diff-audit --staged
 python3 scripts/quality_loop.py verify-gates agent-record.json
-python3 scripts/quality_loop.py verify-gates agent-record.json --against-diff --base origin/main
+python3 scripts/quality_loop.py verify-gates agent-record.json --against-diff
 python3 scripts/quality_loop.py attest-review review.json --base origin/main
 python3 scripts/quality_loop.py run-evidence agent-record.json --red-green --base origin/main
+python3 scripts/quality_loop.py render-prompt --role reviewer --record agent-record.json   # substituted reviewer prompt for a cross-CLI review leg
 python3 scripts/quality_loop.py scan-text --stdin < suspicious-file.txt
 python3 scripts/quality_loop.py brief
 python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
 python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
-python3 scripts/quality_loop.py control-index    # build the local observability index
-python3 scripts/quality_loop.py control-serve    # dashboard + JSON API on 127.0.0.1
+python3 scripts/quality_loop.py control-index    # control-plane add-on only (installed via install.py --with-control-plane)
+python3 scripts/quality_loop.py control-serve    # dashboard + JSON API on 127.0.0.1 (add-on)
 ```
 
 `diff-audit` exits non-zero on warnings: possible secrets, dependency edits, migrations, large diffs/file counts. Treat it as a coarse guardrail, not a substitute for gitleaks/trufflehog on high-risk work.
@@ -456,11 +419,12 @@ See [`references/memory.md`](references/memory.md) for the memory contract.
 
 ## Control plane
 
-One local dashboard to monitor, observe, and learn what the agents are doing — every session, every model call with **exact token counts**, tool calls, token spend, routing, and every loop artifact (records, reviews, findings, minimality decisions, plans, escalations, delegations, memory). Shipped in v4.3.0; v5.1.0 ("Audit Trail") makes the *evidence* first-class.
+One local dashboard to monitor, observe, and learn what the agents are doing — every session, every model call with **exact token counts**, tool calls, token spend, routing, and every loop artifact (records, reviews, findings, minimality decisions, plans, escalations, delegations, memory). Shipped in v4.3.0; v5.1.0 ("Audit Trail") made the *evidence* first-class; since v6.0.0 it is an **opt-in add-on**: a default install copies and wires none of it — install it from a repo checkout with `python3 scripts/install.py --with-control-plane` (the npm tarball does not ship the control module).
 
 ```bash
-python3 scripts/quality_loop.py control-index   # SQLite index from transcripts + CQL artifacts
-python3 scripts/quality_loop.py control-serve   # dashboard at http://127.0.0.1:4477/
+python3 scripts/install.py --with-control-plane  # opt in (repo checkout only)
+python3 scripts/quality_loop.py control-index    # SQLite index from transcripts + CQL artifacts
+python3 scripts/quality_loop.py control-serve    # dashboard at http://127.0.0.1:4477/
 ```
 
 <img src="docs/images/control-plane.png" alt="Control plane dashboard — Overview with session, model-call, and tool-call tiles, exact input/output/cache-read token tiles and an estimated-spend tile, a tokens-by-day input+output bar chart, and a per-model breakdown table (claude-opus-4-8, claude-sonnet-4-6) with calls, in/out tokens, cache read, and est. USD" width="900">
@@ -469,7 +433,7 @@ python3 scripts/quality_loop.py control-serve   # dashboard at http://127.0.0.1:
 
 <img src="docs/images/control-plane-task-timeline.png" alt="Control plane task-audit view for task v5-docs-overhaul — header tiles for model calls, input/output tokens, findings (6), and delegations (3) over a single chronological timeline that interleaves delegations (implementer, validator, simplicity_reviewer), the minimal_new_code minimality rung, review findings by severity, and tool events: the per-task audit trail tying findings, delegations, verdicts, and spend to the sessions that produced them" width="900">
 
-It is an **index over evidence, never a gate**: a disposable SQLite cache under `.quality-loop/control/` (self-gitignored, excluded from attestation) rebuilt from sources of truth — host transcripts and loop artifacts. Local-only by construction: stdlib `http.server` hard-bound to `127.0.0.1`, GET-only API, zero dependencies, no conversation bodies stored beyond a 160-char title line and truncated tool targets. Spend is reported in tokens; USD appears only if you supply your own `control_plane.prices` — no vendor price data ships. Opt-in hooks (`control_plane.enabled`) record session start/end and autostart the server; the ingest path always exits 0, so a broken observability plane can never break a session. A 27-case eval suite pins the whole surface. See [`docs/control-plane.md`](docs/control-plane.md).
+It is an **index over evidence, never a gate**: a disposable SQLite cache under `.quality-loop/control/` (self-gitignored, excluded from attestation) rebuilt from sources of truth — host transcripts and loop artifacts. Local-only by construction: stdlib `http.server` hard-bound to `127.0.0.1`, GET-only API, zero dependencies, no conversation bodies stored beyond a 160-char title line and truncated tool targets. Spend is reported in tokens; USD appears only if you supply your own `control_plane.prices` — no vendor price data ships. Opt-in hooks (`control_plane.enabled`) record session start/end and autostart the server; the ingest path always exits 0, so a broken observability plane can never break a session. **35 add-on cases** pin the whole surface (kept out of the core gate-case headline because the add-on is not installed by default). See [`docs/control-plane.md`](docs/control-plane.md).
 
 ---
 
@@ -505,7 +469,7 @@ For a longer, per-feature comparison (with explicit non-goals and a migration pa
 
 **Do I need the Python helper?** No. The loop works as pure instructions. The helper is an optional, stdlib-only accelerator for teams that want runnable record gates.
 
-**Will it work with my agent?** If it loads `SKILL.md` or accepts a system prompt, yes. Claude Code, Codex, Cursor, Pi, and standalone runtimes are covered with copy-paste files.
+**Will it work with my agent?** If it loads `SKILL.md` or accepts a system prompt, yes. Claude Code, Codex, Droid, and standalone runtimes are covered with installable files; Cursor and Pi get advisory rules recipes (instructions without the hook runtime).
 
 **Does it remember across sessions?** Optionally, yes. With [project memory](#project-memory) enabled, distilled lessons persist per-project and are recalled, budget-capped, at the start of the next task, so the agent stops relearning the same thing. It is advisory, stdlib-only by default, and redacts secrets before writing.
 
@@ -545,11 +509,11 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   provenance is not hand-faked.
 - **Skills Hub publish checklist.** Before publishing to the
   [agentskills.io](https://agentskills.io) Skills Hub:
-  1. Bump `packages/npm/package.json` and tag a release (`git tag v5.1.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
+  1. Bump `packages/npm/package.json` and tag a release (`git tag v6.0.0 && git push --tags`). The [`publish npm`](.github/workflows/publish-npm.yml) workflow will verify the tag matches, run a full `npm pack` + tarball-install smoke, and publish with `--provenance`.
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all 7 gate suites green: 11 static + 44 behavioral + 26 memory + 23 reality + 24 routing + 16 hook + 27 control = 171 gate cases, plus the 10-case trigger smoke fixture).
+     and the full eval suite (all suites green: 20 static + 54 behavioral + 32 memory + 40 reality + 29 routing + 41 hook = 216 gate cases, plus 35 add-on cases for the control plane and the 10-case trigger smoke fixture).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules

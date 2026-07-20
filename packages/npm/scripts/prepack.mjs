@@ -4,7 +4,9 @@
 //
 // Copies only what the CLI needs at runtime: scripts/, hosts/, assets/,
 // examples/{claude-code,codex,cursor,droid,pi,standalone}/, .claude/,
-// SKILL.md, README.md, LICENSE, evals/ (opt-in for `--eval` future work).
+// SKILL.md, README.md, LICENSE. The evals and the optional control plane
+// (assets/control-plane/, scripts/quality_loop_control.py) stay out of the
+// tarball — the control plane is an in-repo opt-in add-on.
 import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
@@ -30,7 +32,14 @@ const INCLUDE = [
   "examples/pi",
   "examples/standalone",
   "examples/walkthrough",
-  "evals",
+];
+
+// Removed from dist/ after the INCLUDE copy: shipped-by-directory paths that
+// must not reach the tarball. The control plane is an optional in-repo add-on
+// (`install.py --with-control-plane` from a git clone).
+const EXCLUDE = [
+  "assets/control-plane",
+  "scripts/quality_loop_control.py",
 ];
 
 async function copyIfExists(rel) {
@@ -83,6 +92,9 @@ async function main() {
   for (const rel of INCLUDE) {
     if (await copyIfExists(rel)) copied.push(rel);
     else missing.push(rel);
+  }
+  for (const rel of EXCLUDE) {
+    await rm(join(DIST, rel), { recursive: true, force: true });
   }
   const stripped = await stripPyCache(DIST);
   console.log(`prepack: copied ${copied.length} paths -> dist/skill/ (stripped ${stripped} pycache entries)`);

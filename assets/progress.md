@@ -2,7 +2,8 @@
 
 <!-- Session continuity log. Read at session start (via `brief`), update at
      PACKAGE / RETROSPECT. Keep this file short: the last few sessions, not a
-     full transcript. -->
+     full transcript. Record decisions inline in the session bullets; commands
+     live in the record's commands_run (no separate decision/execution logs). -->
 
 ## Current goal
 

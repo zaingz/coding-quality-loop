@@ -1,5 +1,6 @@
 {
   "description": "Routing variant: max-intelligence (as_of 2026-07-12). Frontier models on every leg; routing exists to keep review in a different family, not to save cost. Anthropic + OpenAI only, two hosts. Paste over the model_routing section of quality-loop.config.json, then run setup-models and check-config.",
+  "as_of": "2026-07-12",
   "host": "claude-code",
   "host_models": {
     "claude-code": {

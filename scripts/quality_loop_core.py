@@ -184,6 +184,76 @@ TEST_WEAKENING_PATTERNS = [
 ]
 
 
+# Test-shrinkage counters: deleted test functions and gutted assertions are the
+# half of Hard Rule 6 the skip/xfail patterns cannot see (those only match ADDED
+# lines). Declarations and assertion lines are counted on both sides of the diff
+# and netted at DIFF level, not per file, so a legitimate test move stays green.
+_TEST_DECL_RE = re.compile(
+    r"^\s*(?:async\s+)?def\s+test\w*\s*\(|^\s*(?:it|test|describe)(?:\.each\b[^(]*)?\s*\(\s*['\"`]"
+)
+_ASSERTION_LINE_RE = re.compile(
+    r"^\s*assert\b|\bassert\w+\s*\(|\bexpect\s*\("
+)
+
+
+def test_shrinkage_hits(patch: str) -> list[str]:
+    """Findings when the diff removes more test declarations or assertion lines
+    than it adds (deleted test files, gutted assertions).
+
+    Sibling of ``test_weakening_hits``, which only sees ADDED skip/xfail lines.
+    Counts are netted across ALL test files in the diff — not per file — so a
+    legitimate test MOVE (deleted from one test file, equivalent adds in another
+    test file in the same diff) stays silent while a deletion or an
+    assertion-gutting still nets negative.
+    """
+    removed_decls = added_decls = removed_asserts = added_asserts = 0
+    files: list[str] = []
+    in_test_file = False
+    old_path = ""
+    for line in patch.splitlines():
+        if line.startswith("--- "):
+            old_path = line[4:].strip()
+            if old_path.startswith(("a/", "b/")):
+                old_path = old_path[2:]
+            continue
+        if line.startswith("+++ "):
+            new_path = line[4:].strip()
+            if new_path.startswith(("a/", "b/")):
+                new_path = new_path[2:]
+            current = new_path if new_path != "/dev/null" else old_path
+            in_test_file = any(m in current.lower() for m in TEST_PATH_MARKERS)
+            if in_test_file and current not in files:
+                files.append(current)
+            continue
+        if not in_test_file or line.startswith(("---", "+++")):
+            continue
+        if line.startswith(("+", "-")):
+            body = line[1:]
+            is_decl = bool(_TEST_DECL_RE.search(body))
+            is_assert = not is_decl and bool(_ASSERTION_LINE_RE.search(body))
+            if line.startswith("+"):
+                added_decls += is_decl
+                added_asserts += is_assert
+            else:
+                removed_decls += is_decl
+                removed_asserts += is_assert
+    hits: list[str] = []
+    listed = ", ".join(files[:5])
+    if removed_decls > added_decls:
+        hits.append(
+            "net test-declaration loss in diff: removed %d, added %d (test files: %s) "
+            "— restore the removed tests or add equivalent tests in another test file "
+            "in the same diff" % (removed_decls, added_decls, listed)
+        )
+    if removed_asserts > added_asserts:
+        hits.append(
+            "net assertion loss in diff: removed %d, added %d (test files: %s) "
+            "— restore equivalent assertions; weakening asserts to keep a suite green "
+            "is gate-gaming" % (removed_asserts, added_asserts, listed)
+        )
+    return hits
+
+
 def test_weakening_hits(patch: str) -> list[str]:
     """Test files whose ADDED lines match a test-weakening pattern.
 

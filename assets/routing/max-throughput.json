@@ -1,5 +1,6 @@
 {
   "description": "Routing variant: max-throughput (as_of 2026-07-12). Cheapest legs that hold the floors: strong_reasoning stays strong-tier (Sonnet 5), the reviewer stays in a different family (GPT-5.6 Terra), effort stays high. Anthropic + OpenAI only, two hosts. Paste over the model_routing section of quality-loop.config.json, then run setup-models and check-config.",
+  "as_of": "2026-07-12",
   "host": "claude-code",
   "host_models": {
     "claude-code": {

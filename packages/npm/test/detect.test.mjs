@@ -69,7 +69,20 @@ test("mixed markers surface all matching hosts", async () => {
 test("KNOWN_HOSTS covers all interactive host choices", () => {
   // If someone adds a host to detect.mjs, they must also add it here — this is
   // the list the interactive picker shows.
-  for (const h of ["claude-code", "codex", "cursor", "droid", "pi"]) {
+  for (const h of ["claude-code", "codex", "droid"]) {
     assert.ok(KNOWN_HOSTS.includes(h), `${h} missing from KNOWN_HOSTS`);
   }
+  // cursor and pi are advisory rules recipes in examples/, not install targets.
+  for (const h of ["cursor", "pi"]) {
+    assert.ok(!KNOWN_HOSTS.includes(h), `${h} must not be in KNOWN_HOSTS`);
+  }
+});
+
+test("package.json mentioning cursor is not a host signal", async () => {
+  // Regression: the substring fallback misfired on any package.json that
+  // happened to contain the word "cursor" (e.g. a caret/cursor UI dependency).
+  const t = await scratch();
+  await writeFile(join(t, "package.json"), JSON.stringify({ dependencies: { "cursor-position": "1.0.0" } }));
+  const r = await detectHosts(t);
+  assert.deepEqual(r.hosts, []);
 });

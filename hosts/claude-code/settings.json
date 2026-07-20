@@ -60,8 +60,8 @@
             "type": "command",
             "command": "python3",
             "args": ["${CLAUDE_PROJECT_DIR}/hosts/claude-code/stop_gate.py"],
-            "timeout": 30,
-            "statusMessage": "Running Quality Loop stop gate"
+            "timeout": 600,
+            "statusMessage": "Running Quality Loop stop gate (terminal status re-executes evidence, up to 120s per command)"
           }
         ]
       }

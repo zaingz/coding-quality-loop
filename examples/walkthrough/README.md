@@ -43,11 +43,12 @@ recorded in the state record.
 
 **REVIEW — `fresh_reviewer` (separate session).** Checked the diff against the contract, not
 the implementer's confidence: rounding moved to the total, regression test covers the reported
-case, no public API change. Verdict: **approve**.
+case, no public API change. Ran the billing suite itself (`ran_checks: true`). Verdict:
+**approve**.
 
-**PACKAGE — `packager`.** Handoff assembled with `assets/pr-summary-template.md`: goal, files
-changed, minimality decision (`one_liner`), verification evidence table, the rounding-policy
-risk note, and rollback (revert the single diff).
+**PACKAGE — `packager`.** Completion record assembled with `assets/completion-record.md`: goal,
+files changed, right-size decision (`one_liner`), verification evidence table, the
+rounding-policy risk note, and rollback (revert the single diff).
 
 ## Why this is the model behavior
 

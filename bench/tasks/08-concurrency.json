@@ -1,1 +1,0 @@
-{"id":"08-concurrency","kind":"bugfix","prompt":"Fix the race condition in queued job claiming.","hidden_tests":["single claim under contention","timeout releases lock"],"trap_flags":["concurrency"]}

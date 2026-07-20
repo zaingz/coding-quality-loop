@@ -19,13 +19,17 @@ def json_input() -> dict:
 
 def project_root(data: dict) -> Path:
     cwd = Path(os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or os.getcwd())
-    proc = subprocess.run(
-        ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        check=False,
-    )
+    # A hook must never crash: if git itself is unavailable, fall back to cwd.
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return cwd
     return Path(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else cwd
 
 

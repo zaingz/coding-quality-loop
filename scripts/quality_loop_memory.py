@@ -11,7 +11,9 @@ import difflib
 import fnmatch
 import hashlib
 import json
+import os
 import re
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -20,7 +22,11 @@ from typing import Any
 import quality_loop_core as qlcore
 
 LESSON_KINDS = {"failure_mode", "convention", "gotcha", "preference"}
+OUTCOMES = ("clean", "regressed", "reverted")
 RISK_TIERS = {"low", "medium", "high"}
+# Small constant prior added to global-store lessons in the single ranked pool:
+# they compete on score against project lessons instead of holding a quota.
+GLOBAL_PRIOR = 0.5
 _WORD_RE = re.compile(r"[A-Za-z0-9_]+")
 
 
@@ -55,6 +61,7 @@ _STOPWORDS = {
     "our", "their", "them", "then", "than", "out", "via", "per", "off", "all",
     "any", "can", "may", "use", "using", "add", "fix", "must", "should", "when",
     "where", "which", "while", "here", "there",
+    "test", "tests", "error", "file", "code", "run",
 }
 
 
@@ -86,10 +93,10 @@ def _clean_lesson_text(text: Any) -> str:
 
 def normalize_lesson(raw: dict[str, Any], created: str) -> dict[str, Any]:
     text = _clean_lesson_text(raw.get("lesson", ""))
-    kind = raw.get("kind") if raw.get("kind") in LESSON_KINDS else "gotcha"
+    kind = raw.get("kind") if raw.get("kind") in LESSON_KINDS or raw.get("kind") == "outcome" else "gotcha"
     risk = raw.get("risk_tier") if raw.get("risk_tier") in RISK_TIERS else "low"
     hits = _safe_int(raw.get("hits", 0))
-    return {
+    row = {
         "id": raw.get("id") or lesson_id(text),
         "created": raw.get("created") or created,
         "source_task_id": str(raw.get("source_task_id", "")),
@@ -100,6 +107,18 @@ def normalize_lesson(raw: dict[str, Any], created: str) -> dict[str, Any]:
         "lesson": text,
         "hits": hits,
     }
+    if raw.get("outcome") in OUTCOMES:
+        row["outcome"] = raw["outcome"]
+    source = raw.get("source")
+    if isinstance(source, dict):
+        src = {
+            k: str(v).strip()
+            for k, v in source.items()
+            if k in ("task_id", "git_author") and str(v).strip()
+        }
+        if src:
+            row["source"] = src
+    return row
 
 
 def load_lessons(mem_dir: Path) -> list[dict[str, Any]]:
@@ -134,6 +153,8 @@ def save_lessons(mem_dir: Path, lessons: list[dict[str, Any]]) -> None:
 
 
 def score_lesson(lesson: dict[str, Any], goal_tokens: set[str], files: list[str], risk: str) -> float:
+    if lesson.get("kind") == "outcome":
+        return 0.0  # outcome rows are shipped-status feedback for brief, not recallable advice
     keywords = {str(k).lower() for k in lesson.get("keywords", [])} | _tokens(lesson.get("lesson", ""))
     keyword_overlap = len(goal_tokens & keywords) if goal_tokens else 0
     path_match = False
@@ -143,8 +164,8 @@ def score_lesson(lesson: dict[str, Any], goal_tokens: set[str], files: list[str]
         if any(fnmatch.fnmatch(f, glob) for f in files):
             path_match = True
             break
-    if keyword_overlap == 0 and not path_match:
-        return 0.0  # no concrete relevance -> not recalled
+    if keyword_overlap < 2 and not path_match:
+        return 0.0  # relevance floor: >=2 shared tokens or a scope_glob hit
     score = 2.0 * keyword_overlap
     if path_match:
         score += 3.0
@@ -154,8 +175,50 @@ def score_lesson(lesson: dict[str, Any], goal_tokens: set[str], files: list[str]
     return score
 
 
-def render_line(lesson: dict[str, Any]) -> str:
-    return f"- [{lesson.get('kind', '?')}/{lesson.get('risk_tier', '?')}] {str(lesson.get('lesson', '')).strip()}"
+def has_provenance(lesson: dict[str, Any]) -> bool:
+    return isinstance(lesson.get("source"), dict) and bool(lesson.get("source"))
+
+
+def render_line(lesson: dict[str, Any], global_: bool = False, mark_provenance: bool = False) -> str:
+    prefix = "[global] " if global_ else ""
+    marker = "" if not mark_provenance or has_provenance(lesson) else " [unattributed]"
+    return (
+        f"- {prefix}[{lesson.get('kind', '?')}/{lesson.get('risk_tier', '?')}]"
+        f"{marker} {str(lesson.get('lesson', '')).strip()}"
+    )
+
+
+def recall_pool(
+    project_lessons: list[dict[str, Any]],
+    global_lessons: list[dict[str, Any]],
+    goal: str,
+    files: list[str],
+    risk: str,
+    budget_chars: int,
+) -> list[tuple[dict[str, Any], bool]]:
+    """One ranked pool under one budget. Global lessons compete on score with a
+    small constant prior (GLOBAL_PRIOR) instead of a reserved quota, so a
+    non-matching global store never shrinks project recall."""
+    goal_tokens = _tokens(goal)
+    scored: list[tuple[float, str, dict[str, Any], bool]] = []
+    for l in project_lessons:
+        s = score_lesson(l, goal_tokens, files, risk)
+        if s > 0:
+            scored.append((s, str(l.get("id", "")), l, False))
+    for l in global_lessons:
+        s = score_lesson(l, goal_tokens, files, risk)
+        if s > 0:
+            scored.append((s + GLOBAL_PRIOR, str(l.get("id", "")), l, True))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    selected: list[tuple[dict[str, Any], bool]] = []
+    used = 0
+    for _, _, l, g in scored:
+        line_len = len(render_line(l, global_=g, mark_provenance=True)) + 1
+        if selected and used + line_len > budget_chars:
+            break
+        selected.append((l, g))
+        used += line_len
+    return selected
 
 
 def recall(
@@ -165,19 +228,7 @@ def recall(
     risk: str,
     budget_chars: int,
 ) -> list[dict[str, Any]]:
-    goal_tokens = _tokens(goal)
-    scored = [(score_lesson(l, goal_tokens, files, risk), l) for l in lessons]
-    scored = [(s, l) for s, l in scored if s > 0]
-    scored.sort(key=lambda sl: (-sl[0], str(sl[1].get("id", ""))))
-    selected: list[dict[str, Any]] = []
-    used = 0
-    for _, l in scored:
-        line_len = len(render_line(l)) + 1
-        if selected and used + line_len > budget_chars:
-            break
-        selected.append(l)
-        used += line_len
-    return selected
+    return [l for l, _ in recall_pool(lessons, [], goal, files, risk, budget_chars)]
 
 
 def format_digest(lessons: list[dict[str, Any]], budget_chars: int) -> str:
@@ -221,35 +272,46 @@ def _split_files(value: str | None) -> list[str]:
     return [f.strip() for f in (value or "").split(",") if f.strip()]
 
 
+def _config_recall_budget(cwd: Path | None = None) -> int | None:
+    """memory.recall_budget_chars from the canonical root config, or None."""
+    path = (cwd or Path.cwd()) / "quality-loop.config.json"
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    memory = config.get("memory") if isinstance(config, dict) else None
+    budget = memory.get("recall_budget_chars") if isinstance(memory, dict) else None
+    if isinstance(budget, int) and not isinstance(budget, bool) and budget > 0:
+        return budget
+    return None
+
+
 def cmd_recall(args: Any) -> int:
-    budget = max(1, _safe_int(getattr(args, "budget", 1500), 1500))
+    raw_budget = getattr(args, "budget", None)
+    if raw_budget is None:  # explicit --budget wins; config supplies the default
+        raw_budget = _config_recall_budget() or 1500
+    budget = max(1, _safe_int(raw_budget, 1500))
     mem_dir = resolve_memory_dir(args.location)
-    project_lessons = load_lessons(mem_dir)
     global_dir = resolve_global_memory_dir()
-    global_lessons = load_lessons(global_dir)
-    if not global_lessons:
-        project_budget = budget
-        selected_project = recall(project_lessons, args.goal or "", _split_files(args.files), args.risk, budget)
-        selected_global: list[dict[str, Any]] = []
-    else:
-        project_budget = max(1, int(budget * 0.6))
-        global_budget = max(1, budget - project_budget)
-        selected_project = recall(project_lessons, args.goal or "", _split_files(args.files), args.risk, project_budget)
-        selected_global = recall(global_lessons, args.goal or "", _split_files(args.files), args.risk, global_budget)
-    selected = selected_project + selected_global
-    if selected and not getattr(args, "no_bump", False):
-        bump_hits(mem_dir, [str(l.get("id", "")) for l in selected_project])
-        if selected_global:
-            bump_hits(global_dir, [str(l.get("id", "")) for l in selected_global])
+    pairs = recall_pool(
+        load_lessons(mem_dir), load_lessons(global_dir),
+        args.goal or "", _split_files(args.files), args.risk, budget,
+    )
+    if pairs and getattr(args, "bump", False):
+        # Recall is read-only by default; --bump is the RETROSPECT-time opt-in.
+        project_ids = [str(l.get("id", "")) for l, g in pairs if not g]
+        global_ids = [str(l.get("id", "")) for l, g in pairs if g]
+        if project_ids:
+            bump_hits(mem_dir, project_ids)
+        if global_ids:
+            bump_hits(global_dir, global_ids)
     if args.json:
-        print(json.dumps(selected, indent=2))
+        print(json.dumps([l for l, _ in pairs], indent=2))
+    elif pairs:
+        body = "\n".join(render_line(l, global_=g, mark_provenance=True) for l, g in pairs)
+        print(body[:budget].rstrip() if len(body) > budget else body)
     else:
-        parts: list[str] = []
-        if selected_project:
-            parts.append(format_digest(selected_project, project_budget))
-        if selected_global:
-            parts.append("[global] " + format_digest(selected_global, global_budget))
-        print("\n".join(parts) if parts else "No prior lessons matched.")
+        print("No prior lessons matched.")
     return 0
 
 
@@ -335,7 +397,71 @@ def distill_record(
     return [normalize_lesson(r, created) for r in raw_rows if str(r.get("lesson", "")).strip()]
 
 
+def _git_author() -> str | None:
+    """Best-effort `git config user.name`; None when git/config is absent."""
+    try:
+        proc = subprocess.run(
+            ["git", "config", "user.name"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    name = (proc.stdout or "").strip()
+    return name or None
+
+
+def provenance(task_id: str = "") -> dict[str, str]:
+    """source object for newly written rows; absent fields are omitted."""
+    src: dict[str, str] = {}
+    if str(task_id).strip():
+        src["task_id"] = str(task_id).strip()
+    author = _git_author()
+    if author:
+        src["git_author"] = author
+    return src
+
+
+def outcome_row(
+    outcome: str, note: str, record: dict[str, Any], created: str,
+    override_scope: list[str] | None = None,
+) -> dict[str, Any]:
+    text = _clean_lesson_text(note) or f"task shipped {outcome}"
+    task_id = str(record.get("task_id", ""))
+    return normalize_lesson(
+        {
+            "id": lesson_id(f"outcome {outcome} {task_id} {created} {text}"),
+            "kind": "outcome",
+            "outcome": outcome,
+            "lesson": text,
+            "risk_tier": record.get("risk_tier"),
+            "scope_globs": override_scope or files_to_globs(_record_files(record)),
+            "source_task_id": task_id,
+        },
+        created,
+    )
+
+
+def outcome_lines(lessons: list[dict[str, Any]], limit: int = 3) -> list[str]:
+    """Most recent shipped-outcome rows, newest first, for the session brief."""
+    indexed = [
+        (str(l.get("created", "")), i, l)
+        for i, l in enumerate(lessons)
+        if l.get("kind") == "outcome"
+    ]
+    indexed.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    lines: list[str] = []
+    for pos, (_, _, l) in enumerate(indexed[:limit]):
+        label = "last shipped" if pos == 0 else "prior"
+        lines.append(f"{label}: {l.get('outcome', '?')} — {str(l.get('lesson', '')).strip()}")
+    return lines
+
+
 def cmd_commit(args: Any) -> int:
+    outcome = getattr(args, "outcome", None)
+    if outcome is not None and outcome not in OUTCOMES:
+        print(f"error: --outcome must be one of {list(OUTCOMES)}, got {outcome!r}", file=sys.stderr)
+        return 1
     record_path = Path(args.record) if getattr(args, "record", None) else None
     if record_path:
         try:
@@ -346,26 +472,33 @@ def cmd_commit(args: Any) -> int:
         if not isinstance(record, dict):
             print(f"error: record {args.record!r} is not a JSON object", file=sys.stderr)
             return 1
-    elif getattr(args, "lesson", None):
+    elif getattr(args, "lesson", None) or outcome:
         record = {"task_id": "manual", "risk_tier": "low"}
     else:
-        print("error: a record path or --lesson is required", file=sys.stderr)
+        print("error: a record path, --lesson, or --outcome is required", file=sys.stderr)
         return 1
     mem_dir = resolve_global_memory_dir() if getattr(args, "global_store", False) else resolve_memory_dir(args.location)
     created = date.today().isoformat()
     override_scope = [args.scope] if getattr(args, "scope", None) else None
-    rows = distill_record(
-        record, created,
-        override_lesson=getattr(args, "lesson", None),
-        override_kind=getattr(args, "kind", None),
-        override_scope=override_scope,
-    )
+    if outcome:
+        rows = [outcome_row(outcome, getattr(args, "note", "") or "", record, created, override_scope)]
+    else:
+        rows = distill_record(
+            record, created,
+            override_lesson=getattr(args, "lesson", None),
+            override_kind=getattr(args, "kind", None),
+            override_scope=override_scope,
+        )
     if not rows:
         print(
             "no lesson distilled (record has no harness_update/minimality/review and no --lesson)",
             file=sys.stderr,
         )
         return 1
+    source = provenance(str(record.get("task_id", "")))
+    if source:
+        for row in rows:
+            row["source"] = source
     existing = load_lessons(mem_dir)
     existing_ids = {l.get("id") for l in existing}
     added = 0
@@ -414,6 +547,49 @@ def prune(
     return deduped[:max_n]
 
 
+def _tree_files(cwd: Path | None = None, cap: int = 20000) -> list[str]:
+    """Repo-relative files in the current tree: `git ls-files`, else a capped
+    walk that skips dot-directories. Best-effort; empty list on failure."""
+    cwd = cwd or Path.cwd()
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files"], cwd=cwd, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True, timeout=15, check=False,
+        )
+        if proc.returncode == 0:
+            files = [f.strip() for f in proc.stdout.splitlines() if f.strip()]
+            if files:
+                return files[:cap]
+    except (OSError, subprocess.SubprocessError):
+        pass
+    files = []
+    for root, dirs, names in os.walk(cwd):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        rel_root = os.path.relpath(root, cwd)
+        for n in names:
+            rel = n if rel_root == "." else f"{rel_root}/{n}"
+            files.append(rel.replace(os.sep, "/"))
+            if len(files) >= cap:
+                return files
+    return files
+
+
+def stale_candidates(
+    lessons: list[dict[str, Any]], tree_files: list[str]
+) -> list[dict[str, Any]]:
+    """Lessons whose scope_globs match ZERO files in the current tree. Flagged
+    for review at prune time, never auto-deleted."""
+    stale: list[dict[str, Any]] = []
+    for l in lessons:
+        globs = [str(g) for g in l.get("scope_globs", []) if str(g).strip()]
+        if not globs:
+            continue
+        if any(g == "**" or any(fnmatch.fnmatch(f, g) for f in tree_files) for g in globs):
+            continue
+        stale.append(l)
+    return stale
+
+
 def cmd_prune(args: Any) -> int:
     mem_dir = resolve_global_memory_dir() if getattr(args, "global_store", False) else resolve_memory_dir(args.location)
     lessons = load_lessons(mem_dir)
@@ -421,6 +597,14 @@ def cmd_prune(args: Any) -> int:
     save_lessons(mem_dir, kept)
     write_index(mem_dir, kept)
     print(f"pruned {len(lessons) - len(kept)} lesson(s); {len(kept)} remain")
+    stale = stale_candidates(kept, _tree_files())
+    for l in stale:
+        print(
+            f"stale candidate (scope_globs match no file in the current tree): "
+            f"[{l.get('id', '?')}] {str(l.get('lesson', ''))[:80]}"
+        )
+    if stale:
+        print(f"{len(stale)} stale candidate(s) kept — fix their scope_globs or delete the rows")
     return 0
 
 

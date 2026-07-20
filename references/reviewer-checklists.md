@@ -85,9 +85,8 @@ Run this before final review. The simplicity reviewer asks whether the change co
 - **Abstraction** — is each new abstraction required by *current* needs, not imagined future ones?
 
 Flag `overengineering` when a new dependency or abstraction is introduced while a lower rung is
-available. Never use minimality to justify dropping a non-negotiable (trust-boundary
-validation, data-loss prevention, security, accessibility, required behavior, real-world
-calibration).
+available. Never use minimality to justify dropping a non-negotiable (canonical list:
+SKILL.md §Right-size gate).
 
 Also flag `under-fanned` when a medium/mission task with multiple distinct features (parser +
 ranker + tokenizer + serializer, etc.) is collapsed into a single source file or a single
@@ -97,8 +96,8 @@ under-fanned, and future edits will pay for it.
 
 ## Security Reviewer Pass (Risk Boundaries Only)
 
-Trigger this pass only when the change touches a risk boundary: auth, permissions, secrets,
-payments, PII, migrations, upload/download, network, shell, or dependency changes. Check:
+Trigger this pass only when the change touches a risk boundary (canonical list:
+SKILL.md §Task Class). Check:
 
 - **AuthN / AuthZ** — is identity verified and is every new path authorized for the right scope/tenant?
 - **Secrets** — no credential read from prompts/env/memory/logs/context into code; no secret in the diff.

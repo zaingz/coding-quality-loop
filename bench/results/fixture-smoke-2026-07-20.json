@@ -1,0 +1,282 @@
+{
+  "arms": [
+    "baseline",
+    "full",
+    "no-review",
+    "light"
+  ],
+  "generated_at": "2026-07-20T08:52:53",
+  "mode": "fixture",
+  "note": "SYNTHETIC fixture data: generated from hard-coded per-arm strength constants to validate harness plumbing only (bench/PROTOCOL.md header); not a live agent benchmark and never quotable as evidence. Per-arm cost_usd/tokens_in/tokens_out/duration_sec are zero placeholders (fixture mode is exempt from live cost enforcement).",
+  "runs": [
+    {
+      "arm": "baseline",
+      "cost_usd": 0.0,
+      "diff_lines": 25,
+      "duration_sec": 0.0,
+      "gate_compliant": false,
+      "hidden_tests_passed": false,
+      "mode": "fixture",
+      "new_dependencies": 1,
+      "regression_broken": false,
+      "seed": 0,
+      "task_id": "13-webapp-task-manager",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_triggered": [
+        "dependency",
+        "test_weakening"
+      ]
+    },
+    {
+      "arm": "baseline",
+      "cost_usd": 0.0,
+      "diff_lines": 89,
+      "duration_sec": 0.0,
+      "gate_compliant": false,
+      "hidden_tests_passed": false,
+      "mode": "fixture",
+      "new_dependencies": 1,
+      "regression_broken": false,
+      "seed": 1,
+      "task_id": "13-webapp-task-manager",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_triggered": [
+        "test_weakening"
+      ]
+    },
+    {
+      "arm": "baseline",
+      "cost_usd": 0.0,
+      "diff_lines": 41,
+      "duration_sec": 0.0,
+      "gate_compliant": false,
+      "hidden_tests_passed": true,
+      "mode": "fixture",
+      "new_dependencies": 0,
+      "regression_broken": false,
+      "seed": 2,
+      "task_id": "13-webapp-task-manager",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_triggered": []
+    },
+    {
+      "arm": "full",
+      "cost_usd": 0.0,
+      "diff_lines": 80,
+      "duration_sec": 0.0,
+      "gate_compliant": true,
+      "hidden_tests_passed": false,
+      "mode": "fixture",
+      "new_dependencies": 1,
+      "regression_broken": true,
+      "seed": 0,
+      "task_id": "13-webapp-task-manager",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_triggered": [
+        "test_weakening"
+      ]
+    },
+    {
+      "arm": "full",
+      "cost_usd": 0.0,
+      "diff_lines": 11,
+      "duration_sec": 0.0,
+      "gate_compliant": true,
+      "hidden_tests_passed": false,
+      "mode": "fixture",
+      "new_dependencies": 0,
+      "regression_broken": true,
+      "seed": 1,
+      "task_id": "13-webapp-task-manager",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_triggered": []
+    },
+    {
+      "arm": "full",
+      "cost_usd": 0.0,
+      "diff_lines": 30,
+      "duration_sec": 0.0,
+      "gate_compliant": true,
+      "hidden_tests_passed": false,
+      "mode": "fixture",
+      "new_dependencies": 0,
+      "regression_broken": false,
+      "seed": 2,
+      "task_id": "13-webapp-task-manager",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_triggered": []
+    },
+    {
+      "arm": "no-review",
+      "cost_usd": 0.0,
+      "diff_lines": 96,
+      "duration_sec": 0.0,
+      "gate_compliant": false,
+      "hidden_tests_passed": false,
+      "mode": "fixture",
+      "new_dependencies": 1,
+      "regression_broken": false,
+      "seed": 0,
+      "task_id": "13-webapp-task-manager",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_triggered": [
+        "dependency",
+        "test_weakening"
+      ]
+    },
+    {
+      "arm": "no-review",
+      "cost_usd": 0.0,
+      "diff_lines": 124,
+      "duration_sec": 0.0,
+      "gate_compliant": true,
+      "hidden_tests_passed": false,
+      "mode": "fixture",
+      "new_dependencies": 1,
+      "regression_broken": false,
+      "seed": 1,
+      "task_id": "13-webapp-task-manager",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_triggered": [
+        "test_weakening"
+      ]
+    },
+    {
+      "arm": "no-review",
+      "cost_usd": 0.0,
+      "diff_lines": 42,
+      "duration_sec": 0.0,
+      "gate_compliant": false,
+      "hidden_tests_passed": true,
+      "mode": "fixture",
+      "new_dependencies": 0,
+      "regression_broken": true,
+      "seed": 2,
+      "task_id": "13-webapp-task-manager",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_triggered": []
+    },
+    {
+      "arm": "light",
+      "cost_usd": 0.0,
+      "diff_lines": 18,
+      "duration_sec": 0.0,
+      "gate_compliant": true,
+      "hidden_tests_passed": false,
+      "mode": "fixture",
+      "new_dependencies": 1,
+      "regression_broken": false,
+      "seed": 0,
+      "task_id": "13-webapp-task-manager",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_triggered": [
+        "dependency"
+      ]
+    },
+    {
+      "arm": "light",
+      "cost_usd": 0.0,
+      "diff_lines": 25,
+      "duration_sec": 0.0,
+      "gate_compliant": true,
+      "hidden_tests_passed": false,
+      "mode": "fixture",
+      "new_dependencies": 1,
+      "regression_broken": false,
+      "seed": 1,
+      "task_id": "13-webapp-task-manager",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_triggered": [
+        "dependency",
+        "test_weakening"
+      ]
+    },
+    {
+      "arm": "light",
+      "cost_usd": 0.0,
+      "diff_lines": 121,
+      "duration_sec": 0.0,
+      "gate_compliant": true,
+      "hidden_tests_passed": true,
+      "mode": "fixture",
+      "new_dependencies": 0,
+      "regression_broken": false,
+      "seed": 2,
+      "task_id": "13-webapp-task-manager",
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_triggered": []
+    }
+  ],
+  "seeds": 3,
+  "summary": {
+    "baseline": {
+      "avg_cost_usd": 0.0,
+      "avg_diff_lines": 51.7,
+      "avg_duration_sec": 0.0,
+      "cost_usd": 0.0,
+      "duration_sec": 0.0,
+      "gate_compliance_rate": 0.0,
+      "hidden_test_pass_rate": 0.333,
+      "regression_breakage_rate": 0.0,
+      "runs": 3,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_per_run": 1.0
+    },
+    "full": {
+      "avg_cost_usd": 0.0,
+      "avg_diff_lines": 40.3,
+      "avg_duration_sec": 0.0,
+      "cost_usd": 0.0,
+      "duration_sec": 0.0,
+      "gate_compliance_rate": 1.0,
+      "hidden_test_pass_rate": 0.0,
+      "regression_breakage_rate": 0.667,
+      "runs": 3,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_per_run": 0.333
+    },
+    "light": {
+      "avg_cost_usd": 0.0,
+      "avg_diff_lines": 54.7,
+      "avg_duration_sec": 0.0,
+      "cost_usd": 0.0,
+      "duration_sec": 0.0,
+      "gate_compliance_rate": 1.0,
+      "hidden_test_pass_rate": 0.333,
+      "regression_breakage_rate": 0.0,
+      "runs": 3,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_per_run": 1.0
+    },
+    "no-review": {
+      "avg_cost_usd": 0.0,
+      "avg_diff_lines": 87.3,
+      "avg_duration_sec": 0.0,
+      "cost_usd": 0.0,
+      "duration_sec": 0.0,
+      "gate_compliance_rate": 0.333,
+      "hidden_test_pass_rate": 0.333,
+      "regression_breakage_rate": 0.333,
+      "runs": 3,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "trap_flags_per_run": 1.0
+    }
+  },
+  "task_count": 1
+}

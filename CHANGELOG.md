@@ -1,5 +1,206 @@
 # Changelog
 
+## 6.0.0
+
+The trust-chain release. Executed against the 2026-07-20 deep review
+(`docs/improvement-plan-2026-07-20.md`, waves 1–3 plus 4.1/4.2): make the
+existing promises mechanically true, fix first contact, shrink to what gates
+actually read, and pre-register the measurement that decides the rest. Net
+effect: the enforced local path re-executes evidence, the installer can
+uninstall itself, the medium paper trail halved, the control plane became an
+opt-in add-on, and the eval floor grew to **216 gate cases** across the six
+core suites plus **35 add-on cases** for the control plane.
+
+**Breaking changes:**
+
+- At medium+ risk (task_class medium/mission, risk_tier medium/high, or
+  security_sensitive), every `acceptance_criteria` entry must be an object
+  `{"criterion", "proving_command"}` whose proving command matches a
+  pass-labeled `commands_run` entry. Bare string ACs now block (they stay valid
+  at low risk).
+- The reviewer verdict enum is pinned to
+  `approve | request_changes | needs_discussion | reject` in the schema and all
+  reviewer surfaces (was 9 tolerated variants); reviews also carry
+  `ran_checks: true|false`.
+- `verify` / `verify-gates` `--base` now defaults to the **merge-base with
+  origin/main** (ladder: origin/main → origin/master → main → master; empty
+  tree as last resort) instead of `HEAD` — committed-but-unpushed work stays in
+  the diff. Explicit `--base` always wins; `diff-audit` and `run-evidence` keep
+  their `HEAD` default, and `attest-review` now auto-resolves the same base as
+  `verify` (so a committed-branch attestation is not permanently stale).
+- The control plane is **no longer installed by default** and is excluded from
+  the npm tarball. Opt in from a repo checkout with
+  `python3 scripts/install.py --with-control-plane`. `control-*` subcommands are
+  registered only when the add-on module is present.
+- `memory-recall` no longer bumps hit counters (read-only by default; the
+  working tree stays byte-identical). Hit-bumping is opt-in via `--bump` at
+  RETROSPECT; `--no-bump` still parses but is a deprecated no-op.
+- Deleted templates: `task-contract-template.md` + `validation-contract.md`
+  (merged into `assets/contract.md`), `pr-summary-template.md`,
+  `decision-log.md`, `execution-log.md`. The medium paper trail is four
+  artifacts: `contract.md`, `plan.md`, `completion-record.md`, `progress.md`.
+- Bench: tasks 01–12 (unexecutable stubs) deleted; arm names are now
+  version-neutral `{baseline, full, no-review, light}`; the `--ablation` flag is
+  gone; `--validate` requires `tokens_in`/`tokens_out`/`duration_sec` on live
+  runs (`cost_usd` is now optional).
+
+**Trust chain (wave 1):**
+
+- The Claude Code **Stop gate runs the `verify` umbrella** — evidence
+  re-execution and AC coverage included — at terminal statuses
+  (`package`/`done`); fabricated `{result: "pass"}` rows no longer clear the
+  local gate. Non-terminal dirty-tree stops still run
+  `verify-gates --against-diff`. A missing record no longer auto-allows a stop
+  when CQL config exists in the repo (restore/recreate guidance instead).
+- AC coverage runs inside `verify-gates` itself (so at the Stop gate and in
+  CI), not only in the umbrella; `detect_risk_floor` reads only the `criterion`
+  text of object ACs, so proving-command paths cannot inflate the floor.
+- `blocked` command rows are **satisfiable**: a non-empty `reason`/`rationale`
+  passes; a bare `blocked` row fails. Honesty is no longer punished.
+- **Net test-shrinkage gate**: deleted or gutted test declarations/assertions
+  (netted at diff level, so moves stay green) are advisory in `diff-audit` and
+  blocking via `verify-gates --against-diff` at medium+. New advisory:
+  "possible under-fanning" (medium+, >300 added LOC, ≥90% in one new file) —
+  the historical ts-search monolith diff fires it; a modular baseline does not.
+- **`protect_harness`** (config, default on): PreToolUse denies Write/Edit to
+  `quality_loop*.py`, the hook shims, the active record, and the config, plus
+  Bash `rm` of the record/config — tamper-evidence, not immutability.
+- **Truthful hook failures**: a missing/broken gate runtime is reported as
+  exactly that (allow + warning + fix), never as a fabricated "secret-like text
+  blocked"; `sys.executable` replaces hardcoded `python3`.
+- Destructive-command coverage: anchored patterns (quoted mentions no longer
+  match), plus sudo-wrapped commands, `git checkout -- <path>`, and force
+  pushes.
+- Gate-bug pass: scope-integrity case/glob fixes, "fix" joins the bugfix
+  keywords, `e2e`/`security`/`format`/`migration_dry_run` count as executable
+  evidence, blocking findings print `error:` (advisories `note:`; the
+  load-bearing `warning:` string parse is gone — consumers read structured
+  findings).
+- `verify --timeout <s>` / `QUALITY_LOOP_TIMEOUT` (default 120, was a
+  hardcoded 30) so honest slow suites stop reading as fabricated.
+
+**Funnel (wave 2):**
+
+- Every install writes `.quality-loop/install-manifest.json`; `cql check`
+  verifies against it and **uninstall is real**: `cql remove` /
+  `install.py --uninstall` removes manifest files, reverses merged hook groups,
+  restores `.bak` backups, strips the AGENTS.md managed section, and leaves
+  `git status --porcelain` empty after init → remove (verified for claude-code,
+  codex, droid, git, and `--host all`).
+- **Codex installs ship `AGENTS.md`** (template copy, or a clearly-delimited
+  managed section appended to an existing file).
+- **One config file**: root `quality-loop.config.json` is canonical;
+  `.quality-loop/config.json` still reads for one release with a deprecation
+  warning; the installer never writes the legacy path.
+- **`render-prompt --role reviewer|security-reviewer --record …`** substitutes
+  `{contract}/{diff}/{evidence}` into the prompt cards — the cross-CLI reviewer
+  no longer receives the literal string `{diff}`. Security review requires a
+  taint path or reproduction for blocking findings; evidence-free findings are
+  advisory.
+- Cursor and Pi demoted to **advisory rules only, no runtime** — removed from
+  the npm picker and the documented host set (the example recipes remain,
+  labeled). The npm tarball no longer ships `evals/` or the control module;
+  post-install next steps all exit 0.
+- `docs/quickstart.md` is the single onboarding doc (drop-in prompt → npx →
+  manual copy, ordered by commitment); the README links instead of duplicating.
+- The doc-count lint now covers CONTRIBUTING.md, tracks the control add-on
+  separately, and exempts lines annotated "as of vX.Y" — it can no longer
+  rewrite history (ROADMAP's v3.0-era count is restored to 121 as of v3.1).
+
+**Shrink (wave 3):**
+
+- Medium paper trail **8–9 artifacts → 4** (eval-pinned): one `contract.md`
+  (goal, AC table with per-criterion proving commands, risk boundaries,
+  verification plan, rollback) replaces task-contract + validation-contract;
+  decisions live inline in `progress.md`; commands live in the record.
+- **SKILL.md 6.0.0 at 89 lines**: agent-os paragraph removed (now a labeled
+  personal-setup note in `docs/cross-cli-recipe.md`), control-plane section
+  collapsed to a pointer, vendor model names replaced by capability classes
+  (dated menus live only in `assets/routing/`), "risk trumps size" made
+  explicit.
+- Dead surface deleted: the 7 unconsumed tool shapes, the advisor-history
+  section, duplicate citations; `memory.recall_budget_chars` is now actually
+  wired as the recall budget default.
+- **Control plane opt-in + diet**: delegation rows may carry `session_id` for a
+  direct join (the fuzzy time-window join is one-to-one and unparseable
+  timestamps count as `unjoinable` — double-counting is structurally
+  impossible); droid wrapper runs are `droid_run` events, not 0-token pseudo
+  model-calls (schema v8; hook events are backed up to
+  `events-backup-schema<N>.jsonl` before a version-mismatch rebuild);
+  `zero_usage_lines` drift canaries turn the dashboard yellow on vendor format
+  renames; `retention_days` prunes **all** tables (previously events only);
+  one shared incremental reader. `control-report` is named the sanctioned
+  local audit surface (ROADMAP's "no cost report subcommand" non-goal rewritten
+  to match) — "dashboards visualize, gates decide" stands.
+
+**Memory (wave 3.6):**
+
+- Recall is **read-only** (no hit bumps, no file rewrites; eval-pinned
+  byte-identical tree); `--bump` is the explicit RETROSPECT-time credit path.
+- The 60/40 global/project split is gone: **one ranked pool** under one budget;
+  global lessons compete with a small constant prior and keep the `[global]`
+  prefix; a non-matching global store no longer taxes project recall.
+- **Outcome feedback**: `memory-commit --outcome clean|regressed|reverted
+  [--note …]` appends a `kind=outcome` row — the loop's first signal from
+  consequences; the brief renders `last shipped: …`.
+- **Provenance** (`source: {task_id, git_author}`) on new rows;
+  `[unattributed]` markers on recall; `memory-prune` flags stale-scope lessons
+  (zero matching files) without deleting them; a stricter relevance floor (≥2
+  shared meaningful tokens or a scope-glob match) with an extended stoplist.
+- `model_routing.families` maps model ids/prefixes to families so the
+  heterogeneity gate survives model renames **loudly**: brief/check-config
+  print verified/SKIPPED/FAILED status lines instead of dying quietly;
+  `model_routing.as_of` (validated YYYY-MM-DD) warns once when the menu is >90
+  days old; `docs/memory.md` rewritten against the real `lessons.jsonl` schema
+  with the Claude Code auto-memory coexistence contract.
+
+**Bench (waves 4.1/4.2):**
+
+- **`bench/PROTOCOL.md`**: one pre-registered protocol (merging
+  judge-protocol/ablation-protocol/live-run-recipe) with committed decision
+  rules — including the R5 branch and the small-task-tax rule — so a completed
+  run forces the stated outcome.
+- Fixture regenerated (`fixture-smoke-2026-07-20.json`, 12 runs, clearly
+  labeled synthetic) and **CI-validated**: `evals.yml` runs
+  `runner.py --validate` on every committed results file.
+- `control-report --arm-costs [--since]` emits per-session
+  `tokens_in`/`tokens_out`/`duration_sec` matching the bench cost schema — the
+  instrument for closing the cost loop is shipped; the live run itself is the
+  next milestone (Wave 4.3).
+
+**Reviewed:** two independent fresh-context reviews (a cross-family GPT/Codex
+reviewer and a security reviewer) ran on the diff and returned request_changes;
+26 findings were fixed with eval coverage, 2 rejected with evidence, then a
+third fresh-context re-review of the fix delta drove a second fix round
+(local-only-main auto-base, option-bearing destructive wrappers, untracked
+symlink disclosure + byte-faithful hashing, uninstall pre-existing-file
+protection, control-plane range validation, bench mode allow-list).
+
+**Known residual limits (documented, not defects):**
+
+- The Stop hook runs the `verify` umbrella under a 600s host timeout; a suite
+  whose evidence re-execution exceeds that budget should run in CI, not the Stop
+  hook. Local Stop is shape + fast checks; CI (`evals.yml` + the `verify`
+  umbrella) is ground truth.
+- `protect_harness` denies Write/Edit and record-deletion Bash patterns for the
+  gate scripts, hooks, record, and config; `apply_patch` targets are matched
+  best-effort by path reference. Bash-mediated `sed`/heredoc edits remain a
+  documented bypass — this is tamper-evidence, not immutability.
+- `ran_checks` is a warn-not-fail signal at medium+ by design (the plan's
+  make-ran-checks-real decision): an honest `false` must not block, so an
+  approving review without `ran_checks: true` is surfaced as a note.
+- `memory-recall`'s text digest and `brief` cap output to the recall budget;
+  `memory-recall --json` returns whole lesson objects (a char budget cannot
+  truncate structured JSON), so a single over-budget lesson can exceed the
+  budget in the `--json` path. The agent-facing surfaces (text digest, brief)
+  stay capped.
+
+**Evals:** static 11→20, behavioral 44→54, reality 23→40, hook 16→41, memory
+26→32, routing 24→29 core suites; control 27→35 add-on suite. Canonical counts
+live in `evals/run_evals.py` (`CANONICAL_GATE_CASES`, `CONTROL_ADDON_CASES`).
+
+Credit: per `docs/improvement-plan-2026-07-20.md`.
+
 ## 5.1.0
 
 The audit-trail release for the local control plane: the observability index

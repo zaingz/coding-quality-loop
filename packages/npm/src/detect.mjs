@@ -1,22 +1,13 @@
 // Host detection: scan a target directory for signals that identify which
 // coding-agent host is in use. Returns detected host names in priority order
 // so the CLI can preselect the right default.
-import { access, readFile } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import { join } from "node:path";
 
 async function exists(p) {
   try {
     await access(p);
     return true;
-  } catch {
-    return false;
-  }
-}
-
-async function fileContains(path, needle) {
-  try {
-    const body = await readFile(path, "utf8");
-    return body.includes(needle);
   } catch {
     return false;
   }
@@ -63,15 +54,6 @@ export async function detectHosts(target) {
     hints.push(".pi/ directory");
   }
 
-  // Fallback signal: package.json referencing one of the hosts by name.
-  if (hosts.size === 0) {
-    const pkg = join(target, "package.json");
-    if (await fileContains(pkg, "cursor")) {
-      hosts.add("cursor");
-      hints.push("package.json mentions cursor");
-    }
-  }
-
   const gitRepo = await exists(join(target, ".git"));
 
   return {
@@ -81,10 +63,10 @@ export async function detectHosts(target) {
   };
 }
 
+// Hosts the interactive picker offers. cursor and pi are deliberately absent:
+// they are advisory rules recipes in examples/ with no runtime install.
 export const KNOWN_HOSTS = [
   "claude-code",
   "codex",
-  "cursor",
   "droid",
-  "pi",
 ];

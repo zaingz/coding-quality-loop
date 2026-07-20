@@ -9,10 +9,14 @@ Run: python evals/run_memory_evals.py   (exits non-zero if any case fails)
 
 from __future__ import annotations
 
+import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
+from argparse import Namespace
+from contextlib import redirect_stdout
 from datetime import date as _date
 from pathlib import Path
 
@@ -36,6 +40,46 @@ def run_cli(*args: str, cwd: str | None = None) -> tuple[int, str, str]:
         check=False,
     )
     return proc.returncode, proc.stdout, proc.stderr
+
+
+class _sandbox:
+    """chdir into tmp and point HOME at it so module-level cmd_* calls resolve
+    both the project and the global store inside the tempdir."""
+
+    def __init__(self, tmp: Path) -> None:
+        self.tmp = tmp
+
+    def __enter__(self) -> Path:
+        self.cwd = os.getcwd()
+        self.home = os.environ.get("HOME")
+        os.chdir(self.tmp)
+        os.environ["HOME"] = str(self.tmp)
+        return self.tmp
+
+    def __exit__(self, *exc: object) -> None:
+        os.chdir(self.cwd)
+        if self.home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = self.home
+
+
+def _recall_ns(**overrides: object) -> Namespace:
+    base: dict[str, object] = dict(
+        goal="", files="", risk="low", budget=None,
+        location="checked_in", json=False, bump=False,
+    )
+    base.update(overrides)
+    return Namespace(**base)
+
+
+def _commit_ns(**overrides: object) -> Namespace:
+    base: dict[str, object] = dict(
+        record=None, lesson=None, kind="gotcha", scope=None,
+        location="checked_in", global_store=False, outcome=None, note="",
+    )
+    base.update(overrides)
+    return Namespace(**base)
 
 
 def case_slugify_and_resolve(tmp: Path) -> tuple[bool, str]:
@@ -115,21 +159,40 @@ def case_recall_respects_budget(tmp: Path) -> tuple[bool, str]:
     return ok, f"digest_len={len(digest)}; selected={len(selected)}; digest={digest!r}"
 
 
-def case_cli_recall_bumps_hits_and_index(tmp: Path) -> tuple[bool, str]:
+def case_cli_recall_readonly_default(tmp: Path) -> tuple[bool, str]:
+    """v6: recall is READ-ONLY by default — no hit bump, no lessons.jsonl or
+    MEMORY.md rewrite. The working tree stays byte-identical."""
     mem_dir = tmp / ".quality-loop" / "memory"
     _seed(mem_dir)
+    before = (mem_dir / "lessons.jsonl").read_bytes()
     code, out, err = run_cli(
         "memory-recall", "--goal", "payment retry", "--files", "src/payments/charge.py",
         "--risk", "high", "--budget", "1500", cwd=str(tmp),
     )
+    after = (mem_dir / "lessons.jsonl").read_bytes()
     digest_ok = code == 0 and "Payment retries" in out
-    after = {l["id"]: l for l in mem.load_lessons(mem_dir)}
-    payment = next((l for l in after.values() if l["lesson"].startswith("Payment retries")), None)
+    byte_identical = before == after and not (mem_dir / "MEMORY.md").exists()
+    hits_zero = all(l["hits"] == 0 for l in mem.load_lessons(mem_dir))
+    ok = digest_ok and byte_identical and hits_zero
+    return ok, f"code={code}; byte_identical={byte_identical}; hits_zero={hits_zero}; err={err.strip()!r}"
+
+
+def case_recall_bump_flag(tmp: Path) -> tuple[bool, str]:
+    """--bump (the RETROSPECT-time opt-in) restores the hit-count + index write."""
+    mem_dir = tmp / ".quality-loop" / "memory"
+    _seed(mem_dir)
+    with _sandbox(tmp):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = mem.cmd_recall(_recall_ns(
+                goal="payment retry", files="src/payments/charge.py",
+                risk="high", budget=1500, bump=True,
+            ))
+    payment = next((l for l in mem.load_lessons(mem_dir) if l["lesson"].startswith("Payment retries")), None)
     bumped = payment is not None and payment["hits"] == 1
-    index = (mem_dir / "MEMORY.md").read_text().splitlines()
-    index_ok = (mem_dir / "MEMORY.md").is_file() and len(index) <= 40
-    ok = digest_ok and bumped and index_ok
-    return ok, f"code={code}; bumped={bumped}; index_lines={len(index)}; err={err.strip()!r}"
+    index_ok = (mem_dir / "MEMORY.md").is_file()
+    ok = rc == 0 and bumped and index_ok and "Payment retries" in buf.getvalue()
+    return ok, f"rc={rc}; bumped={bumped}; index_written={index_ok}"
 
 
 def case_distill_record(tmp: Path) -> tuple[bool, str]:
@@ -439,28 +502,48 @@ def case_global_status_reports(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; has_global_fields={ok}"
 
 
-def case_budget_split_project_global(tmp: Path) -> tuple[bool, str]:
-    import os
+def case_one_pool_no_reserved_quota(tmp: Path) -> tuple[bool, str]:
+    """v6: ONE ranked pool under ONE budget. Non-matching global lessons no
+    longer shrink project recall (the old 60/40 split reserved 40% for global),
+    a matching global lesson competes into the same pool with the [global]
+    prefix, and an empty global store leaves recall() behavior unchanged."""
     env = {**os.environ, "HOME": str(tmp)}
     project_dir = tmp / ".quality-loop" / "memory"
-    for i in range(5):
+    for i in range(4):
         mem.append_lesson(project_dir, mem.normalize_lesson(
-            {"lesson": f"project convention {i}: always validate input before processing payments",
+            {"lesson": f"project convention {i}: validate payment input first",
              "kind": "convention", "risk_tier": "low",
-             "scope_globs": ["src/payments/**"], "keywords": ["payment", "validate", "input"]}, "2026-06-27"))
+             "scope_globs": ["src/payments/**"], "keywords": ["payment", "validate"]}, "2026-06-27"))
+    args = ["memory-recall", "--goal", "payment validate", "--files", "src/payments/x.py",
+            "--risk", "low", "--budget", "600"]
+
+    def run() -> tuple[int, str]:
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), *args],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cwd=str(tmp), env=env, check=False,
+        )
+        return proc.returncode, proc.stdout
+
+    code1, out_no_global = run()
     global_dir = tmp / ".quality-loop" / "global"
     mem.append_lesson(global_dir, mem.normalize_lesson(
-        {"lesson": "global convention: always read migration guides before schema edits",
+        {"lesson": "unrelated global advice about kubernetes ingress annotations",
          "kind": "convention", "risk_tier": "low",
-         "scope_globs": ["**"], "keywords": ["migration", "schema"]}, "2026-06-27"))
-    proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "memory-recall", "--goal", "payment validate migration",
-         "--risk", "low", "--budget", "200", "--no-bump"],
-        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(tmp), env=env, check=False,
-    )
-    code, out, err = proc.returncode, proc.stdout, proc.stderr
-    ok = code == 0 and "[global]" in out and "migration" in out
-    return ok, f"code={code}; out={out.strip()!r}"
+         "scope_globs": ["**"], "keywords": ["kubernetes", "ingress"]}, "2026-06-27"))
+    code2, out_nonmatching = run()
+    unshrunk = code1 == 0 and code2 == 0 and out_no_global == out_nonmatching and "[global]" not in out_nonmatching
+    mem.append_lesson(global_dir, mem.normalize_lesson(
+        {"lesson": "global rule: validate payment input twice",
+         "kind": "convention", "risk_tier": "low",
+         "scope_globs": ["**"], "keywords": ["payment", "validate"]}, "2026-06-27"))
+    code3, out_merged = run()
+    merged = code3 == 0 and "[global]" in out_merged and "validate payment input twice" in out_merged
+    lessons = mem.load_lessons(project_dir)
+    ids_pool = [l["id"] for l, _ in mem.recall_pool(lessons, [], "payment validate", ["src/payments/x.py"], "low", 600)]
+    ids_recall = [l["id"] for l in mem.recall(lessons, "payment validate", ["src/payments/x.py"], "low", 600)]
+    ok = unshrunk and merged and ids_pool == ids_recall and len(ids_pool) >= 1
+    return ok, f"unshrunk={unshrunk}; merged={merged}; empty_global_unchanged={ids_pool == ids_recall}"
 
 
 def case_global_commit_redacts_secrets(tmp: Path) -> tuple[bool, str]:
@@ -477,13 +560,167 @@ def case_global_commit_redacts_secrets(tmp: Path) -> tuple[bool, str]:
     return ok, f"code={code}; secret_in_store={'AKIAIOSFODNN7EXAMPLE' in body}; err={err.strip()!r}"
 
 
+def case_recall_scoring_floor(tmp: Path) -> tuple[bool, str]:
+    """v6 relevance floor: a single shared token no longer recalls (>=2 token
+    overlap OR a scope_glob match required), and generic words like 'tests'
+    are stoplisted — 'fix failing tests' recalls nothing from a lesson that
+    merely mentions tests once."""
+    mem_dir = tmp / ".quality-loop" / "memory"
+    mem.append_lesson(mem_dir, mem.normalize_lesson(
+        {"lesson": "quarantine flaky integration tests before merging", "kind": "gotcha",
+         "risk_tier": "low", "scope_globs": ["ci/**"], "keywords": ["tests"]}, "2026-06-27"))
+    mem.append_lesson(mem_dir, mem.normalize_lesson(
+        {"lesson": "throttle the webhook sender on retries", "kind": "convention",
+         "risk_tier": "low", "scope_globs": ["svc/**"], "keywords": ["webhook", "throttle"]}, "2026-06-27"))
+    lessons = mem.load_lessons(mem_dir)
+    stoplisted = mem.recall(lessons, "fix failing tests", ["src/app.py"], "low", 1500)
+    single_overlap = mem.recall(lessons, "debug the webhook problem", ["src/app.py"], "low", 1500)
+    two_tokens = mem.recall(lessons, "debug the webhook throttle", ["src/app.py"], "low", 1500)
+    path_only = mem.recall(lessons, "unrelated wording entirely", ["ci/pipeline.yml"], "low", 1500)
+    ok = (
+        stoplisted == [] and single_overlap == []
+        and len(two_tokens) == 1 and "webhook sender" in two_tokens[0]["lesson"]
+        and len(path_only) == 1 and "integration tests" in path_only[0]["lesson"]
+    )
+    return ok, (
+        f"stoplisted={len(stoplisted)}; single_overlap={len(single_overlap)}; "
+        f"two_tokens={len(two_tokens)}; path_only={len(path_only)}"
+    )
+
+
+def case_outcome_commit_and_brief_lines(tmp: Path) -> tuple[bool, str]:
+    """memory-commit --outcome writes a kind=outcome row with provenance,
+    rejects unknown outcomes, and outcome_lines renders the newest row as
+    'last shipped: <outcome> — <note>' for the session brief. Outcome rows are
+    shipped-status feedback, never recallable advice."""
+    with _sandbox(tmp):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc1 = mem.cmd_commit(_commit_ns(outcome="reverted", note="rolled back after prod 500s"))
+            rc_bad = mem.cmd_commit(_commit_ns(outcome="exploded", note="nope"))
+            rc2 = mem.cmd_commit(_commit_ns(outcome="clean", note="shipped with green gates"))
+    rows = mem.load_lessons(tmp / ".quality-loop" / "memory")
+    outc = [r for r in rows if r.get("kind") == "outcome"]
+    reverted = next((r for r in outc if r.get("outcome") == "reverted"), None)
+    prov = (
+        reverted is not None
+        and isinstance(reverted.get("source"), dict)
+        and reverted["source"].get("task_id") == "manual"
+    )
+    lines = mem.outcome_lines(rows)
+    line_ok = (
+        len(lines) == 2
+        and lines[0] == "last shipped: clean — shipped with green gates"
+        and lines[1].startswith("prior: reverted — rolled back")
+    )
+    not_recalled = mem.recall(rows, "rolled back after prod 500s green gates", [], "low", 1500) == []
+    ok = rc1 == 0 and rc2 == 0 and rc_bad == 1 and len(outc) == 2 and prov and line_ok and not_recalled
+    return ok, (
+        f"rcs=({rc1},{rc_bad},{rc2}); outcome_rows={len(outc)}; provenance={prov}; "
+        f"lines={lines}; not_recalled={not_recalled}"
+    )
+
+
+def case_provenance_and_unattributed_marker(tmp: Path) -> tuple[bool, str]:
+    """Rows written by memory-commit carry source {task_id, git_author?};
+    recall output marks rows lacking provenance as [unattributed] and leaves
+    attributed rows unmarked."""
+    mem_dir = tmp / ".quality-loop" / "memory"
+    mem.append_lesson(mem_dir, mem.normalize_lesson(
+        {"lesson": "legacy payment lesson on idempotent retries", "kind": "gotcha",
+         "risk_tier": "low", "scope_globs": ["src/payments/**"], "keywords": ["payment", "retries"]},
+        "2026-06-01"))
+    rec = {
+        "task_id": "t-9", "goal": "harden retries", "risk_tier": "low",
+        "harness_update": "guard payment retries with idempotency keys",
+        "repo_map": {"likely_files": ["src/payments/charge.py"]},
+    }
+    p = tmp / "rec.json"
+    p.write_text(json.dumps(rec))
+    code, out, err = run_cli("memory-commit", str(p), cwd=str(tmp))
+    rows = mem.load_lessons(mem_dir)
+    committed = next((r for r in rows if "idempotency keys" in r.get("lesson", "")), None)
+    prov_ok = committed is not None and committed.get("source", {}).get("task_id") == "t-9"
+    code2, out2, err2 = run_cli(
+        "memory-recall", "--goal", "payment retries idempotency",
+        "--files", "src/payments/charge.py", cwd=str(tmp),
+    )
+    legacy_lines = [ln for ln in out2.splitlines() if "legacy payment" in ln]
+    committed_lines = [ln for ln in out2.splitlines() if "idempotency keys" in ln]
+    marked = bool(legacy_lines) and "[unattributed]" in legacy_lines[0]
+    unmarked = bool(committed_lines) and "[unattributed]" not in committed_lines[0]
+    ok = code == 0 and code2 == 0 and prov_ok and marked and unmarked
+    return ok, f"commit={code}; provenance={prov_ok}; legacy_marked={marked}; committed_unmarked={unmarked}"
+
+
+def case_prune_flags_stale_candidates(tmp: Path) -> tuple[bool, str]:
+    """memory-prune prints (never deletes) lessons whose scope_globs match zero
+    files in the current tree as stale candidates."""
+    mem_dir = tmp / ".quality-loop" / "memory"
+    (tmp / "keep").mkdir()
+    (tmp / "keep" / "x.py").write_text("pass\n")
+    mem.append_lesson(mem_dir, mem.normalize_lesson(
+        {"lesson": "stale scope lesson about the old payments dir", "kind": "gotcha",
+         "risk_tier": "low", "scope_globs": ["src/payments/**"], "created": "2026-07-01"}, "2026-07-01"))
+    mem.append_lesson(mem_dir, mem.normalize_lesson(
+        {"lesson": "live scope note for the keep module", "kind": "convention",
+         "risk_tier": "low", "scope_globs": ["keep/**"], "created": "2026-07-01"}, "2026-07-01"))
+    code, out, err = run_cli("memory-prune", cwd=str(tmp))
+    remaining = mem.load_lessons(mem_dir)
+    stale_lines = [ln for ln in out.splitlines() if "stale candidate" in ln]
+    flagged = any("old payments dir" in ln for ln in stale_lines)
+    live_not_flagged = not any("keep module" in ln for ln in stale_lines)
+    ok = code == 0 and len(remaining) == 2 and flagged and live_not_flagged
+    return ok, (
+        f"code={code}; remaining={len(remaining)}; flagged={flagged}; "
+        f"live_not_flagged={live_not_flagged}; out={out.strip()!r}"
+    )
+
+
+def case_recall_budget_from_config(tmp: Path) -> tuple[bool, str]:
+    """memory.recall_budget_chars supplies the recall budget when --budget is
+    not passed; an explicit --budget (module or CLI) always wins."""
+    mem_dir = tmp / ".quality-loop" / "memory"
+    for i in range(4):
+        mem.append_lesson(mem_dir, mem.normalize_lesson(
+            {"lesson": f"payment validation lesson number {i} with plenty of padding text",
+             "kind": "convention", "risk_tier": "low",
+             "scope_globs": ["src/payments/**"], "keywords": ["payment", "validation"]}, "2026-06-27"))
+    config = tmp / "quality-loop.config.json"
+    ns = dict(goal="payment validation", files="src/payments/x.py", risk="low")
+
+    def lines_for(budget: object) -> tuple[int, int]:
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = mem.cmd_recall(_recall_ns(budget=budget, **ns))
+        return rc, len(buf.getvalue().strip().splitlines())
+
+    with _sandbox(tmp):
+        config.write_text(json.dumps({"memory": {"recall_budget_chars": 80}}))
+        rc1, small = lines_for(None)
+        config.write_text(json.dumps({"memory": {"recall_budget_chars": 5000}}))
+        rc2, large = lines_for(None)
+        rc3, flag_wins = lines_for(80)
+    code4, out4, _ = run_cli(
+        "memory-recall", "--goal", "payment validation", "--files", "src/payments/x.py",
+        "--budget", "80", cwd=str(tmp),
+    )
+    cli_flag_wins = code4 == 0 and len(out4.strip().splitlines()) == 1
+    ok = rc1 == rc2 == rc3 == 0 and small == 1 and large == 4 and flag_wins == 1 and cli_flag_wins
+    return ok, (
+        f"config80_lines={small}; config5000_lines={large}; "
+        f"module_flag_lines={flag_wins}; cli_flag_wins={cli_flag_wins}"
+    )
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
     ("lesson.schema.json is valid and the seed store loads empty", case_schema_and_seed_valid),
     ("recall ranks by relevance, is deterministic, drops non-matches", case_recall_ranks_and_is_deterministic),
     ("recall + digest respect the hard char budget", case_recall_respects_budget),
-    ("memory-recall prints a digest, bumps hits, and writes a <=40-line index", case_cli_recall_bumps_hits_and_index),
+    ("memory-recall is read-only by default: working tree stays byte-identical", case_cli_recall_readonly_default),
+    ("memory-recall --bump (RETROSPECT opt-in) bumps hits and rewrites the index", case_recall_bump_flag),
     ("distill_record turns a record into scoped, kind-tagged lessons", case_distill_record),
     ("memory-commit writes lessons and is idempotent (dedup by id)", case_cli_commit_writes_and_dedups),
     ("prune dedups near-duplicates, ages out 0-hit stale, and caps", case_prune_dedups_ages_and_caps),
@@ -502,8 +739,13 @@ CASES = [
     ("entropy pass catches obfuscated secrets, spares SHAs/UUIDs/paths/prose", case_entropy_redaction_catches_obfuscated_secret),
     ("global store: --global commits and recall merges project + global", case_global_commit_and_recall),
     ("memory-status reports the global store fields", case_global_status_reports),
-    ("recall splits budget 60/40 between project and global stores", case_budget_split_project_global),
+    ("one pool: non-matching global lessons no longer shrink project recall", case_one_pool_no_reserved_quota),
     ("global commit redacts secrets before persistence", case_global_commit_redacts_secrets),
+    ("scoring floor: >=2 token overlap or scope match required; 'tests' stoplisted", case_recall_scoring_floor),
+    ("memory-commit --outcome writes provenance-stamped outcome rows for the brief", case_outcome_commit_and_brief_lines),
+    ("provenance: committed rows carry source; recall marks [unattributed]", case_provenance_and_unattributed_marker),
+    ("memory-prune flags stale-scope lessons as candidates without deleting", case_prune_flags_stale_candidates),
+    ("recall_budget_chars config wired: config default honored, --budget wins", case_recall_budget_from_config),
 ]
 
 
