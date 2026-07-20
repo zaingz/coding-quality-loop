@@ -89,9 +89,9 @@
     "ran_checks": true,
     "verdict": "approve",
     "findings": [],
-    "notes": "Cross-family independent review (Codex, different vendor from the Fable implementers) plus a Fable/xhigh pass. Both returned request_changes on the pre-fix tree; 11 blocking findings fixed and re-confirmed. A focused fresh-context confirmation of the final 6-item delta returned approve with all suites green (234 core + 35 add-on + 33 npm). Bridge: all in-scope findings resolved; residuals documented (SECURITY.md manifest-shape residual, Wave 4.2 execution deferred to operator).",
-    "diff_sha256": "151fb86c4c2acae8ed6adf269eee7ddebb1ab5d55f7f5989fad455806d939e63",
-    "attested_at": "2026-07-20T23:31:36"
+    "notes": "Cross-family independent review (Codex, different vendor from the Fable implementers) plus a Fable/xhigh pass. Both returned request_changes on the pre-fix tree; 11 blocking findings fixed and re-confirmed. A focused fresh-context confirmation of the final 6-item delta returned approve with all suites green (234 core + 35 add-on + 33 npm). Bridge: all in-scope findings resolved; residuals documented (SECURITY.md manifest-shape residual, Wave 4.2 execution deferred to operator). POST-ATTESTATION CI FIX (re-attested): CI compile caught that the dogfood-action step's name contained 'uses: ./' \u2014 the ': ' broke evals.yml YAML (line 61). Quoted the step name. Pure CI-config syntax fix; touches no gate logic, no reviewed code behavior, not executed by the local suites. Reviewers' approve verdicts stand; re-attested against the new diff.",
+    "diff_sha256": "76e84413ab2810fb2c15a4001e574dd6f03b7f18efe4c1127df5442c8c62f938",
+    "attested_at": "2026-07-20T23:41:10"
   },
   "security_review": {
     "reviewer": "fable-xhigh (fresh context, security lens)",
@@ -100,9 +100,9 @@
     "ran_checks": true,
     "verdict": "approve",
     "findings": [],
-    "notes": "Security surface reviewed: PreToolUse guard (record removed from edit-deny, integrity via freshness hash + CI), Stop-gate closed-record short-circuit (now requires origin/explicit base AND clean whole tree), shell re-execution + allowlist hygiene, installer interpreter substitution (portable literal kept when python3 on PATH; drift-safe uninstall), action.yml missing-record bypass (now opt-out via allow-missing-record, documented in SECURITY.md), and manifest scope-exemption (filtered to CQL shapes, attacker-named residual documented). security_verdict: approve.",
-    "diff_sha256": "151fb86c4c2acae8ed6adf269eee7ddebb1ab5d55f7f5989fad455806d939e63",
-    "attested_at": "2026-07-20T23:31:36"
+    "notes": "Security surface reviewed: PreToolUse guard (record removed from edit-deny, integrity via freshness hash + CI), Stop-gate closed-record short-circuit (now requires origin/explicit base AND clean whole tree), shell re-execution + allowlist hygiene, installer interpreter substitution (portable literal kept when python3 on PATH; drift-safe uninstall), action.yml missing-record bypass (now opt-out via allow-missing-record, documented in SECURITY.md), and manifest scope-exemption (filtered to CQL shapes, attacker-named residual documented). security_verdict: approve. POST-ATTESTATION CI FIX (re-attested): CI compile caught that the dogfood-action step's name contained 'uses: ./' \u2014 the ': ' broke evals.yml YAML (line 61). Quoted the step name. Pure CI-config syntax fix; touches no gate logic, no reviewed code behavior, not executed by the local suites. Reviewers' approve verdicts stand; re-attested against the new diff.",
+    "diff_sha256": "76e84413ab2810fb2c15a4001e574dd6f03b7f18efe4c1127df5442c8c62f938",
+    "attested_at": "2026-07-20T23:41:10"
   },
   "completion_record": {
     "goal": "Ship v6.1.0 (field-truth): make the trust chain true outside CQL's own repo, per docs/improvement-plan-v6.0.1-2026-07-20.md",
@@ -163,7 +163,8 @@
       "234 core eval cases (20 static + 55 behavioral + 32 memory + 48 reality + 30 routing + 49 hook) + 35 control add-on + 33 npm tests all pass; count lint green",
       "13/13 recorded evidence rows re-execute clean via run-evidence",
       "walkthrough verify-gates exit 0; py_compile + node --check clean",
-      "Two fresh-context reviews (Codex cross-family + Fable xhigh) -> 11 blocking findings fixed -> focused confirmation returned approve on functional and security axes"
+      "Two fresh-context reviews (Codex cross-family + Fable xhigh) -> 11 blocking findings fixed -> focused confirmation returned approve on functional and security axes",
+      "CI compile caught + fixed a YAML quoting bug in the new dogfood-action step name (evals.yml); all 3 workflow/action YAML files validate; re-attested"
     ],
     "risks": [
       "Bash-mediated record tamper remains possible by design (tamper-evidence, not immutability)",
