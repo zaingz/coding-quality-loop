@@ -1045,6 +1045,58 @@ def case_attest_covers_untracked_content(tmp: Path) -> tuple[bool, str]:
     return ok, f"attest_exit={code_a}; verify_exit={code}; output={ (out + err).strip()[:200]!r}"
 
 
+def case_empty_diff_freshness_is_na(tmp: Path) -> tuple[bool, str]:
+    """An empty current diff (e.g. after the reviewed branch is merged and the
+    record's base == HEAD) means there is nothing under review against this
+    base — freshness is N/A, not stale. Reproduces the v6.0.0 post-merge bug
+    where the shipped tag failed its own verify."""
+    repo = make_repo(tmp)
+    # Attest a review against HEAD while the tree is clean: hash of an empty diff.
+    review = {"reviewer": "agent-b", "verdict": "approve", "fresh_context": True, "patched": False}
+    rp = repo / "review.json"; rp.write_text(json.dumps(review))
+    # Give the record a hash that will NOT match if freshness runs, to prove the
+    # empty-diff branch skips the check rather than matching by luck.
+    record = passing_record(repo)
+    record["independent_review"] = {**review, "diff_sha256": "sha256:" + "de" * 32}
+    record["security_review"] = {**review, "diff_sha256": "sha256:" + "ad" * 32}
+    record["risk_tier"] = "high"; record["security_sensitive"] = True
+    # Clean tree -> git diff HEAD is empty.
+    _git(repo, "add", "-A"); _git(repo, "commit", "-m", "clean")
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    combined = (out + err).lower()
+    ok = "review freshness" not in combined  # freshness must be N/A on an empty diff
+    return ok, f"exit={code}; freshness_flagged={'review freshness' in combined}; out={combined.strip()[:160]!r}"
+
+
+def case_security_review_freshness_checked(tmp: Path) -> tuple[bool, str]:
+    """The freshness gate must bind security_review to the diff, not only
+    independent_review — a stale security approval at a risk boundary is the
+    exact hole the gate exists to close. With a NON-empty diff and a bogus
+    security_review hash, verify-gates must flag it."""
+    repo = make_repo(tmp)
+    (repo / "src").mkdir()
+    (repo / "src" / "mod.py").write_text("x = 1\n")  # non-empty diff
+    review = {"reviewer": "agent-b", "verdict": "approve", "fresh_context": True, "patched": False}
+    rp = repo / "review.json"; rp.write_text(json.dumps(review))
+    code_a, out_a, _ = run_cli("attest-review", str(rp), "--base", "HEAD", cwd=str(repo))
+    try:
+        good = json.loads(out_a)
+    except json.JSONDecodeError:
+        return False, f"attest not JSON: {out_a[:120]!r}"
+    record = passing_record(
+        repo, risk_tier="high", security_sensitive=True,
+        independent_review=dict(good),  # correctly attested
+        security_review={**review, "diff_sha256": "sha256:" + "00" * 32},  # bogus
+        completion_record=_completion(files=["src/mod.py", "review.json"]),
+    )
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
+    combined = (out + err).lower()
+    ok = code == 1 and "security_review.diff_sha256" in combined and "stale" in combined
+    return ok, f"exit={code}; out={combined.strip()[:200]!r}"
+
+
 def case_render_prompt_literal_token_survives(tmp: Path) -> tuple[bool, str]:
     """render-prompt substitutes template tokens in ONE pass: a literal
     '{evidence}' inside the diff must survive untouched, not be recursively
@@ -1126,6 +1178,8 @@ CASES = [
     ("auto base on local-only main/master keeps committed work visible", case_auto_base_local_main_keeps_work_visible),
     ("untracked symlink is not followed/disclosed by the canonical diff", case_untracked_symlink_not_disclosed),
     ("untracked file content is pinned by attestation (edit after attest goes stale)", case_attest_covers_untracked_content),
+    ("empty current diff makes review freshness N/A, not stale (post-merge)", case_empty_diff_freshness_is_na),
+    ("security_review freshness is checked, not only independent_review", case_security_review_freshness_checked),
     ("render-prompt keeps a literal {evidence} token in the diff intact (single pass)", case_render_prompt_literal_token_survives),
 ]
 

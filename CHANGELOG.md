@@ -1,5 +1,40 @@
 # Changelog
 
+## 6.0.1
+
+Patch release closing two trust-chain holes a fifth review pass (Fable 5, xhigh)
+found in the shipped v6.0.0 — the higher-effort pass caught what four earlier
+rounds did not.
+
+- **Review freshness now treats an empty current diff as N/A, not stale.** On
+  the v6.0.0 merge commit `origin/main == HEAD`, so the diff was empty and the
+  freshness gate misread the honestly-attested review as stale — the shipped tag
+  failed its own `verify` on a fresh clone. An empty diff means there is nothing
+  under review against the current base (the reviewed work is now the base);
+  the terminal-status phantom gate still covers "done with nothing shipped".
+- **`security_review` freshness is now validated too.** The freshness gate only
+  recomputed `independent_review.diff_sha256`, so a security approval survived
+  arbitrary later code changes at the highest-risk tier — the exact hole the
+  gate exists to close. Both reviews are now bound to the diff.
+- **Codex Stop hook timeout raised 30s → 600s** to match Claude Code — the v6
+  terminal Stop runs the `verify` umbrella (up to 120s per evidence command),
+  which the 30s budget could not complete.
+- **A configured repo with no task no longer blocks every Stop.** The installer
+  steers users into creating `quality-loop.config.json`; the stop gate treated
+  its mere presence as "a task is in flight". It now requires real task state
+  (run/progress/memory artifacts or a git tombstone of a deleted record), fixing
+  the first-contact trap while still catching a record deleted mid-loop.
+- Malformed-input hardening: `check-config` on a non-dict `steps` entry and
+  `detect_risk_floor` on a scalar `plan` now degrade to a clear finding instead
+  of a traceback (both already failed closed).
+- `render-prompt` pipes the true diff (including untracked file contents,
+  unredacted) to the reviewer CLI — a reviewer must see what shipped; documented
+  here as a deliberate exception to the redact-everywhere rule.
+
+Eval floor: **219 core gate cases** (+2 reality: empty-diff freshness N/A,
+security-review freshness; +1 hook: config-without-task allows). The doc-count
+lint gained badge (`%20`) and total-row table-cell coverage.
+
 ## 6.0.0
 
 The trust-chain release. Executed against the 2026-07-20 deep review

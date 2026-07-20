@@ -52,10 +52,10 @@ SCRIPT = ROOT / "scripts" / "quality_loop.py"
 # phrased "<n> add-on cases" in docs.
 #
 # BUMP THESE whenever a suite's case count changes. Current breakdown:
-#   20 static + 54 behavioral + 32 memory + 40 reality + 29 routing + 41 hook
-#   = 216 core; control add-on = 35
+#   20 static + 54 behavioral + 32 memory + 42 reality + 29 routing + 42 hook
+#   = 219 core; control add-on = 35
 # (behavioral is this file: len(CASES); run each suite to confirm.)
-CANONICAL_GATE_CASES = 216
+CANONICAL_GATE_CASES = 219
 CONTROL_ADDON_CASES = 35
 
 sys.path.insert(0, str(ROOT / "scripts"))

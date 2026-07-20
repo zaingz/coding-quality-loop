@@ -295,7 +295,11 @@ def verify_gates_against_diff(
     # 2. Scope integrity: changed files ⊄ repo_map ∪ plan ∪ completion_record.
     if files and non_trivial:
         paths, globs, dirs = _allowed_paths_and_globs(record)
-        plan_text = " ".join(str(p) for p in record.get("plan", []) or []).lower()
+        # A malformed record (scalar plan) must degrade to a finding, not crash:
+        # str-join on a non-iterable raises TypeError.
+        plan_val = record.get("plan")
+        plan_items = plan_val if isinstance(plan_val, list) else ([plan_val] if plan_val else [])
+        plan_text = " ".join(str(p) for p in plan_items).lower()
         unmapped = [
             f for f in files
             if not _file_is_mapped(f, paths, globs, dirs, plan_text)
@@ -328,28 +332,39 @@ def verify_gates_against_diff(
                 "present in the diff and no waiver is recorded"
             )
 
-    # 5. Review freshness: independent_review.diff_sha256 recomputed at medium+.
-    review = record.get("independent_review")
-    if non_trivial and isinstance(review, dict):
-        recorded_hash = review.get("diff_sha256")
+    # 5. Review freshness: recomputed at medium+ for BOTH the independent and the
+    # security review — a stale security approval at a risk boundary is exactly
+    # what the freshness gate exists to catch.
+    if non_trivial:
         try:
             # Attestation hashes exclude .quality-loop/ so record-only trailing
             # commits (evidence, progress) do not go stale. Records attested by
             # older versions carry the full-diff hash; accept either.
             valid_hashes = {diff_sha256(base, cwd, exclude_record_dir=True), diff_sha256(base, cwd)}
+            # An empty current diff means there is nothing under review against
+            # this base (e.g. the reviewed work is now the base itself, after a
+            # merge) — freshness is N/A, not stale. The terminal-status phantom
+            # gate already covers the "done with nothing shipped" case.
+            current_empty = not diff_patch(base, cwd, exclude_record_dir=True).strip()
         except SystemExit:
             valid_hashes = set()
-        if not recorded_hash:
-            findings.append(
-                "review freshness: independent_review has no diff_sha256 at medium+ risk "
-                "(attest the review with `attest-review`)"
-            )
-        elif valid_hashes and recorded_hash not in valid_hashes:
-            findings.append(
-                "review freshness: independent_review.diff_sha256 does not match the "
-                "current diff (stale review — re-attest after the last non-record edit; "
-                "changes under .quality-loop/ are excluded)"
-            )
+            current_empty = False
+        for review_key in ("independent_review", "security_review"):
+            review = record.get(review_key)
+            if not isinstance(review, dict):
+                continue
+            recorded_hash = review.get("diff_sha256")
+            if not recorded_hash:
+                findings.append(
+                    f"review freshness: {review_key} has no diff_sha256 at medium+ risk "
+                    "(attest the review with `attest-review`)"
+                )
+            elif not current_empty and valid_hashes and recorded_hash not in valid_hashes:
+                findings.append(
+                    f"review freshness: {review_key}.diff_sha256 does not match the "
+                    "current diff (stale review — re-attest after the last non-record edit; "
+                    "changes under .quality-loop/ are excluded)"
+                )
 
     # 6. Promote diff-audit secret/test-weakening warnings to blocking at medium+.
     if non_trivial:

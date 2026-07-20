@@ -306,12 +306,20 @@ def detect_risk_floor(record: dict[str, Any]) -> tuple[str, list[str]]:
         # path segment such as billing/tests must not force payment gates.
         return str(ac.get("criterion", "")) if isinstance(ac, dict) else str(ac)
 
+    def _as_list(value: Any) -> list:
+        # Tolerate a malformed record: a scalar plan/criteria must degrade to a
+        # clear finding elsewhere, never crash the risk-floor scan (list() on a
+        # non-iterable raises).
+        if isinstance(value, list):
+            return value
+        return [value] if value else []
+
     haystack = " ".join(
         str(x).lower()
         for x in (
             [record.get("goal", "")]
-            + [_criterion_text(ac) for ac in record.get("acceptance_criteria", []) or []]
-            + list(record.get("plan", []) or [])
+            + [_criterion_text(ac) for ac in _as_list(record.get("acceptance_criteria"))]
+            + _as_list(record.get("plan"))
         )
     )
     markers = sorted(
@@ -1442,6 +1450,9 @@ def check_config(args: argparse.Namespace) -> int:
     else:
         seen = []
         for idx, step in enumerate(steps):
+            if not isinstance(step, dict):
+                errors.append(f"step[{idx}] must be an object, got {type(step).__name__}")
+                continue
             name = step.get("step")
             seen.append(name)
             if name not in REQUIRED_STEPS:
