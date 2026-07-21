@@ -17,7 +17,7 @@ jobs:
       # quality_loop.py cannot defeat CI. That pinned copy is the trust anchor;
       # an unpinned/floating ref would surrender it. The release process bumps
       # this @vX.Y.Z pin on every tagged release.
-      - uses: zaingz/coding-quality-loop@v6.3.0
+      - uses: zaingz/coding-quality-loop@v6.3.1
         with:
           # Canonical record path; the action falls back to a root-level
           # agent-record.json when this is absent.

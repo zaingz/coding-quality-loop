@@ -593,6 +593,37 @@ def case_stop_gate_blocks_tombstoned_record_deletion(tmp: Path) -> tuple[bool, s
     return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:200]!r}"
 
 
+def case_stop_gate_allows_committed_teardown_removal(tmp: Path) -> tuple[bool, str]:
+    # v6.3.x: SKILL.md PACKAGE teardown archives the record to docs/records/
+    # and REMOVES the live file. When that removal is COMMITTED (HEAD lacks
+    # the record path) and the tree is clean, the task is closed — the gate
+    # must allow the stop even though loop state (config/progress) remains.
+    # The same repo with ANY dirt goes back to blocking (fail-closed).
+    repo = make_repo(tmp)
+    (repo / "quality-loop.config.json").write_text(json.dumps({"enforcement": "advisory"}))
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    (qdir / "agent-record.json").write_text(json.dumps(done_record()))
+    (qdir / "progress.md").write_text("## task log\n- done\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-m", "record + loop state")
+    # PACKAGE teardown: archive + remove the live record, committed.
+    (repo / "docs" / "records").mkdir(parents=True)
+    (repo / "docs" / "records" / "v1-record.json").write_text(json.dumps(done_record()))
+    (qdir / "agent-record.json").unlink()
+    git(repo, "add", "-A")
+    git(repo, "commit", "-m", "chore: archive record (teardown)")
+    code_clean, out_clean, _ = _stop(repo)
+    clean_ok = code_clean == 0 and out_clean.strip() == ""
+    # Dirty tree -> the missing-record block returns.
+    (repo / "wip.txt").write_text("in-flight work\n")
+    code_dirty, out_dirty, _ = _stop(repo)
+    dirty_ok = code_dirty == 0 and _decision(out_dirty) == "block" and "init-record" in out_dirty
+    ok = clean_ok and dirty_ok
+    return ok, (f"clean(exit={code_clean}, out={out_clean.strip()[:80]!r}); "
+                f"dirty(decision={_decision(out_dirty)})")
+
+
 def case_stop_gate_closes_merged_clone_record(tmp: Path) -> tuple[bool, str]:
     # Cloned-repo teardown trap: a committed, merged `done` record (byte-
     # identical to base, nothing in flight) is CLOSED — the stop is allowed and
@@ -1022,6 +1053,7 @@ CASES = [
     ("Stop gate allows a configured repo with no task (first contact)", case_stop_gate_allows_config_without_task),
     ("Stop gate allows a fresh install with only the install manifest", case_stop_gate_allows_manifest_only_install),
     ("Stop gate blocks a git-tombstoned record deletion without config", case_stop_gate_blocks_tombstoned_record_deletion),
+    ("stop gate allows a committed PACKAGE-teardown record removal (clean tree); dirt re-blocks", case_stop_gate_allows_committed_teardown_removal),
     ("Stop gate closes a merged/cloned done record (no re-execution)", case_stop_gate_closes_merged_clone_record),
     ("Stop gate still gates an in-flight modified committed record", case_stop_gate_gates_inflight_modified_record),
     ("Stop gate still gates a dirty tree despite a closed record", case_stop_gate_gates_dirty_tree_despite_closed_record),
