@@ -1,0 +1,319 @@
+{
+  "task_id": "v6.2.0-prove-smooth-learn",
+  "goal": "v6.2.0 (prove-smooth-learn): measurement + friction removal + outcome feedback \u2014 review-yield query, a record mutation CLI, smart Stop-gate re-execution, derived eval counts, and minimal outcome feedback \u2014 no new subsystems",
+  "acceptance_criteria": [
+    {
+      "criterion": "record CLI: set-status / add-evidence / add-ac / outcome mutate the record with validation + atomic write; malformed input is a clean error, not a crash",
+      "proving_command": "python3 evals/run_evals.py"
+    },
+    {
+      "criterion": "record mutations preserve schema and round-trip (a mutated record still passes check-record)",
+      "proving_command": "python3 evals/run_reality_evals.py"
+    },
+    {
+      "criterion": "smart Stop-gate: a terminal stop whose canonical diff+status are unchanged since the last green verify skips re-execution; any change re-runs the full umbrella",
+      "proving_command": "python3 evals/run_hook_evals.py"
+    },
+    {
+      "criterion": "derived eval counts: the count lint computes the real total from the suites and checks docs against it (no hand-set constant to drift)",
+      "proving_command": "python3 evals/run_evals.py"
+    },
+    {
+      "criterion": "control-report --review-yield computes per-release findings\u2192fixes + outcome tally from records",
+      "proving_command": "python3 evals/run_control_evals.py"
+    },
+    {
+      "criterion": "outcome feedback: record outcome writes the field + appends .quality-loop/outcomes.jsonl; brief surfaces the tally",
+      "proving_command": "python3 evals/run_memory_evals.py"
+    },
+    {
+      "criterion": "routing suite unaffected",
+      "proving_command": "python3 evals/run_routing_evals.py"
+    },
+    {
+      "criterion": "static intake cases pass",
+      "proving_command": "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json"
+    },
+    {
+      "criterion": "walkthrough green path stays green",
+      "proving_command": "python3 scripts/quality_loop.py verify-gates examples/walkthrough/agent-record.json"
+    },
+    {
+      "criterion": "all modules byte-compile",
+      "proving_command": "python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py"
+    },
+    {
+      "criterion": "npm CLI + tests pass",
+      "proving_command": "node --test packages/npm/test/parseArgs.test.mjs packages/npm/test/detect.test.mjs packages/npm/test/cli.integration.test.mjs"
+    }
+  ],
+  "constraints": [
+    "No new subsystems; net-simpler where possible (record CLI replaces hand-JSON; derived counts remove a drift class)",
+    "Stage 3 (outcome) stays one field + one log + one brief line \u2014 defer if it needs more",
+    "Backward compatible: existing CLI flags unchanged; new subcommands are additive",
+    "Every claim states only what the code enforces"
+  ],
+  "non_goals": [
+    "Running the six live \u00a76.2 benchmark cells (needs claude -p \u2014 operator action; deliver the runnable path + review-yield instead)",
+    "New hosts / hosted service / MCP / dashboards / mutation engine / extra review rounds / config surface beyond the 3 keys"
+  ],
+  "assumptions": [],
+  "risk_tier": "medium",
+  "task_class": "medium",
+  "implementer": "claude-fable-5-orchestrator (fable core lane + opus hook/control/docs lane)",
+  "security_sensitive": true,
+  "verification_plan": [
+    "All suites green after each lane + integration",
+    "Fresh-context cross-family review (Fable xhigh + Codex) on the diff",
+    "verify umbrella green at done"
+  ],
+  "validation_contract": {
+    "goal": "v6.2.0 lands measurement + friction removal + outcome feedback with net-simpler surface, each behavior eval-pinned and each claim honest about what the code enforces",
+    "evidence": [
+      "247 core + 36 add-on + 33 npm suites green; derived per-suite count lint green",
+      "Two cross-family fresh-context reviews (Codex + Fable) -> 6 findings fixed -> confirmation approve on functional + security axes",
+      "verify umbrella green at done with both reviews attested to a matching diff hash"
+    ]
+  },
+  "independent_review": {
+    "reviewer": "codex-cross-family + fable-xhigh (fresh context)",
+    "fresh_context": true,
+    "patched": false,
+    "ran_checks": true,
+    "verdict": "approve",
+    "findings": [],
+    "notes": "Two fresh-context reviews (Codex cross-family + Fable xhigh) on the change set both returned request_changes; they jointly caught 6 findings incl. the headline blocking bug (smart Stop-gate skip bypassing a would-FAIL umbrella via a post-verify record mutation, since the diff hash excludes .quality-loop/). All fixed: marker now binds record_sha256; mutations refuse to persist a newly-invalid record; count lint checks per-suite arithmetic; docs sharpened. A focused fresh-context confirmation returned approve on functional + security axes with all suites green (247 core + 36 add-on + 33 npm) and every fix eval-pinned.",
+    "diff_sha256": "5f5ba3b3d78fb67e4b8fabdb18a19d25443831642fcc8a494973400928452353",
+    "attested_at": "2026-07-21T08:53:12"
+  },
+  "security_review": {
+    "reviewer": "fable-xhigh + codex (fresh context, security lens)",
+    "fresh_context": true,
+    "patched": false,
+    "ran_checks": true,
+    "verdict": "approve",
+    "findings": [],
+    "notes": "Security surface: the new record mutation CLI writes only status/commands_run/acceptance_criteria/outcome (never diff_sha256/attested_at/verdict/fresh_context) and now refuses to persist a newly-invalid record; the smart Stop-gate marker is bound to diff + record + status and documented honestly as tamper-evident (agent-writable, CI is the unconditional anchor), not a forgery boundary; outcome notes are secret-redacted. security_verdict: approve.",
+    "diff_sha256": "5f5ba3b3d78fb67e4b8fabdb18a19d25443831642fcc8a494973400928452353",
+    "attested_at": "2026-07-21T08:53:12"
+  },
+  "completion_record": {
+    "goal": "Ship v6.2.0 (prove-smooth-learn): measurement (review-yield + runnable \u00a76.2), friction removal (record CLI, smart Stop-gate, derived counts), and minimal outcome feedback \u2014 no new subsystems",
+    "files_changed": [
+      "scripts/quality_loop.py",
+      "scripts/quality_loop_reality.py",
+      "scripts/quality_loop_control.py",
+      "hosts/claude-code/stop_gate.py",
+      "assets/agent-record.schema.json",
+      "evals/run_evals.py",
+      "evals/run_reality_evals.py",
+      "evals/run_memory_evals.py",
+      "evals/run_hook_evals.py",
+      "evals/run_control_evals.py",
+      "README.md",
+      "SKILL.md",
+      "CHANGELOG.md",
+      "ROADMAP.md",
+      "CONTRIBUTING.md",
+      "SECURITY.md",
+      "references/tool-contracts.md",
+      "references/enforcement-matrix.md",
+      "docs/control-plane.md",
+      "docs/comparison.md",
+      "docs/launch-kit.md",
+      "docs/images/src/README.md",
+      "hosts/github/quality-loop-example.yml",
+      "packages/npm/package.json"
+    ],
+    "done_when": [
+      "247 core gate cases (20 static + 61 behavioral + 32 memory + 50 reality + 30 routing + 54 hook) + 36 add-on + 33 npm all pass; derived count lint (now per-suite) green",
+      "Two fresh-context cross-family reviews caught 6 findings incl. 1 headline blocking bug; all fixed and eval-pinned; confirmation review approve on functional + security",
+      "verify umbrella green at done"
+    ],
+    "right_size_decision": "minimal_new_code \u2014 net-simpler: record CLI replaces hand-JSON (and shrinks tamper surface), derived counts delete a hand-set constant + drift class, canonical_diff_sha256 collapses 3 hash copies into 1. New code confined to sharpening existing gates.",
+    "evidence": [
+      "All suites green (see done_when); 10/10 recorded evidence rows re-execute clean",
+      "record CLI dogfooded to record this task's own evidence; review-yield query produces real per-release numbers",
+      "smart Stop-gate marker binds diff+record+status; regression evals pin the record-mutation and would-pass-skip paths"
+    ],
+    "risks": [
+      "Marker is agent-writable (tamper-evident, not forgery-proof); CI never reads it and re-executes unconditionally \u2014 the anchor",
+      "The six \u00a76.2 benchmark runs remain an operator action (spec committed); execution not part of this release"
+    ],
+    "rollback": "git revert the squash-merge of the v6.2.0 PR (single revert point). No data migration, no external state.",
+    "follow_ups": [
+      "Run the six \u00a76.2 micro-task bench cells (bench/tasks/14-micro-bugfix.json) \u2014 the named next milestone",
+      "Re-render docs/images evidence PNG to v6.2.0 counts"
+    ]
+  },
+  "repair_attempts": 0,
+  "repeated_failure": false,
+  "harness_update": null,
+  "repo_map": {
+    "entry_points": [
+      "scripts/quality_loop.py",
+      "scripts/quality_loop_reality.py",
+      "scripts/quality_loop_control.py",
+      "hosts/claude-code/stop_gate.py"
+    ],
+    "likely_files": [
+      "scripts/*.py",
+      "hosts/claude-code/stop_gate.py",
+      "evals/*.py",
+      "evals/cases/*",
+      "assets/agent-record.schema.json",
+      "references/*.md",
+      "docs/*.md",
+      "README.md",
+      "SKILL.md",
+      "CHANGELOG.md",
+      "ROADMAP.md",
+      "packages/npm/package.json",
+      "CONTRIBUTING.md",
+      "SECURITY.md",
+      "hosts/github/quality-loop-example.yml",
+      "docs/control-plane.md"
+    ],
+    "callers_checked": [
+      "verify -> canonical_diff_sha256 -> writes .quality-loop/last-verified.json on PASS",
+      "stop_gate -> reads marker -> skips umbrella on match",
+      "control-report --review-yield -> docs/records + live record",
+      "count lint -> canonical_gate_cases() computed from suites"
+    ],
+    "tests": [
+      "evals/run_evals.py",
+      "evals/run_reality_evals.py",
+      "evals/run_hook_evals.py",
+      "evals/run_control_evals.py",
+      "evals/run_memory_evals.py",
+      "evals/run_routing_evals.py"
+    ],
+    "patterns_to_follow": [
+      "stdlib-only",
+      "atomic write + validate for record mutation",
+      "fail-safe toward running the gate",
+      "single-source the diff hash"
+    ]
+  },
+  "minimality_decision": {
+    "rung": "minimal_new_code",
+    "reason": "Net-simpler where it counts: the record CLI REPLACES hand-written JSON surgery (and shrinks the tamper surface \u2014 structured writes vs arbitrary Bash), derived counts DELETE a hand-maintained constant + a doc-sweep drift class (proven during this very integration: zero manual count edits), and canonical_diff_sha256 collapses three copies of diff-hashing into one. New code is confined to: 4 record subcommands, a read-only review-yield query, a latency-only stop-gate short-circuit, and one optional outcome field. No new subsystem.",
+    "rejected_lower_rungs": [
+      {
+        "note": "memory-recall coupling for outcomes (kept to one field + one ledger + one brief line)"
+      },
+      {
+        "note": "a bench-run orchestration engine (the six \u00a76.2 cells stay a one-command operator action)"
+      }
+    ]
+  },
+  "plan": [
+    "Lane 1 core (fable): record CLI + outcome, last-verified marker written by verify, derived-count lint, own evals",
+    "Lane 2 (opus): smart stop-gate reading the marker, review-yield query, hook/control evals, docs + CHANGELOG + version bumps",
+    "Integrate: reconcile counts, rebuild npm dist, full suite",
+    "Cross-family review -> fix -> attest -> done -> ship"
+  ],
+  "commands_run": [
+    {
+      "cmd": "python3 evals/run_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "re-run clean on the fixed tree"
+    },
+    {
+      "cmd": "python3 evals/run_reality_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "re-run clean on the fixed tree"
+    },
+    {
+      "cmd": "python3 evals/run_hook_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "re-run clean on the fixed tree"
+    },
+    {
+      "cmd": "python3 evals/run_control_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "re-run clean on the fixed tree"
+    },
+    {
+      "cmd": "python3 evals/run_memory_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "re-run clean on the fixed tree"
+    },
+    {
+      "cmd": "python3 evals/run_routing_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "re-run clean on the fixed tree"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "re-run clean on the fixed tree"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py verify-gates examples/walkthrough/agent-record.json",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "re-run clean on the fixed tree"
+    },
+    {
+      "cmd": "python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py",
+      "class": "build",
+      "result": "pass",
+      "evidence": "re-run clean on the fixed tree"
+    },
+    {
+      "cmd": "node --test packages/npm/test/parseArgs.test.mjs packages/npm/test/detect.test.mjs packages/npm/test/cli.integration.test.mjs",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "re-run clean on the fixed tree"
+    }
+  ],
+  "open_risks": [],
+  "review_findings": [
+    {
+      "source": "fable+codex",
+      "severity": "blocking",
+      "finding": "Smart Stop-gate skip could bypass a would-FAIL umbrella (marker keyed on diff+status; record excluded from diff hash)",
+      "resolution": "fixed: marker binds record_sha256; _verified_clean requires it; regression eval case_stop_gate_reruns_umbrella_on_record_mutation; skip test uses a would-pass stub"
+    },
+    {
+      "source": "codex",
+      "severity": "blocking",
+      "finding": "Record mutations not validated \u2014 set-status done returned 0 on a check-record-invalid record",
+      "resolution": "fixed: record_validation_issues extracted; verbs refuse to write a newly-invalid record; eval case_record_mutation_refuses_invalid_result"
+    },
+    {
+      "source": "codex",
+      "severity": "blocking",
+      "finding": "Count lint checked only the total \u2014 a wrong per-suite addend passed",
+      "resolution": "fixed: lint checks each breakdown addend + the six-suite sum; eval proves a wrong addend under a right total is caught; stale constant-name prose removed"
+    },
+    {
+      "source": "codex",
+      "severity": "blocking",
+      "finding": "Dogfood record schema-invalid (minimality rationale vs reason; map omitted CONTRIBUTING.md)",
+      "resolution": "fixed: reason + rejected_lower_rungs; map covers changed docs; check-record passes"
+    },
+    {
+      "source": "codex",
+      "severity": "advisory",
+      "finding": "example workflow pinned @v6.1.0",
+      "resolution": "fixed: @v6.2.0"
+    },
+    {
+      "source": "fable+codex",
+      "severity": "advisory",
+      "finding": "stop-gate docs overclaimed 'never allow a stop the umbrella would block'; skip note omitted 'record'",
+      "resolution": "fixed: docs state tamper-evident/CI-anchored; skip note now 'diff + record + status unchanged'"
+    }
+  ],
+  "next_action": "Release: commit, push, PR, merge, tag.",
+  "status": "done"
+}

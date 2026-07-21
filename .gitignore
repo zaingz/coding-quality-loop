@@ -24,3 +24,6 @@ __pycache__/
 .pre-commit-config.yaml.bak
 .github/workflows/quality-loop.yml
 .github/workflows/quality-loop.yml.bak
+
+# Smart Stop-gate latency marker: transient, per-machine — never commit.
+.quality-loop/last-verified.json
