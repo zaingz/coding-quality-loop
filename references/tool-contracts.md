@@ -41,6 +41,11 @@ everything else about the gates is intentionally not configurable:
 - `high_risk_paths` — extra path prefixes that force the diff-derived risk floor, for a repo
   whose auth/payments code lives outside the built-in defaults.
 
+Two further root keys are read by the PreToolUse guard, not the gates: `protect_harness`
+(boolean, default on — denies edits to the gate scripts, hook wiring, config, and install
+manifest) and `enforcement` (`"required"` opts into edit-before-plan blocking); see
+`references/enforcement-matrix.md`.
+
 **Individual commands (for targeted checks):**
 
 ```bash
@@ -182,7 +187,7 @@ The `commands_run` rows `verify-gates` checks and `run-evidence` re-executes:
 }
 ```
 
-`unit`, `integration`, `typecheck`, `build`, `e2e`, `security`, `format`, and
+`unit`, `integration`, `typecheck`, `build`, `lint`, `e2e`, `security`, `format`, and
 `migration_dry_run` all count as executable evidence for the medium/high "relevant executable
 check" rules.
 

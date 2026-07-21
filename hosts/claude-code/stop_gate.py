@@ -43,37 +43,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from hooklib import json_input, project_root
+
 # Statuses whose stop is gated whenever the working tree carries real changes.
 # "escalated" appears here so that escalation WITHOUT a recorded reason gets no
 # free pass — the reasoned valve is handled before this set is consulted.
 DIRTY_GATED_STATUSES = {"verify", "review", "retrospect", "escalated"}
 # Statuses that are always gated (the self-reported completion boundary).
 TERMINAL_GATED_STATUSES = {"package", "done"}
-
-
-def _input() -> dict[str, Any]:
-    try:
-        data = json.loads(sys.stdin.read() or "{}")
-    except json.JSONDecodeError:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _root(data: dict[str, Any]) -> Path:
-    cwd = Path(os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or os.getcwd())
-    # A session hook must never crash: if git itself is unavailable, fall back
-    # to cwd (the record lookup and dirty check then fail open by design).
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-    except OSError:
-        return cwd
-    return Path(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else cwd
 
 
 def _record_path(root: Path) -> Path | None:
@@ -392,10 +369,10 @@ def _block(reason: str) -> int:
 
 
 def main() -> int:
-    data = _input()
+    data = json_input()
     if data.get("stop_hook_active"):
         return 0
-    root = _root(data)
+    root = project_root(data)
     record = _record_path(root)
     if record is None:
         # A repo that never ran the loop may stop freely. But if real loop

@@ -24,7 +24,7 @@ coding-quality-loop/
 ├── examples/           # host-native copy-paste installs + walkthroughs
 ├── evals/              # offline eval cases + harness proving the gates fire
 ├── scripts/            # quality_loop*.py — six stdlib-only modules (control is the opt-in add-on)
-└── .quality-loop/      # per-project lessons memory + run journal
+└── .quality-loop/      # per-project lessons memory + progress
 ```
 
 Progressive disclosure keeps the always-loaded surface tiny: the agent always sees the
@@ -59,8 +59,10 @@ human review; they do not replace them. The runtime dependency count is zero.
 On Claude Code, the **Stop hook runs the `verify` umbrella** (evidence re-execution and
 AC coverage included) when the record is at a terminal status (`package`/`done`);
 non-terminal dirty-tree stops run `verify-gates --against-diff`. A `protect_harness`
-config key (default on) makes edits to the gate scripts, the active record, or the
-config tamper-evident at the PreToolUse hook.
+config key (default on) makes edits to the gate scripts, hook wiring, the canonical
+config, and the install manifest tamper-evident at the PreToolUse hook. The active
+record is deliberately not edit-denied — the lifecycle mutates it continuously; its
+integrity comes from the freshness hash, `verify`'s re-execution, and the CI anchor.
 
 ### 3. Multi-agent roles (the loop)
 
@@ -70,15 +72,8 @@ The loop narrative groups work into three phases — **PLAN → EXECUTE → REVI
 <img src="images/art/loop-phases.png" alt="The loop — a circular flow through PLAN, EXECUTE, and REVIEW, each closed by a check-mark gate." width="420">
 </div>
 
-| Role | Owns | Default profile |
-|---|---|---|
-| `orchestrator` | State machine, journal, review isolation, every routing decision | The main session (Claude Code) |
-| `context_mapper` | Task-scoped repo map, entry points, callers | Fast/cheap capability class |
-| `implementer` | Diff, tests, recorded commands | Strong code-specialized class (on Claude Code) |
-| `validator` | Independent review against contract + diff + evidence | Strong reasoning class on a **different family** (Codex), separate session |
-| `security_reviewer` | Escalated review for auth, payments, migrations, secrets | Strong reasoning model, security-focused prompt |
-| `policy_guard` | Deterministic hooks (secrets, protected paths, dependency approval) | Host hooks + git hooks + CI |
-| `package` | Completion record, PR handoff, retro | Cheap model — this step is largely mechanical |
+The canonical role table (responsibilities, profile mapping, independence) lives in
+[`references/agentic-orchestration.md` §Role architecture](../references/agentic-orchestration.md#role-architecture).
 
 Start simple: **one implementer + one independent validator + deterministic policy hooks.**
 Add specialists only when risk justifies the coordination cost.
@@ -86,22 +81,7 @@ Add specialists only when risk justifies the coordination cost.
 ## The state record
 
 Non-trivial work carries a small JSON record that flows through the state machine and
-gets checked at each gate. Its shape is pinned by [`assets/agent-record.schema.json`](../assets/agent-record.schema.json):
-
-```jsonc
-{
-  "goal": "Fix invoice rounding to two decimals for GBP totals",
-  "risk_tier": "medium",
-  "task_class": "medium",
-  "contract": { "acceptance_criteria": [...], "constraints": [...] },
-  "context_map": { "entry_points": [...], "callers": [...], "tests": [...] },
-  "minimality": { "chosen_rung": "localized fix", "rejected_rungs": [...] },
-  "plan": { "slices": [...], "verification": [...], "rollback": "..." },
-  "commands_run": [ { "cmd": "npm test -- --run", "class": "pass", "evidence": "..." } ],
-  "review": { "reviewer": "validator-b", "verdict": "approve", "ran_checks": true, "diff_hash": "sha256:..." },
-  "completion": { "pr_summary_path": "PR.md", "rollback": "revert this diff" }
-}
-```
+gets checked at each gate. Its shape is pinned by [`assets/agent-record.schema.json`](../assets/agent-record.schema.json); the canonical worked example — a complete record that passes `check-record` and `verify-gates` on a clean checkout — is [`examples/walkthrough/agent-record.json`](../examples/walkthrough/agent-record.json).
 
 The review verdict enum is pinned to `approve | request_changes | needs_discussion |
 reject`, and `ran_checks` records whether the reviewer actually executed checks.

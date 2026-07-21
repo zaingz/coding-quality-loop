@@ -379,14 +379,6 @@ def _launcher_interpreter() -> str | None:
     return _resolve_python()
 
 
-def _shell_quote(path: str) -> str:
-    """Quote an interpreter path for embedding in a Codex hook's shell command
-    string. Uses shlex.quote so a path with spaces, quotes, or other shell
-    metacharacters (e.g. a Windows 'C:\\Program Files\\...' install) is escaped
-    correctly, not just wrapped in double quotes."""
-    return shlex.quote(path)
-
-
 def _rewrite_python_launcher(obj: Any, interpreter: str) -> None:
     """In-place: replace the literal ``python3`` launcher in hook commands with
     the resolved interpreter so hosts where ``python3`` is absent from PATH
@@ -405,7 +397,7 @@ def _rewrite_python_launcher(obj: Any, interpreter: str) -> None:
                 if value == "python3":
                     obj[key] = interpreter
                 elif value.startswith("python3 "):
-                    obj[key] = _shell_quote(interpreter) + value[len("python3"):]
+                    obj[key] = shlex.quote(interpreter) + value[len("python3"):]
             else:
                 _rewrite_python_launcher(value, interpreter)
     elif isinstance(obj, list):
@@ -839,25 +831,24 @@ def main() -> int:
     # config/setup-models step is suppressed (mirrors the npm CLI's
     # showSetupModels gating) instead of recommending an unsupported host.
     routing_hosts = {"claude-code", "codex", "droid", "pi"}
-    show_setup_models = (not args.host) or args.host == "all" or args.host in routing_hosts
+    show_setup_models = args.host == "all" or args.host in routing_hosts
     host_hint = args.host if args.host in routing_hosts else "claude-code"
     footer = [
         "Core gates remain scripts/quality_loop.py; host hooks are advisory unless your host config requires them.",
         'Step 0 — commit the install so it stays out of your task diff: git add -A && git commit -m "chore: install coding-quality-loop"',
     ]
-    if not show_setup_models:
-        pass
-    elif (target / "quality-loop.config.json").is_file():
-        footer.append(
-            "Next: review quality-loop.config.json (make sure model_routing.host is set), then run: "
-            "python3 scripts/quality_loop.py setup-models"
-        )
-    else:
-        footer.append(
-            "Next: copy assets/quality-loop.config.example.json to quality-loop.config.json and set "
-            f'model_routing.host to "{host_hint}" (the host you just installed) so cross-family '
-            "review enforcement activates, then run: python3 scripts/quality_loop.py setup-models"
-        )
+    if show_setup_models:
+        if (target / "quality-loop.config.json").is_file():
+            footer.append(
+                "Next: review quality-loop.config.json (make sure model_routing.host is set), then run: "
+                "python3 scripts/quality_loop.py setup-models"
+            )
+        else:
+            footer.append(
+                "Next: copy assets/quality-loop.config.example.json to quality-loop.config.json and set "
+                f'model_routing.host to "{host_hint}" (the host you just installed) so cross-family '
+                "review enforcement activates, then run: python3 scripts/quality_loop.py setup-models"
+            )
     footer.append(
         "Then wire the CI anchor: add the GitHub Action (action.yml / "
         "hosts/github/quality-loop-example.yml) — merge-base anti-evasion and helper integrity are "

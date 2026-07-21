@@ -295,17 +295,6 @@
       "note": "Full split with enforced security/migration blocks; security_reviewer required at risk boundaries."
     }
   },
-  "advisor": {
-    "description": "Anthropic advisor-tool pattern (https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool). A cheap executor drives the loop and consults a stronger reasoning model at reasoning walls only. The advisor never calls tools; it returns reasoning the executor acts on. DEFAULT for small/medium tasks -- cheaper than routing every step to a strong model, and it keeps one driver in control. Prefer this to a full multi-agent split until the task is genuinely high-risk.",
-    "enabled_for": [
-      "small",
-      "medium"
-    ],
-    "executor_model_class": "cheap_fast",
-    "advisor_model_class": "strong_reasoning",
-    "advisor_calls_tools": false,
-    "max_uses": 3
-  },
   "memory": {
     "lessons_store": "files",
     "location": "checked_in",

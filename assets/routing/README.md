@@ -13,7 +13,7 @@ python3 scripts/quality_loop.py check-config quality-loop.config.json
 | `balanced.json` | Claude Opus 4.8 | Claude Sonnet 5 | GPT-5.6 Sol (Codex) | Default |
 | `max-throughput.json` | Claude Sonnet 5 | Claude Sonnet 5 | GPT-5.6 Terra (Codex) | Cost-lean; floors still hold |
 
-Floors the knob can never lower — two enforced by `check-config` on any config: the reviewer resolves to a **different model family** than the implementer (`allow_same_family` stays false), and reasoning effort above `high` is rejected without `allow_overthink` (plus PLAN/ORCHESTRATE must carry the `strong_reasoning` class). Two held by construction and pinned by eval (`evals/run_routing_evals.py`): the strong-tier model choice for `strong_reasoning`, and the security reviewer staying on it.
+Floors the knob can never lower — two enforced by `check-config` on any config: the reviewer resolves to a **different model family** than the implementer (`allow_same_family` stays false), and reasoning effort above `high` is rejected without `allow_overthink` (plus PLAN must carry the `strong_reasoning` class). Two held by construction and pinned by eval (`evals/run_routing_evals.py`): the strong-tier model choice for `strong_reasoning`, and the security reviewer staying on it.
 
 Each variant carries an `"as_of": "YYYY-MM-DD"` field naming when this menu was last reviewed; once your pasted `model_routing` block's `as_of` is more than 90 days old, `brief` prints a one-line "model menu may be stale" warning.
 

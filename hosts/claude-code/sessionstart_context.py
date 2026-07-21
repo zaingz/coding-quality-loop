@@ -4,31 +4,11 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
-
-def _input() -> dict[str, Any]:
-    try:
-        data = json.loads(sys.stdin.read() or "{}")
-    except json.JSONDecodeError:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _root(data: dict[str, Any]) -> Path:
-    cwd = Path(os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or os.getcwd())
-    proc = subprocess.run(
-        ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    return Path(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else cwd
+from hooklib import json_input, project_root
 
 
 def _record_status(root: Path) -> str:
@@ -58,7 +38,7 @@ def _brief_output(root: Path) -> str:
 
 
 def main() -> int:
-    root = _root(_input())
+    root = project_root(json_input())
     brief = _brief_output(root)
     parts: list[str] = []
     if brief:

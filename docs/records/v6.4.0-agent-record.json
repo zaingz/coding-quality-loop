@@ -1,0 +1,383 @@
+{
+  "task_id": "cleanup-subtraction-pass-001",
+  "goal": "Repo-wide subtraction cleanup: remove dead surface, deduplicate repeated concepts, simplify overcomplicated spots, and align drifted docs — net-negative lines, no behavior change except deletions of truly dead code",
+  "acceptance_criteria": [
+    {
+      "criterion": "All Python sources still byte-compile cleanly after the cleanup",
+      "proving_command": "python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py"
+    },
+    {
+      "criterion": "Behavioral gate suite (incl. the doc-count lint that pins every public gate-case count) is green",
+      "proving_command": "python3 evals/run_evals.py"
+    },
+    {
+      "criterion": "Memory gate suite is green",
+      "proving_command": "python3 evals/run_memory_evals.py"
+    },
+    {
+      "criterion": "Reality gate suite is green",
+      "proving_command": "python3 evals/run_reality_evals.py"
+    },
+    {
+      "criterion": "Hook fixture suite is green (stop gate, guard, sessionstart, installer idempotence)",
+      "proving_command": "python3 evals/run_hook_evals.py"
+    },
+    {
+      "criterion": "Routing suite is green",
+      "proving_command": "python3 evals/run_routing_evals.py"
+    },
+    {
+      "criterion": "Control-plane add-on suite is green",
+      "proving_command": "python3 evals/run_control_evals.py"
+    },
+    {
+      "criterion": "Static intake cases still classify correctly against the example config",
+      "proving_command": "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json"
+    },
+    {
+      "criterion": "The repo's own gate config still validates",
+      "proving_command": "python3 scripts/quality_loop.py check-config quality-loop.config.json"
+    },
+    {
+      "criterion": "npm CLI unit + integration tests pass (zero-dependency Node wrapper unchanged in behavior)",
+      "proving_command": "node --test packages/npm/test/parseArgs.test.mjs packages/npm/test/detect.test.mjs packages/npm/test/cli.integration.test.mjs"
+    },
+    {
+      "criterion": "Bench fixture smoke still runs end to end",
+      "proving_command": "python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json"
+    }
+  ],
+  "constraints": [
+    "Stdlib-only Python and zero-dependency Node are non-negotiable",
+    "bench/PROTOCOL.md pre-registered decision rules are untouchable",
+    "No behavior changes except deletions of truly dead code, each named and justified in its commit message",
+    "Settled decisions in CHANGELOG/ROADMAP ('Not on the roadmap, on purpose') and docs/records/ are not relitigated",
+    "If eval cases are removed or added, every doc count the lint pins is updated in the same commit"
+  ],
+  "non_goals": [
+    "The SKILL.md always-loaded ladder/class-text cut candidate (an operator decision staged for its own release per ROADMAP; not mechanical cleanup)",
+    "Redesigns or feature work of any kind",
+    "Touching archive/ or docs/records/ historical content"
+  ],
+  "assumptions": [
+    "The archive/ tree is deliberately kept as published eval history",
+    "Historical docs (improvement plans, critical reviews, review-yield memos) stay as dated records even when superseded"
+  ],
+  "risk_tier": "medium",
+  "task_class": "medium",
+  "implementer": "claude-fable-5-main-session",
+  "security_sensitive": false,
+  "verification_plan": [
+    "Run the full six-suite eval battery plus static cases, config check, npm tests, and bench fixture smoke after each themed commit",
+    "Re-verify every subagent-reported claim personally before landing it"
+  ],
+  "validation_contract": {
+    "goal": "Every deletion is proven dead (no runtime caller, no doc reference, no eval dependence) before removal; every dedup is behavior-preserving; every doc fix matches the code as shipped",
+    "evidence": [
+      "python3 evals/run_evals.py",
+      "python3 evals/run_memory_evals.py",
+      "python3 evals/run_reality_evals.py",
+      "python3 evals/run_hook_evals.py",
+      "python3 evals/run_routing_evals.py",
+      "python3 evals/run_control_evals.py",
+      "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json",
+      "node --test packages/npm/test/parseArgs.test.mjs packages/npm/test/detect.test.mjs packages/npm/test/cli.integration.test.mjs"
+    ]
+  },
+  "independent_review": {
+    "reviewer": "codex-gpt5-fresh-reviewer (gpt-5.6-sol, codex exec -s read-only)",
+    "verdict": "approve",
+    "fresh_context": true,
+    "patched": false,
+    "ran_checks": true,
+    "findings": [],
+    "notes": "Round 1: request_changes (2 blocking, 1 minor, 1 informational) — resolutions in review_findings[]. Round 2 on the amended diff: approve, zero findings. Round 3 (release confirmation): approve on the v6.4.0 release diff — confirmed the only delta since round 2 is version mechanics at the four sites plus the CHANGELOG heading.",
+    "diff_sha256": "24bfd88a2912fb348709489045fb68a79aa4569fdfd665bdbb2d88fadbaeaa2f",
+    "attested_at": "2026-07-21T17:16:39"
+  },
+  "security_review": null,
+  "completion_record": {
+    "goal": "Repo-wide subtraction cleanup: remove dead surface, deduplicate repeated concepts, simplify overcomplicated spots, and align drifted docs — net-negative lines, no behavior change except deletions of truly dead code",
+    "acceptance_criteria": [
+      "All Python sources still byte-compile cleanly after the cleanup",
+      "Behavioral gate suite (incl. the doc-count lint that pins every public gate-case count) is green",
+      "Memory gate suite is green",
+      "Reality gate suite is green",
+      "Hook fixture suite is green (stop gate, guard, sessionstart, installer idempotence)",
+      "Routing suite is green",
+      "Control-plane add-on suite is green",
+      "Static intake cases still classify correctly against the example config",
+      "The repo's own gate config still validates",
+      "npm CLI unit + integration tests pass (zero-dependency Node wrapper unchanged in behavior)",
+      "Bench fixture smoke still runs end to end"
+    ],
+    "evidence": [
+      "python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py -> clean byte-compile, no output",
+      "python3 evals/run_evals.py -> 62/62 eval cases passed (doc-count lint green at canonical=249, addon=37, control-plane.md in watch list)",
+      "python3 evals/run_memory_evals.py -> 32/32 memory eval cases passed",
+      "python3 evals/run_reality_evals.py -> 51/51 reality eval cases passed",
+      "python3 evals/run_hook_evals.py -> 55/55 hook eval cases passed (stop_gate + sessionstart via hooklib)",
+      "python3 evals/run_routing_evals.py -> 30/30 routing eval cases passed (example config minus advisor block still schema-valid + checker-valid)",
+      "python3 evals/run_control_evals.py -> 37/37 control-plane add-on cases passed",
+      "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json -> 19/19 eval cases passed after redundant case 01 removed",
+      "python3 scripts/quality_loop.py check-config quality-loop.config.json -> gate-config path: config ok (schema now declares protect_harness)",
+      "node --test packages/npm/test/parseArgs.test.mjs packages/npm/test/detect.test.mjs packages/npm/test/cli.integration.test.mjs -> pass 33 / fail 0",
+      "python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json -> fixture smoke wrote summary + runs; validate-clean"
+    ],
+    "files_changed": [
+      ".github/workflows/npm-smoke.yml",
+      ".gitignore",
+      "CHANGELOG.md",
+      "CONTRIBUTING.md",
+      "README.md",
+      "assets/quality-loop.config.example.json",
+      "assets/quality-loop.config.schema.json",
+      "assets/routing/README.md",
+      "bench/metrics.py",
+      "docs/README.md",
+      "docs/architecture.md",
+      "docs/comparison.md",
+      "docs/control-plane.md",
+      "docs/images/src/README.md",
+      "docs/images/src/terminal_demo.py",
+      "docs/images/terminal-demo-poster.png",
+      "docs/launch-kit.md",
+      "evals/README.md",
+      "evals/cases/01-simple-docs-low.json",
+      "evals/run_evals.py",
+      "examples/claude-code/CLAUDE.md",
+      "examples/claude-code/memory-hooks.md",
+      "hosts/claude-code/sessionstart_context.py",
+      "hosts/claude-code/stop_gate.py",
+      "packages/npm/package.json",
+      "packages/npm/src/install.mjs",
+      "packages/npm/src/report.mjs",
+      "quality-loop.config.json",
+      "references/agentic-orchestration.md",
+      "references/tool-contracts.md",
+      "scripts/install.py",
+      "scripts/quality_loop.py",
+      "hosts/github/quality-loop-example.yml",
+      "SKILL.md"
+    ],
+    "right_size_decision": "rung=delete: the whole change is deletion, reuse of existing primitives, and doc pointers; net -230 lines plus a 47KB binary",
+    "risks": [
+      "sessionstart_context.py missing-git edge: crash -> cwd fallback, a named and justified behavior gain aligning the shim with the documented never-crash hook contract",
+      "npm-smoke.yml gains one ubuntu-only test step (the single addition): first CI execution of the package's 33 existing tests"
+    ],
+    "rollback": "git revert the branch commits (each themed commit reverts independently); no data or schema migration involved",
+    "follow_ups": [
+      "cli.mjs reimplements install.py's next-steps footer with drifted wording — unify by enriching install.py's --json footer or consuming payload.footer (installer-UX decision)",
+      "an eval pinning schema<->check-config agreement for gate-config-only files (reviewer suggestion)",
+      "quality_loop_memory.py hand-rolls two git subprocess calls its own qlcore import could serve once git_capture grows timeout+OSError safety (deliberately not done here: shared gate primitive)",
+      "date-parser near-duplicate (memory [:10]-tolerant vs routing strict) and reality.py's two naive-local timestamps — behavior-adjacent, left for a contract that authorizes them"
+    ],
+    "release": "v6.4.0 — the subtraction pass: version bumped at the four sites (SKILL.md frontmatter, packages/npm/package.json, README badge, hosts/github/quality-loop-example.yml pin) and the CHANGELOG Unreleased entry renamed 6.4.0"
+  },
+  "repair_attempts": 0,
+  "repeated_failure": false,
+  "harness_update": {
+    "rule": "docs/control-plane.md joined the doc-count lint's watched docs list in run_evals.py, and its add-on count is stated in the lintable '37 add-on cases' phrasing",
+    "why": "The 35-vs-37 drift persisted because the lint never watched that file AND the old phrasing was invisible to its patterns; the count-drift failure class had recurred (116->121 historically), so per RETROSPECT doctrine the fix is a durable lint extension, toggle-tested failing-then-green.",
+    "evidence": "evals/run_evals.py case_doc_counts_match_canonical docs list; lint fails with '35 add-on cases' != 37 when toggled"
+  },
+  "repo_map": {
+    "entry_points": [
+      "scripts/quality_loop.py",
+      "scripts/install.py",
+      "hosts/claude-code/stop_gate.py",
+      "packages/npm/src/cli.mjs"
+    ],
+    "likely_files": [
+      "scripts/quality_loop.py",
+      "scripts/quality_loop_core.py",
+      "scripts/quality_loop_memory.py",
+      "scripts/quality_loop_reality.py",
+      "scripts/quality_loop_routing.py",
+      "scripts/quality_loop_control.py",
+      "scripts/install.py",
+      "hosts/claude-code/stop_gate.py",
+      "hosts/claude-code/sessionstart_context.py",
+      "hosts/claude-code/hooklib.py",
+      "evals/run_evals.py",
+      "evals/run_hook_evals.py",
+      "evals/run_memory_evals.py",
+      "README.md",
+      "SKILL.md",
+      "docs/quickstart.md",
+      "docs/architecture.md",
+      "docs/control-plane.md",
+      "references/tool-contracts.md",
+      "references/agentic-orchestration.md",
+      "assets/routing/README.md",
+      "assets/quality-loop.config.example.json",
+      "assets/quality-loop.config.schema.json",
+      "examples/claude-code/CLAUDE.md",
+      "examples/claude-code/memory-hooks.md",
+      "evals/README.md",
+      "docs/images/src/terminal_demo.py",
+      "docs/images/terminal-demo-poster.png",
+      ".gitignore",
+      "CONTRIBUTING.md",
+      ".github/workflows/npm-smoke.yml",
+      "CHANGELOG.md",
+      "bench/metrics.py",
+      "evals/cases/01-simple-docs-low.json",
+      "packages/npm/package.json",
+      "packages/npm/src/install.mjs",
+      "packages/npm/src/report.mjs",
+      "docs/comparison.md",
+      "docs/launch-kit.md",
+      "docs/README.md",
+      "docs/images/src/README.md"
+    ],
+    "callers_checked": [
+      "evals/run_evals.py",
+      "evals/run_hook_evals.py",
+      "evals/run_memory_evals.py",
+      "evals/run_reality_evals.py",
+      "evals/run_routing_evals.py",
+      "evals/run_control_evals.py",
+      "packages/npm/src/install.mjs",
+      "hosts/claude-code/pretooluse_guard.py"
+    ],
+    "tests": [
+      "evals/run_evals.py",
+      "evals/run_hook_evals.py",
+      "packages/npm/test/cli.integration.test.mjs"
+    ],
+    "patterns_to_follow": [
+      "One truth per thing: canonical source plus pointers, never a second copy",
+      "Every guard comment cites the incident or eval that motivated it — preserve those when moving code"
+    ]
+  },
+  "minimality_decision": {
+    "rung": "delete",
+    "reason": "The task is subtraction by mandate: remove dead readers-without-writers, unify duplicate implementations into the existing shared module, and fix docs to match code. Deletion and reuse of existing primitives are the whole change; no new code beyond import lines and pointer sentences."
+  },
+  "plan": [
+    "Theme 1 (dead code): remove the .quality-loop/runs journal reader (_latest_run_summary and the brief Last-run section) whose writer was archived in v3.0, the unreachable ORCHESTRATE entry in STRONG_REASONING_STEPS, the redundant inline git_capture import in record_outcome, and any census-confirmed dead helpers in scripts/ and evals/",
+    "Theme 2 (dedup): stop_gate.py and sessionstart_context.py adopt hooklib.json_input/project_root instead of their verbatim private copies; census-confirmed duplicate helpers collapse into quality_loop_core",
+    "Theme 3 (docs drift): fix doc statements the code contradicts — docs/architecture.md protect-harness sentence and fictional record example, docs/control-plane.md stale 35-case count (reword to the lintable '37 add-on cases' phrasing and add the file to the doc-count lint list in run_evals.py as the durable harness change), references/tool-contracts.md lint omission and guard-key note, references/agentic-orchestration.md canonical-pointer contradiction, examples/claude-code/CLAUDE.md legacy config path; replace docs/architecture.md's restated role table with a pointer; delete the orphaned examples/claude-code/memory-hooks.md and the never-displayed docs/images/terminal-demo-poster.png plus its generator lines in docs/images/src/terminal_demo.py; add the missing case-20 row to evals/README.md; drop the retired advisor block from assets/quality-loop.config.example.json and mark it legacy in assets/quality-loop.config.schema.json while adding the real protect_harness and enforcement root keys the schema omits",
+    "Theme 4 (structure nits): install.py dead condition on args.host, one-caller wrappers inlined where they read better",
+    "Each theme is its own commit; full battery (run_evals, run_memory_evals, run_reality_evals, run_hook_evals, run_routing_evals, run_control_evals, eval-cases, check-config, npm node --test, bench fixture) after each"
+  ],
+  "commands_run": [
+    {
+      "cmd": "python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py",
+      "class": "build",
+      "result": "pass",
+      "evidence": "clean byte-compile, no output"
+    },
+    {
+      "cmd": "python3 evals/run_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "62/62 eval cases passed (doc-count lint green at canonical=249, addon=37, control-plane.md in watch list)"
+    },
+    {
+      "cmd": "python3 evals/run_memory_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "32/32 memory eval cases passed"
+    },
+    {
+      "cmd": "python3 evals/run_reality_evals.py",
+      "class": "integration",
+      "result": "pass",
+      "evidence": "51/51 reality eval cases passed"
+    },
+    {
+      "cmd": "python3 evals/run_hook_evals.py",
+      "class": "integration",
+      "result": "pass",
+      "evidence": "55/55 hook eval cases passed (stop_gate + sessionstart via hooklib)"
+    },
+    {
+      "cmd": "python3 evals/run_routing_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "30/30 routing eval cases passed (example config minus advisor block still schema-valid + checker-valid)"
+    },
+    {
+      "cmd": "python3 evals/run_control_evals.py",
+      "class": "integration",
+      "result": "pass",
+      "evidence": "37/37 control-plane add-on cases passed"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "19/19 eval cases passed after redundant case 01 removed"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py check-config quality-loop.config.json",
+      "class": "lint",
+      "result": "pass",
+      "evidence": "gate-config path: config ok (schema now declares protect_harness)"
+    },
+    {
+      "cmd": "node --test packages/npm/test/parseArgs.test.mjs packages/npm/test/detect.test.mjs packages/npm/test/cli.integration.test.mjs",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "pass 33 / fail 0"
+    },
+    {
+      "cmd": "python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json",
+      "class": "e2e",
+      "result": "pass",
+      "evidence": "fixture smoke wrote summary + runs; validate-clean"
+    }
+  ],
+  "open_risks": [],
+  "review_findings": [
+    {
+      "severity": "blocking",
+      "reviewer": "codex-gpt5-fresh-reviewer",
+      "text": "SessionStart dedup changes missing-git behavior (crash -> cwd fallback), read as violating the no-behavior-change constraint",
+      "resolution": "Kept with rationale, not reverted: the contract authorizes deletions whose behavior delta is named and justified (it is, in the commit message and CHANGELOG), and the prior crash violated the hook shims' documented never-crash contract; the divergence was the drift the dedup existed to fix."
+    },
+    {
+      "severity": "blocking",
+      "reviewer": "codex-gpt5-fresh-reviewer",
+      "text": "quality-loop.config.json declared a $schema it does not satisfy and claimed check-config reports missing orchestration sections (stale since the v6.3.0 gate-config-only path)",
+      "resolution": "Fixed in 0b0dfad: description now states the gate-config-only behavior; the false $schema pointer dropped. Follow-up noted: an eval pinning schema<->check-config agreement."
+    },
+    {
+      "severity": "minor",
+      "reviewer": "codex-gpt5-fresh-reviewer",
+      "text": "brief --help still advertised 'last run' after the run-journal deletion",
+      "resolution": "Fixed in 0b0dfad: help now reads (last record, risks, lessons, progress)."
+    },
+    {
+      "severity": "informational",
+      "reviewer": "codex-gpt5-fresh-reviewer",
+      "text": "Read-only review sandbox limited independent re-runs (TemporaryDirectory/pyc//tmp writes, 16 Node fs tests EPERM); check-config + 17 Node tests + in-memory compile of all 18 py files passed there",
+      "resolution": "Documented sandbox reality (hosts/codex/README.md); the full battery re-runs in CI, which is the anchor."
+    }
+  ],
+  "next_action": "Open the PR; maintainer sign-off gates the merge",
+  "status": "done",
+  "models_used": [
+    {
+      "role": "orchestrator",
+      "model": "claude-fable-5"
+    },
+    {
+      "role": "context_mapper",
+      "model": "claude-sonnet-5",
+      "attempts": 4
+    },
+    {
+      "role": "implementer",
+      "model": "claude-opus-4-8",
+      "attempts": 3
+    },
+    {
+      "role": "fresh_reviewer",
+      "model": "gpt-5.6-sol",
+      "attempts": 2
+    }
+  ]
+}

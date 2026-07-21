@@ -548,8 +548,7 @@ def record_outcome(args: argparse.Namespace) -> int:
     # back to the record-adjacent resolution (a record inside .quality-loop/
     # must not nest a second one).
     record_dir = path.resolve().parent
-    from quality_loop_core import git_capture as _git_capture
-    code, top, _ = _git_capture(["rev-parse", "--show-toplevel"], record_dir)
+    code, top, _ = git_capture(["rev-parse", "--show-toplevel"], record_dir)
     if code == 0 and top.strip():
         base = Path(top.strip()) / ".quality-loop"
     else:
@@ -1463,11 +1462,11 @@ REQUIRED_STEPS = [
 # a silent three-way drift cannot recur.
 CONFIG_SCHEMA_VERSION = "5.1.0"
 
-# Step model-class floor (P3.18): the planner (PLAN) and orchestrator
-# (ORCHESTRATE) steps must route to the strongest reasoning class so "the right
-# LLM for the right job" is deterministically backed, not just prose.
+# Step model-class floor (P3.18): the planner (PLAN) step must route to the
+# strongest reasoning class so "the right LLM for the right job" is
+# deterministically backed, not just prose.
 # check_config enforces this.
-STRONG_REASONING_STEPS = {"PLAN", "ORCHESTRATE"}
+STRONG_REASONING_STEPS = {"PLAN"}
 
 
 def _profile_heterogeneity(profiles: Any) -> list[str]:
@@ -1710,42 +1709,6 @@ def check_config(args: argparse.Namespace) -> int:
     return 0
 
 
-def _latest_run_summary(runs_dir: Path) -> dict[str, Any]:
-    """Read the most recent run journal and return a compact summary."""
-    if not runs_dir.is_dir():
-        return {}
-    run_dirs = sorted(
-        (d for d in runs_dir.iterdir() if d.is_dir()),
-        key=lambda d: d.stat().st_mtime,
-        reverse=True,
-    )
-    for run_dir in run_dirs:
-        journal = run_dir / "journal.jsonl"
-        if not journal.is_file():
-            continue
-        events: list[dict[str, Any]] = []
-        for line in journal.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-        if not events:
-            continue
-        steps = [str(e.get("step", "")) for e in events if e.get("step")]
-        last = events[-1]
-        return {
-            "run_id": run_dir.name,
-            "steps": steps,
-            "last_step": str(last.get("step", "")),
-            "last_event": last,
-            "event_count": len(events),
-        }
-    return {}
-
-
 def _latest_record_summary(cwd: Path) -> dict[str, Any]:
     """Return open risks and status from the most recent agent record."""
     for path in (cwd / ".quality-loop" / "agent-record.json", cwd / "agent-record.json"):
@@ -1842,8 +1805,6 @@ def _heterogeneity_warning(cwd: Path, config_path: Path | None) -> str | None:
 
 def cmd_brief(args: argparse.Namespace) -> int:
     cwd = Path(getattr(args, "cwd", ".")).resolve()
-    runs_dir = cwd / ".quality-loop" / "runs"
-    run_summary = _latest_run_summary(runs_dir)
     record_summary = _latest_record_summary(cwd)
     progress = _progress_tail(cwd)
 
@@ -1888,16 +1849,6 @@ def cmd_brief(args: argparse.Namespace) -> int:
     if outcomes_tally:
         sections.append(outcomes_tally)
 
-    if run_summary:
-        steps_str = " -> ".join(run_summary["steps"][-8:])
-        sections.append(
-            "## Last run\n"
-            f"run: {run_summary['run_id']}  steps: {steps_str}\n"
-            f"last event: {run_summary['last_step']}"
-        )
-    else:
-        sections.append("## Last run\nnone found")
-
     sections.append(f"## Lessons ({len(selected)} recalled)\n{lessons_text}")
 
     if progress:
@@ -1923,14 +1874,11 @@ def cmd_brief(args: argparse.Namespace) -> int:
     next_hint = "Run the loop on the next task, or resume an incomplete one."
     if record_summary and "error" not in record_summary and record_summary.get("status") not in ("done", "?"):
         next_hint = f"Resume incomplete task: {record_summary.get('goal', '?')} (status: {record_summary.get('status', '?')})"
-    elif run_summary and run_summary.get("last_step") == "PACKAGE":
-        next_hint = "Last run shipped. Run retrospective or start the next task."
     sections.append(f"## Suggested next step\n{next_hint}")
 
     if getattr(args, "json", False):
         print(json.dumps({
             "record": record_summary,
-            "run": run_summary,
             "lessons_recalled": len(selected),
             "lessons_digest": lessons_text,
             "progress": progress,
@@ -2633,7 +2581,7 @@ def main() -> int:
     p_scan.add_argument("--stdin", action="store_true", help="Read text to scan from stdin")
     p_scan.set_defaults(func=qlreal.cmd_scan_text)
 
-    p_brief = sub.add_parser("brief", help="Print a session-start project briefing (last run, risks, lessons, progress)")
+    p_brief = sub.add_parser("brief", help="Print a session-start project briefing (last record, risks, lessons, progress)")
     p_brief.add_argument("--budget", type=int, default=800, help="Char budget for lesson recall (default 800)")
     p_brief.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_brief.add_argument("--cwd", default=".", help="Working directory (default .)")
