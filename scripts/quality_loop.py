@@ -541,10 +541,19 @@ def record_outcome(args: argparse.Namespace) -> int:
             print(f"error:   {e}", file=sys.stderr)
         return 2
     write_json(path, record)
-    # Same ledger-base resolution as init_record's allowlist scaffold: a record
-    # living inside .quality-loop/ must not nest a second .quality-loop/.
+    # The ledger is anchored at the REPO ROOT's .quality-loop/ (where `brief`
+    # reads its tally), not the record's parent: an outcome recorded on an
+    # archived record (docs/records/*.json) must land in the one shared ledger,
+    # not nest a stray docs/records/.quality-loop/. Outside a git repo, fall
+    # back to the record-adjacent resolution (a record inside .quality-loop/
+    # must not nest a second one).
     record_dir = path.resolve().parent
-    base = record_dir if record_dir.name == ".quality-loop" else record_dir / ".quality-loop"
+    from quality_loop_core import git_capture as _git_capture
+    code, top, _ = _git_capture(["rev-parse", "--show-toplevel"], record_dir)
+    if code == 0 and top.strip():
+        base = Path(top.strip()) / ".quality-loop"
+    else:
+        base = record_dir if record_dir.name == ".quality-loop" else record_dir / ".quality-loop"
     ledger = base / "outcomes.jsonl"
     try:
         ledger.parent.mkdir(parents=True, exist_ok=True)

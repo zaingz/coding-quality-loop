@@ -315,5 +315,10 @@
     }
   ],
   "next_action": "Release: commit, push, PR, merge, tag.",
-  "status": "done"
+  "status": "done",
+  "outcome": {
+    "verdict": "regressed",
+    "note": "Post-ship defect in the release's own headline feature: control-report --review-yield double-counted the latest release (live/archive twin) on its first real invocation, and the archived v6.1.0 record it read was itself schema-invalid. Both caught by the v6.3.0 outside-audit review and fixed there (PR #18). No revert needed; counted as a post-ship escape per docs/review-yield-2026-07-20.md.",
+    "recorded_at": "2026-07-21T14:07:17+00:00"
+  }
 }
