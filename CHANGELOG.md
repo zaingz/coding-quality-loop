@@ -1,5 +1,98 @@
 # Changelog
 
+## 6.3.0
+
+The measured release. Three versions in a row shipped measurement
+*infrastructure*; this one ships **measurements** — the first live,
+pre-registered benchmark numbers in the repo's history — plus the integrity
+fixes an outside auditor found in a day of poking, so the numbers the repo
+already publishes are self-consistent. Suites: 20 static + 63 behavioral +
+32 memory + 51 reality + 30 routing + 54 hook = **250 core gate cases**
+(+37 control add-on).
+
+### The first live §6.2 numbers (and the outcome honestly not claimed)
+
+- **`bench/results/micro-bugfix-live-2026-07-21.json`** — six live cells,
+  {baseline, full} × claude-code × 3 seeds, on the committed micro-task
+  (`bench/tasks/14-micro-bugfix.json`), run under the pre-registered protocol
+  with pristine v6.2.0 drop-ins and validated cost/provenance
+  (`bench/runner.py --validate` gates it in CI like every committed results
+  file). Every cell was objectively perfect: committed test green, 3/3 hidden
+  cases, ≤28 LOC, zero new dependencies — in both arms.
+- **The §6.2 threshold was exceeded ~5-fold — and the pre-registered outcome
+  is deliberately NOT claimed.** Median full/baseline ratios: **8.1× output
+  tokens, 6.3× input tokens, 7.65× cost, ~10× wall time**, far past the 1.5×
+  threshold. But §6.0's letter ("before any §6 rule may fire… if every arm
+  passes the entire objective battery… no §6 outcome may be claimed") binds
+  the run: every arm passed everything. The cross-family reviewer caught the
+  conflict, and the release honors the pre-registration as written — the
+  results file records `fires: false` with the reasoning verbatim. The
+  always-loaded ladder/class text becomes a cut candidate as an **ordinary
+  operator decision informed by the data**, not a fired rule; a dated
+  amendment scopes §6.0 to the quality-delta rules for **future runs only**.
+  Quality was identical across arms on this cell's objective battery — so on
+  this micro-task, the full path bought no measured quality and cost 6–8×,
+  which is what "ceremony scales with risk" predicts for tiny tasks.
+- **Field truth recorded, not hidden.** The results file records what the three
+  full arms actually did: the pristine gate failed all three finished records,
+  all three "independent reviews" were same-family Claude subagents with
+  `ran_checks: false` (cross-family review is structurally unavailable in a
+  single-CLI drop-in), and risk tiering for the same billing task was
+  inconsistent (low ×1, medium ×2). These are now tracked observations with
+  the data to act on them, not anecdotes.
+- **Protocol recipe rot fixed.** The committed isolation recipe cited
+  `--safe-mode`, which no longer exists in claude CLI ≥2.x. `PROTOCOL.md` §4/§5
+  and the task spec now carry the working recipe
+  (`--setting-sources project --permission-mode acceptEdits --output-format
+  json`) and an exact usage→cost-field mapping (cache split recorded as
+  `tokens_in_*` components). A dated Amendments note marks the change; the §6
+  decision rules are byte-for-byte untouched.
+- **`bench/runner.py --materialize`** — writes a task workspace from the spec
+  (seed files, git init/commits, pristine drop-in for full arms) and prints the
+  exact per-arm claude command plus the scoring checklist. The §6.2 cell went
+  from "hand-assemble everything" to two commands per cell.
+
+### Measurement integrity: the published numbers are now self-consistent
+
+- **`--review-yield` no longer double-counts the latest release.** The live
+  record and its archived twin used to both produce rows (the v6.2.0 release
+  appeared twice on the feature's first real invocation). Archives win now;
+  an eval case pins it.
+- **Every archived record passes `check-record`, forever.** The
+  v6.1.0 archive carried two unrecognized `commands_run[].class` values and a
+  malformed `models_used` — repaired, and a new behavioral lint fails the suite
+  if any `docs/records/*.json` ever regresses.
+- **Void numbers say so where they appear.** The README's webapp judge-lift
+  figures were declared void by `bench/PROTOCOL.md` §4 (judge-family
+  independence violated) while the README still quoted them as headline
+  results. The table now carries the void annotation inline; the objective
+  browser checks stand.
+- **The cost paragraph cites measurements.** "Estimated 15,000–22,000 tokens"
+  is replaced by the measured §6.2 medians above, with the estimate retired.
+
+### Defaults that match the claims
+
+- **`check-config` understands the gate-config shape.** The three-key
+  gate-config (`base` / `tests.path_markers` / `high_risk_paths`, the shape
+  this repo's own root config uses) now validates and exits 0 with an explicit
+  "orchestration checks skipped" note instead of failing on missing `profiles`.
+  Malformed gate-configs still fail; full configs are unchanged.
+- **Dormant heterogeneity is loud.** When reviewer-heterogeneity enforcement
+  cannot resolve (no `model_routing.host` — the out-of-box state), `brief` and
+  the `verify` umbrella now print one prominent NOT-ENFORCED line naming the
+  fix. The flagship guarantee can still be off, but it can no longer be
+  silently off.
+- **Onboarding points at the CI anchor.** The installer's printed next steps
+  (npm CLI and `install.py`) now include wiring the GitHub Action — because
+  merge-base anti-evasion and helper integrity are CI-anchored guarantees, and
+  a default install previously never mentioned the layer the guarantees lean
+  on — and tell the user to set `model_routing.host` so cross-family review
+  enforcement activates.
+- **The outcome loop is in the lifecycle.** SKILL.md's PACKAGE step now names
+  `record outcome <clean|regressed|reverted>` so the ledger shipped in v6.2.0
+  actually accrues data.
+
+
 ## 6.2.0
 
 The prove-it, smooth-it, learn-from-it release. v6.1.0 made the trust chain

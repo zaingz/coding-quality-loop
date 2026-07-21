@@ -1,0 +1,236 @@
+{
+  "mode": "live",
+  "protocol": "bench/PROTOCOL.md \u00a76.2 small-task-tax cell (pre-registered); isolation/cost-capture per the 2026-07-21 recipe amendment (claude CLI \u22652.x flags; \u00a76 decision rules untouched)",
+  "date": "2026-07-21",
+  "task": "bench/tasks/14-micro-bugfix.json",
+  "operator_note": "Six fresh cells: {baseline, full} x claude-code x seeds 1-3. One isolated git workspace per cell; full arms received the pristine v6.2.0 drop-in (SKILL.md, references/, assets/, scripts/ from the v6.2.0 tag, verified byte-identical). Judge-free, token-only per \u00a76.2: no blinding needed, objective battery only. cost_usd from the claude CLI's reported total_cost_usd (API rates). Disclosure: two uncommitted same-day pilot cells (1 baseline, 1 full, seed workspaces since discarded) preceded the recipe amendment and showed the same direction (4.2x output tokens); they are not counted here. Model field lists every model id the host reported using in the cell (modelUsage), including subagent/summarizer calls.",
+  "objective_summary": {
+    "median_tokens_out": {
+      "baseline": 3625,
+      "full": 29410
+    },
+    "median_tokens_in": {
+      "baseline": 214606,
+      "full": 1354027
+    },
+    "median_cost_usd": {
+      "baseline": 0.2977,
+      "full": 2.2768
+    },
+    "median_duration_sec": {
+      "baseline": 62.2,
+      "full": 596.5
+    },
+    "objective_all_green": {
+      "baseline": true,
+      "full": true
+    },
+    "ratio_tokens_out": 8.11,
+    "ratio_tokens_in": 6.31,
+    "ratio_cost_usd": 7.65
+  },
+  "decision_rule": {
+    "rule": "PROTOCOL \u00a76.2 (verbatim): IF the full path costs >1.5x baseline tokens on the micro-task THEN the always-loaded ladder/class text becomes a documented cut candidate",
+    "observed": {
+      "median_tokens_out_ratio": 8.11,
+      "median_tokens_in_ratio": 6.31,
+      "median_cost_ratio": 7.65
+    },
+    "threshold_condition_met": true,
+    "fires": false,
+    "outcome": "THE PRE-REGISTERED OUTCOME IS NOT CLAIMED. The \u00a76.2 threshold condition was met on every token definition (6.3x-8.1x >> 1.5x), but \u00a76.0's letter ('before any \u00a76 rule may fire... if every arm passes the entire objective battery... no \u00a76 outcome may be claimed') binds this run: every arm, including baseline, passed the full objective battery. Honoring the pre-registration as written, no \u00a76 outcome is claimed. The overhead MEASUREMENT stands as data (it replaces the README's token estimate), and the always-loaded ladder/class-text cut candidate is opened as an ORDINARY operator decision informed by that data \u2014 explicitly not as a fired pre-registered rule. A dated amendment scopes \u00a76.0 to quality-delta rules (6.1/6.3) for FUTURE runs; it is not applied retroactively to this one.",
+    "additional_observations": "Process-side field truth from the three full arms, recorded for the next release to act on: (1) the pristine-gate verify (v6.2.0 scripts) FAILED all three finished records (proving-command/commands_run mismatches; missing bugfix-test waiver for the task's pre-committed test); (2) all three 'independent reviews' resolved to same-family Claude subagents with ran_checks=false \u2014 cross-family review is structurally unavailable in a single-CLI drop-in workspace and nothing flagged it; (3) risk tiering was inconsistent for the same billing/tax task: low (s1) vs medium (s2, s3)."
+  },
+  "runs": [
+    {
+      "mode": "live",
+      "task": "14-micro-bugfix",
+      "arm": "baseline",
+      "seed": 1,
+      "host": "claude-code 2.1.216",
+      "model": "claude-haiku-4-5-20251001,claude-opus-4-8[1m]",
+      "skill_version": "6.2.0",
+      "prompt_file": "bench/tasks/14-micro-bugfix.json#prompts.baseline",
+      "tokens_in": 214404,
+      "tokens_out": 3486,
+      "tokens_in_uncached": 18,
+      "tokens_in_cache_write": 9774,
+      "tokens_in_cache_read": 204612,
+      "duration_sec": 55.3,
+      "cost_usd": 0.288,
+      "num_turns": 10,
+      "objective": {
+        "committed_test_green": true,
+        "hidden_cases_green": 3,
+        "hidden_cases_total": 3,
+        "diff_loc_invoice": 27,
+        "target_diff_loc": 30,
+        "committed_test_modified": false,
+        "dependency_files_added": []
+      }
+    },
+    {
+      "mode": "live",
+      "task": "14-micro-bugfix",
+      "arm": "baseline",
+      "seed": 2,
+      "host": "claude-code 2.1.216",
+      "model": "claude-haiku-4-5-20251001,claude-opus-4-8[1m]",
+      "skill_version": "6.2.0",
+      "prompt_file": "bench/tasks/14-micro-bugfix.json#prompts.baseline",
+      "tokens_in": 239222,
+      "tokens_out": 3625,
+      "tokens_in_uncached": 19,
+      "tokens_in_cache_write": 10373,
+      "tokens_in_cache_read": 228830,
+      "duration_sec": 71.7,
+      "cost_usd": 0.3096,
+      "num_turns": 11,
+      "objective": {
+        "committed_test_green": true,
+        "hidden_cases_green": 3,
+        "hidden_cases_total": 3,
+        "diff_loc_invoice": 25,
+        "target_diff_loc": 30,
+        "committed_test_modified": false,
+        "dependency_files_added": []
+      }
+    },
+    {
+      "mode": "live",
+      "task": "14-micro-bugfix",
+      "arm": "baseline",
+      "seed": 3,
+      "host": "claude-code 2.1.216",
+      "model": "claude-haiku-4-5-20251001,claude-opus-4-8[1m]",
+      "skill_version": "6.2.0",
+      "prompt_file": "bench/tasks/14-micro-bugfix.json#prompts.baseline",
+      "tokens_in": 214606,
+      "tokens_out": 3797,
+      "tokens_in_uncached": 17,
+      "tokens_in_cache_write": 9973,
+      "tokens_in_cache_read": 204616,
+      "duration_sec": 62.2,
+      "cost_usd": 0.2977,
+      "num_turns": 10,
+      "objective": {
+        "committed_test_green": true,
+        "hidden_cases_green": 3,
+        "hidden_cases_total": 3,
+        "diff_loc_invoice": 25,
+        "target_diff_loc": 30,
+        "committed_test_modified": false,
+        "dependency_files_added": []
+      }
+    },
+    {
+      "mode": "live",
+      "task": "14-micro-bugfix",
+      "arm": "full",
+      "seed": 1,
+      "host": "claude-code 2.1.216",
+      "model": "claude-haiku-4-5-20251001,claude-opus-4-8[1m]",
+      "skill_version": "6.2.0",
+      "prompt_file": "bench/tasks/14-micro-bugfix.json#prompts.full",
+      "tokens_in": 2483684,
+      "tokens_out": 49760,
+      "tokens_in_uncached": 74,
+      "tokens_in_cache_write": 106244,
+      "tokens_in_cache_read": 2377366,
+      "duration_sec": 774.1,
+      "cost_usd": 4.8756,
+      "num_turns": 46,
+      "objective": {
+        "committed_test_green": true,
+        "hidden_cases_green": 3,
+        "hidden_cases_total": 3,
+        "diff_loc_invoice": 28,
+        "target_diff_loc": 30,
+        "committed_test_modified": false,
+        "dependency_files_added": []
+      },
+      "process": {
+        "record_present": true,
+        "pristine_verify": "FAIL",
+        "record_status": "package",
+        "record_risk_tier": "low",
+        "reviewer": "general-purpose subagent (fresh context, host=claude-code)",
+        "review_verdict": "approve",
+        "ran_checks": false
+      }
+    },
+    {
+      "mode": "live",
+      "task": "14-micro-bugfix",
+      "arm": "full",
+      "seed": 2,
+      "host": "claude-code 2.1.216",
+      "model": "claude-haiku-4-5-20251001,claude-opus-4-8[1m],claude-sonnet-5",
+      "skill_version": "6.2.0",
+      "prompt_file": "bench/tasks/14-micro-bugfix.json#prompts.full",
+      "tokens_in": 1354027,
+      "tokens_out": 29410,
+      "tokens_in_uncached": 59,
+      "tokens_in_cache_write": 56823,
+      "tokens_in_cache_read": 1297145,
+      "duration_sec": 596.5,
+      "cost_usd": 2.2768,
+      "num_turns": 45,
+      "objective": {
+        "committed_test_green": true,
+        "hidden_cases_green": 3,
+        "hidden_cases_total": 3,
+        "diff_loc_invoice": 27,
+        "target_diff_loc": 30,
+        "committed_test_modified": false,
+        "dependency_files_added": []
+      },
+      "process": {
+        "record_present": true,
+        "pristine_verify": "FAIL",
+        "record_status": "done",
+        "record_risk_tier": "medium",
+        "reviewer": "claude-sonnet-5",
+        "review_verdict": "approve",
+        "ran_checks": false
+      }
+    },
+    {
+      "mode": "live",
+      "task": "14-micro-bugfix",
+      "arm": "full",
+      "seed": 3,
+      "host": "claude-code 2.1.216",
+      "model": "claude-haiku-4-5-20251001,claude-opus-4-8[1m]",
+      "skill_version": "6.2.0",
+      "prompt_file": "bench/tasks/14-micro-bugfix.json#prompts.full",
+      "tokens_in": 750016,
+      "tokens_out": 19743,
+      "tokens_in_uncached": 37,
+      "tokens_in_cache_write": 45903,
+      "tokens_in_cache_read": 704076,
+      "duration_sec": 571.8,
+      "cost_usd": 2.1257,
+      "num_turns": 23,
+      "objective": {
+        "committed_test_green": true,
+        "hidden_cases_green": 3,
+        "hidden_cases_total": 3,
+        "diff_loc_invoice": 26,
+        "target_diff_loc": 30,
+        "committed_test_modified": false,
+        "dependency_files_added": []
+      },
+      "process": {
+        "record_present": true,
+        "pristine_verify": "FAIL",
+        "record_status": "review",
+        "record_risk_tier": "medium",
+        "reviewer": "fresh-context general-purpose subagent (separate session, orchestrator-spawned)",
+        "review_verdict": "approve",
+        "ran_checks": false
+      }
+    }
+  ],
+  "artifacts_location": "Raw per-cell artifacts (host result JSON, stderr, final workspace diff, and the full arms' agent-record.json) are retained operator-local at ~/cql-bench-artifacts/micro-bugfix-2026-07-21/<arm>-s<seed>/ per \u00a75 (commit sanitized results only; keep raw workspaces and transcripts local)."
+}

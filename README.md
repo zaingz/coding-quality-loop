@@ -10,10 +10,10 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-6.2.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-6.3.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-247%20core%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-250%20core%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-routed-111111?style=flat-square)](#install--use-matrix)
@@ -197,7 +197,7 @@ python3 evals/run_control_evals.py                                              
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 10. bench fixture smoke
 ```
 
-Current result: **20/20 static** + **61/61 behavioral** + **32/32 memory** + **50/50 reality** + **30/30 routing** + **54/54 hook** = **247 gate cases** across the six core suites, plus **36 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
+Current result: **20/20 static** + **63/63 behavioral** + **32/32 memory** + **51/51 reality** + **30/30 routing** + **54/54 hook** = **250 gate cases** across the six core suites, plus **37 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -212,7 +212,7 @@ Current result: **20/20 static** + **61/61 behavioral** + **32/32 memory** + **5
 
 ### The published eval runs
 
-Five eval directories are committed with source, numbers, and caveats. Read them honestly: **every cell is n=1** (single seed), judges are same-family LLMs, and only the **webapp** run is unambiguously real-CLI — the others are model-proxy or have no recorded invocation method. We publish the negatives (ts-search Codex **−9.0**, webapp Codex **−1.11**) next to the positives on purpose; the omitted negative was the most credible asset we were hiding.
+Five eval directories are committed with source, numbers, and caveats. Read them honestly: **every cell is n=1** (single seed), judges are same-family LLMs, and only the **webapp** run is unambiguously real-CLI — the others are model-proxy or have no recorded invocation method. We publish the negatives (ts-search Codex **−9.0**, webapp Codex **−1.11**) next to the positives on purpose; the omitted negative was the most credible asset we were hiding. One caveat rises above a footnote: the **webapp judge-lift numbers (incl. the −1.11) are void** per [`bench/PROTOCOL.md` §4](bench/PROTOCOL.md) — judge-family independence was violated — so treat that run's *objective* browser checks as its evidence, not its judge scores (see the row note below).
 
 | Eval | Date | Task | Agents | Methodology | Headline result (incl. negatives) |
 |---|---|---|---|---|---|
@@ -220,9 +220,9 @@ Five eval directories are committed with source, numbers, and caveats. Read them
 | [Sudoku 07-01](archive/eval-runs/sudoku-agent-eval-2026-07-01/README.md) | 2026-07-01 | Browser Sudoku app | Codex, Claude Code, Droid/GLM-5.2 | Model-proxy (Perplexity subagents, per procmon cross-ref); no browser automation | CQL +4.5 avg (Codex +1.0, Claude Code +4.5, Droid/GLM-5.2 +8.0) |
 | [ts-search 07-03](archive/eval-runs/ts-search-eval-2026-07-03/README.md) | 2026-07-03 | TS in-memory search library | Codex (GPT-5), Claude Code (Sonnet 5) | Subagent proxy (not the real CLIs) | Claude Code **+15.0**; Codex **−9.0** (a 60× slower single-term strategy crushed the perf dimension) |
 | [procmon 07-03](archive/eval-runs/rust-procmon-eval-2026-07-03/README.md) | 2026-07-03 | Rust process manager | Codex (GPT-5), Claude Code (Sonnet 4.6) | Model-proxy (Perplexity subagents) | Overall +5.75 (Codex +4.0, Claude +7.5) — almost all from D7 artifacts; code-quality dims flat-to-worse |
-| [Webapp 07-07](archive/eval-runs/webapp-agent-eval-2026-07-07/README.md) | 2026-07-07 | Browser task manager | Codex (gpt-5.5), Claude Code (claude-fable-5) | Live CLI + real browser verification (drop-in delivery) | Code-quality **excl. D7**: Claude Code **+6.67**, Codex **−1.11** (totals with D7: +16.0 / +7.5) |
+| [Webapp 07-07](archive/eval-runs/webapp-agent-eval-2026-07-07/README.md) | 2026-07-07 | Browser task manager | Codex (gpt-5.5), Claude Code (claude-fable-5) | Live CLI + real browser verification (drop-in delivery) | ⚠️ **Judge-lift numbers VOID** per [`bench/PROTOCOL.md` §4](bench/PROTOCOL.md) (judge-family independence violated — the two judges differed only from each other, not from the arms' implementer models). Void figures, kept for the record: excl. D7 Claude Code +6.67 / Codex −1.11 (with D7: +16.0 / +7.5). The **objective browser/behavior checks for this run are unaffected**. |
 
-All directional, not durable benchmark claims — and note the sign flips: the lift is model-specific (Claude positive, Codex flat-to-negative), which is exactly why the live ablation is pre-registered before it runs. The webapp run also caught an agent silently softening its local copy of the gate script and reporting PASS against it — see the panel below. The benchmark harness, fixture-smoke result, and the pre-registered protocol live in [`bench/PROTOCOL.md`](bench/PROTOCOL.md).
+All directional, not durable benchmark claims — and note the sign flips: the lift is model-specific (Claude positive, Codex flat-to-negative), which is exactly why the live ablation is pre-registered before it runs. **One correction, stated where the numbers live:** the Webapp 07-07 judge-lift figures (+6.67 / −1.11 excl-D7; +16.0 / +7.5 with D7) are **void** under [`bench/PROTOCOL.md` §4](bench/PROTOCOL.md) — the two judges were independent of each other but not of the arms' own implementer model families, so they scored their own house style. Only the judge-scored lift is void; the run's objective browser/behavior checks stand. The webapp run also caught an agent silently softening its local copy of the gate script and reporting PASS against it — see the panel below. The benchmark harness, fixture-smoke result, and the pre-registered protocol live in [`bench/PROTOCOL.md`](bench/PROTOCOL.md).
 
 ### The gate-gaming story
 
@@ -261,7 +261,7 @@ A tiny task must **not** be forced through mission ceremony. A medium task must 
 
 ### What the loop costs
 
-Process is not free. A full **medium** loop adds an *estimated* **15,000–22,000 tokens** of process scaffolding (skill text, pulled references, role prompts, subcommand output) before the agent reads a line of your code — an estimate from the 2026-07-09 critical review, not yet a measured figure — and the live webapp run measured **3–6× wall time** versus baseline. That is the bill for the contract, the evidence, and the second set of eyes. Two controls are meant to keep the bill honest: ceremony scales with risk (a tiny task pays almost none of it), and **every gate must earn its tokens** — the retention standard we have not yet met, because the live ablation that enforces it has not been run ([policy](references/philosophy.md), [pre-registered protocol](bench/PROTOCOL.md)). Live sweeps must record per-arm cost, and `python3 bench/runner.py --validate` fails any that don't.
+Process is not free, and as of v6.3.0 the bill is **measured, not estimated**. The first live pre-registered run ([`bench/results/micro-bugfix-live-2026-07-21.json`](bench/results/micro-bugfix-live-2026-07-21.json): {baseline, full} × claude-code × 3 seeds on a one-file micro-bugfix) put the full lifecycle at a median **8.1× output tokens, 6.3× input tokens, 7.65× cost, and ~10× wall time** versus baseline — with **identical objective quality** (every cell in both arms: committed test green, 3/3 hidden cases, ≤28-line diff, zero new dependencies). On this micro-task the full loop bought no measured quality for 6–8× the cost — the observed cell, not a universal claim; it is why ceremony scales with risk and a tiny task must never pay for mission ceremony. The pre-registered §6.2 threshold (>1.5×) was exceeded ~5-fold — but the pre-registered outcome is **not claimed**: §6.0's letter forbids any §6 outcome when every arm passes the objective battery, and every arm did. The results file records that verbatim; the ladder/class-text cut candidate is opened as an ordinary operator decision informed by the data ([ROADMAP](ROADMAP.md)), and §6.0's scope is amended for future runs only ([PROTOCOL Amendments](bench/PROTOCOL.md#amendments)). The earlier live webapp run measured **3–6× wall time** on a larger task. The retention standard — **every gate must earn its tokens** — now has its first enforcement datapoint; the full ablation that applies it to every component is still pre-registered, not yet run ([policy](references/philosophy.md), [protocol](bench/PROTOCOL.md)). Live sweeps must record per-arm cost, and `python3 bench/runner.py --validate` fails any that don't.
 
 ---
 
@@ -442,7 +442,7 @@ python3 scripts/quality_loop.py control-serve    # dashboard at http://127.0.0.1
 
 <img src="docs/images/control-plane-task-timeline.png" alt="Control plane task-audit view for task v5-docs-overhaul — header tiles for model calls, input/output tokens, findings (6), and delegations (3) over a single chronological timeline that interleaves delegations (implementer, validator, simplicity_reviewer), the minimal_new_code minimality rung, review findings by severity, and tool events: the per-task audit trail tying findings, delegations, verdicts, and spend to the sessions that produced them" width="900">
 
-It is an **index over evidence, never a gate**: a disposable SQLite cache under `.quality-loop/control/` (self-gitignored, excluded from attestation) rebuilt from sources of truth — host transcripts and loop artifacts. Local-only by construction: stdlib `http.server` hard-bound to `127.0.0.1`, GET-only API, zero dependencies, no conversation bodies stored beyond a 160-char title line and truncated tool targets. Spend is reported in tokens; USD appears only if you supply your own `control_plane.prices` — no vendor price data ships. Opt-in hooks (`control_plane.enabled`) record session start/end and autostart the server; the ingest path always exits 0, so a broken observability plane can never break a session. **36 add-on cases** pin the whole surface (kept out of the core gate-case headline because the add-on is not installed by default). See [`docs/control-plane.md`](docs/control-plane.md).
+It is an **index over evidence, never a gate**: a disposable SQLite cache under `.quality-loop/control/` (self-gitignored, excluded from attestation) rebuilt from sources of truth — host transcripts and loop artifacts. Local-only by construction: stdlib `http.server` hard-bound to `127.0.0.1`, GET-only API, zero dependencies, no conversation bodies stored beyond a 160-char title line and truncated tool targets. Spend is reported in tokens; USD appears only if you supply your own `control_plane.prices` — no vendor price data ships. Opt-in hooks (`control_plane.enabled`) record session start/end and autostart the server; the ingest path always exits 0, so a broken observability plane can never break a session. **37 add-on cases** pin the whole surface (kept out of the core gate-case headline because the add-on is not installed by default). See [`docs/control-plane.md`](docs/control-plane.md).
 
 ---
 
@@ -522,7 +522,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all suites green: 20 static + 61 behavioral + 32 memory + 50 reality + 30 routing + 54 hook = 247 gate cases, plus 36 add-on cases for the control plane).
+     and the full eval suite (all suites green: 20 static + 63 behavioral + 32 memory + 51 reality + 30 routing + 54 hook = 250 gate cases, plus 37 add-on cases for the control plane).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules

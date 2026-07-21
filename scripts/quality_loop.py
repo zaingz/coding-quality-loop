@@ -1520,13 +1520,42 @@ def _control_plane_shape_errors(control: Any) -> list[str]:
     return errors
 
 
+def _gate_config_shape_errors(config: dict[str, Any]) -> list[str]:
+    """Type-validate the deliberate gate-config surface — base /
+    tests.path_markers / high_risk_paths / protect_harness — the COMPLETE set
+    of gate knobs; everything else about the gates is deliberately not
+    configurable. They are read best-effort at gate time, so shape errors must
+    be loud at check-config time. Shared by the full-orchestration path and the
+    gate-config-only path."""
+    errors: list[str] = []
+    base_key = config.get("base")
+    if base_key is not None and (not isinstance(base_key, str) or not base_key.strip()):
+        errors.append("base must be a non-empty git ref string (the default diff base)")
+    tests_key = config.get("tests")
+    if tests_key is not None:
+        if not isinstance(tests_key, dict):
+            errors.append('tests must be an object, e.g. {"path_markers": ["evals/"]}')
+        else:
+            pm = tests_key.get("path_markers")
+            if pm is not None and (
+                not isinstance(pm, list)
+                or not all(isinstance(m, str) and m.strip() for m in pm)
+            ):
+                errors.append("tests.path_markers must be an array of non-empty strings")
+    hrp = config.get("high_risk_paths")
+    if hrp is not None and (
+        not isinstance(hrp, list) or not all(isinstance(p, str) and p.strip() for p in hrp)
+    ):
+        errors.append("high_risk_paths must be an array of non-empty path strings")
+    protect = config.get("protect_harness")
+    if protect is not None and not isinstance(protect, bool):
+        errors.append("protect_harness must be a boolean")
+    return errors
+
+
 def check_config(args: argparse.Namespace) -> int:
     config = load_json(Path(args.config))
     errors: list[str] = []
-
-    for key in ("version", "profiles", "steps"):
-        if key not in config:
-            errors.append(f"missing required field: {key}")
 
     version = config.get("version")
     if "version" in config and version != CONFIG_SCHEMA_VERSION:
@@ -1536,6 +1565,45 @@ def check_config(args: argparse.Namespace) -> int:
             f"release {CONFIG_SCHEMA_VERSION}; it does not track the package "
             f"release version)"
         )
+
+    # Gate-config-only shape: a quality-loop.config.json with NO orchestration
+    # sections (no profiles, no steps) but a real gate-config surface (some of
+    # base / tests / high_risk_paths / protect_harness) is a complete config for
+    # the diff-grounded gates alone — this repo dogfoods exactly that. Validate
+    # the gate keys' types and stop; there is nothing to orchestrate, so the
+    # profiles/steps/policy_guard/routing/heterogeneity checks are skipped. A
+    # config carrying profiles OR steps takes the full validation path below.
+    # Any orchestration-facing section makes this a (possibly partial) full
+    # config: a hybrid carrying model_routing/policy_guard/etc. but no
+    # profiles/steps must FAIL the full validation loudly, not slip through the
+    # gate-config shortcut with its routing and heterogeneity checks skipped.
+    orchestration_present = any(
+        k in config
+        for k in ("profiles", "steps", "model_routing", "policy_guard",
+                  "routing_defaults", "advisor", "agents")
+    )
+    gate_keys_present = any(
+        k in config for k in ("base", "tests", "high_risk_paths", "protect_harness")
+    )
+    if not orchestration_present and gate_keys_present:
+        if "version" not in config:
+            errors.append("missing required field: version")
+        errors.extend(_gate_config_shape_errors(config))
+        memory = config.get("memory")
+        if memory is not None:
+            errors.extend(qlmem.validate_memory_config(memory))
+        print("gate-config (no orchestration sections): "
+              "base/tests/high_risk_paths validated; orchestration checks skipped")
+        if errors:
+            for error in errors:
+                print(f"error: {error}", file=sys.stderr)
+            return 1
+        print("config ok")
+        return 0
+
+    for key in ("version", "profiles", "steps"):
+        if key not in config:
+            errors.append(f"missing required field: {key}")
 
     profiles = config.get("profiles", {})
     if not isinstance(profiles, dict) or not profiles:
@@ -1582,29 +1650,10 @@ def check_config(args: argparse.Namespace) -> int:
         if tier not in routing:
             errors.append(f"routing_defaults missing tier: {tier}")
 
-    # The three deliberate gate-config keys (base / tests.path_markers /
-    # high_risk_paths) — the COMPLETE gate-config surface; everything else
-    # about the gates is deliberately not configurable. They are read
-    # best-effort at gate time, so shape errors must be loud here.
-    base_key = config.get("base")
-    if base_key is not None and (not isinstance(base_key, str) or not base_key.strip()):
-        errors.append("base must be a non-empty git ref string (the default diff base)")
-    tests_key = config.get("tests")
-    if tests_key is not None:
-        if not isinstance(tests_key, dict):
-            errors.append('tests must be an object, e.g. {"path_markers": ["evals/"]}')
-        else:
-            pm = tests_key.get("path_markers")
-            if pm is not None and (
-                not isinstance(pm, list)
-                or not all(isinstance(m, str) and m.strip() for m in pm)
-            ):
-                errors.append("tests.path_markers must be an array of non-empty strings")
-    hrp = config.get("high_risk_paths")
-    if hrp is not None and (
-        not isinstance(hrp, list) or not all(isinstance(p, str) and p.strip() for p in hrp)
-    ):
-        errors.append("high_risk_paths must be an array of non-empty path strings")
+    # The deliberate gate-config keys (base / tests.path_markers /
+    # high_risk_paths / protect_harness) — read best-effort at gate time, so
+    # shape errors must be loud here. Shared with the gate-config-only path.
+    errors.extend(_gate_config_shape_errors(config))
 
     memory = config.get("memory")
     if memory is not None:
@@ -1752,6 +1801,36 @@ def _progress_tail(cwd: Path, max_lines: int = 15) -> str:
     return ""
 
 
+def _heterogeneity_warning(cwd: Path, config_path: Path | None) -> str | None:
+    """Warn-only surfacing of DORMANT reviewer heterogeneity for brief/verify.
+
+    Consumes THE one resolver (``qlroute.resolve_heterogeneity`` — the same
+    state check-config computes and enforces; there is exactly one since
+    v6.1.0) and returns a single prominent line when cross-family reviewer
+    enforcement is not active because the config is unresolved/skipped, else
+    None. Never a gate: a dormant heterogeneity check is a loud warning here,
+    not a failure — the actual FAILED states (same model/family) are blocked by
+    check-config, not by this warn-only surface."""
+    if config_path is None:
+        config_path = qlroute._find_config(cwd)
+    config: Any = None
+    if config_path is not None and config_path.is_file():
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            config = None
+    het = qlroute.resolve_heterogeneity(config if isinstance(config, dict) else {})
+    if het.get("status") != "skipped":
+        # verified / same-family-allowed (enforcement active) or same-model /
+        # same-family (a real violation check-config blocks) — nothing dormant.
+        return None
+    reason = het.get("skip_reason") or "model_routing.host unset"
+    return (
+        f"reviewer heterogeneity: NOT ENFORCED — {reason} "
+        f"(set model_routing.host + run setup-models to activate cross-family review)"
+    )
+
+
 def cmd_brief(args: argparse.Namespace) -> int:
     cwd = Path(getattr(args, "cwd", ".")).resolve()
     runs_dir = cwd / ".quality-loop" / "runs"
@@ -1821,6 +1900,17 @@ def cmd_brief(args: argparse.Namespace) -> int:
     routing_info = qlroute.brief_routing_info(cwd, Path(config_path) if config_path else None)
     sections.append("## Model routing\n" + "\n".join(routing_info["lines"]))
 
+    # Loud, warn-only surfacing of dormant reviewer heterogeneity for the
+    # out-of-box state (no config, or model_routing.host unset). When routing IS
+    # configured, brief_routing_info already prints the resolver's status line in
+    # the Model routing section, so only fill the gap where it stays silent —
+    # never double-print.
+    het_warning = None
+    if not routing_info.get("configured"):
+        het_warning = _heterogeneity_warning(cwd, Path(config_path) if config_path else None)
+    if het_warning:
+        sections.append("## Reviewer heterogeneity\n" + het_warning)
+
     next_hint = "Run the loop on the next task, or resume an incomplete one."
     if record_summary and "error" not in record_summary and record_summary.get("status") not in ("done", "?"):
         next_hint = f"Resume incomplete task: {record_summary.get('goal', '?')} (status: {record_summary.get('status', '?')})"
@@ -1837,6 +1927,7 @@ def cmd_brief(args: argparse.Namespace) -> int:
             "progress": progress,
             "outcomes_tally": outcomes_tally,
             "model_routing": routing_info,
+            "heterogeneity_warning": het_warning,
             "next_step": next_hint,
         }, indent=2, default=str))
     else:
@@ -2151,6 +2242,13 @@ def verify(args: argparse.Namespace) -> int:
     under_fanning = _under_fanning_advisory(record, base)
     if under_fanning:
         all_warnings.append(under_fanning)
+
+    # Dormant reviewer-heterogeneity surfacing (warn-only, never a gate): when
+    # the cross-family review check is unresolved/skipped, say so loudly in the
+    # unified report — reuses the one resolver check-config enforces on.
+    het_warning = _heterogeneity_warning(Path.cwd(), None)
+    if het_warning:
+        all_warnings.append(het_warning)
 
     # 3. Evidence re-execution (if pass commands exist). Timeout precedence:
     #    --timeout flag > QUALITY_LOOP_TIMEOUT env > default 120s.

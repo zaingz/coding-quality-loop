@@ -1384,6 +1384,26 @@ def case_v41_record_fixture_passes(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; {(out + err).strip()!r}"
 
 
+def case_all_archived_records_pass_check(tmp: Path) -> tuple[bool, str]:
+    """Every archived completion record under docs/records/ must pass
+    check-record. An invalid archived record (an unrecognized command class, a
+    non-array models_used, a missing minimality reason) fails CI from here on,
+    so the release history cannot silently rot. Generalizes the v4.1.0 fixture
+    pin to the whole archive directory."""
+    records_dir = ROOT / "docs" / "records"
+    files = sorted(records_dir.glob("*.json")) if records_dir.is_dir() else []
+    if not files:
+        return False, f"no archived records found under {records_dir}"
+    problems = []
+    for path in files:
+        code, out, err = run_cli("check-record", str(path))
+        if code != 0:
+            problems.append(f"{path.name}: exit={code} {(out + err).strip()!r}")
+    ok = not problems
+    return ok, (f"{len(files)} archived record(s) checked; "
+                + ("all pass" if ok else "; ".join(problems)))
+
+
 def case_reviewer_contract_surfaces_agree(tmp: Path) -> tuple[bool, str]:
     """Drift lint: the reviewer contract (verdict enum + ran_checks) must appear
     consistently in the canonical prompt card, the security prompt card, the two
@@ -1641,6 +1661,64 @@ def case_check_config_always_prints_heterogeneity(tmp: Path) -> tuple[bool, str]
     skipped_line = "reviewer heterogeneity: SKIPPED" in out and "model_routing not configured" in out
     ok = code == 0 and skipped_line and "config ok" in out
     return ok, f"exit={code}; skipped_line={skipped_line}; out={out.strip()[:160]!r}"
+
+
+def case_check_config_gate_config_only(tmp: Path) -> tuple[bool, str]:
+    """v6.3: a quality-loop.config.json with NO orchestration sections
+    (profiles/steps) but the gate-config surface (base / tests / high_risk_paths
+    / protect_harness) validates the gate keys and exits 0 — this repo dogfoods
+    exactly that. Malformed gate keys still fail; a full config keeps the full
+    validation path (heterogeneity line, not the gate-config note)."""
+    # (a) This repo's own gate-config passes and takes the gate-config path.
+    repo_cfg = ROOT / "quality-loop.config.json"
+    code_r, out_r, _ = run_cli("check-config", str(repo_cfg))
+    repo_ok = (
+        code_r == 0
+        and "gate-config (no orchestration sections)" in out_r
+        and "config ok" in out_r
+        and "reviewer heterogeneity" not in out_r  # orchestration checks skipped
+    )
+    # (b) A gate-config with a bad type fails loudly (not silently accepted).
+    bad = {"version": quality_loop.CONFIG_SCHEMA_VERSION,
+           "tests": {"path_markers": ["evals/", 7]},  # non-string marker
+           "protect_harness": "yes"}                   # non-bool
+    bad_path = tmp / "bad-gate-config.json"
+    bad_path.write_text(json.dumps(bad), encoding="utf-8")
+    code_b, _, err_b = run_cli("check-config", str(bad_path))
+    bad_ok = (
+        code_b == 1
+        and "tests.path_markers must be an array of non-empty strings" in err_b
+        and "protect_harness must be a boolean" in err_b
+    )
+    # (c) Full config (profiles/steps present) is unchanged: still the full path.
+    full = json.loads(EXAMPLE_CONFIG.read_text(encoding="utf-8"))
+    full_path = tmp / "full-config.json"
+    full_path.write_text(json.dumps(full), encoding="utf-8")
+    code_f, out_f, _ = run_cli("check-config", str(full_path))
+    full_ok = (
+        code_f == 0
+        and "config ok" in out_f
+        and "gate-config (no orchestration sections)" not in out_f
+        and "reviewer heterogeneity" in out_f  # full path prints the het line
+    )
+    # (d) A HYBRID config — gate keys plus an orchestration-facing section
+    # (model_routing) but no profiles/steps — must NOT slip through the
+    # gate-config shortcut with routing/heterogeneity validation skipped: it
+    # takes the full path and fails loudly on the missing orchestration core.
+    hybrid = {"version": quality_loop.CONFIG_SCHEMA_VERSION,
+              "base": "origin/main",
+              "model_routing": {"host": "github"}}
+    hybrid_path = tmp / "hybrid-config.json"
+    hybrid_path.write_text(json.dumps(hybrid), encoding="utf-8")
+    code_h, out_h, err_h = run_cli("check-config", str(hybrid_path))
+    hybrid_ok = (
+        code_h == 1
+        and "gate-config (no orchestration sections)" not in out_h
+        and "missing required field: profiles" in err_h
+    )
+    ok = repo_ok and bad_ok and full_ok and hybrid_ok
+    return ok, (f"repo_ok={repo_ok}(exit={code_r}); bad_ok={bad_ok}(exit={code_b}); "
+                f"full_ok={full_ok}(exit={code_f}); hybrid_ok={hybrid_ok}(exit={code_h})")
 
 
 def case_record_mutation_roundtrip(tmp: Path) -> tuple[bool, str]:
@@ -1905,6 +1983,7 @@ CASES = [
     ("escalation must cite a recorded failing command (self-report is not evidence)", case_escalation_requires_failing_evidence),
     ("resolved RED->GREEN failures don't block; outstanding failures do", case_resolved_failures_dont_block),
     ("archived v4.1.0 record passes untouched (v4.2 fields are additive)", case_v41_record_fixture_passes),
+    ("every docs/records/*.json passes check-record (archive cannot rot)", case_all_archived_records_pass_check),
     ("string ACs block at medium+ but stay valid at low risk", case_string_acs_blocked_at_medium_not_low),
     (">=3 ACs sharing one proving_command draws an advisory note only", case_shared_proving_command_warns),
     ("e2e/security/format/migration_dry_run count as executable evidence", case_new_exec_classes_count),
@@ -1915,6 +1994,7 @@ CASES = [
     ("brief caps an over-budget recalled lesson in text and --json output", case_brief_caps_over_budget_lesson),
     ("control_plane shape is validated in core even without the add-on installed", case_check_config_core_control_plane_shape),
     ("check-config prints heterogeneity_status even without model_routing (SKIPPED)", case_check_config_always_prints_heterogeneity),
+    ("check-config accepts a gate-config-only shape (no profiles/steps); bad types still fail", case_check_config_gate_config_only),
     ("config schema version is pinned three ways (engine == schema const == example)", case_config_schema_version_pinned),
     ("record set-status/add-evidence/add-ac round-trip; mutated record passes check-record", case_record_mutation_roundtrip),
     ("malformed record-mutation input errors cleanly (no traceback, no write)", case_record_mutation_malformed_errors),

@@ -2350,7 +2350,14 @@ def review_yield(root: Path) -> dict[str, Any]:
 
     A pure query over the record files on disk: never a gate, and it neither
     reads nor writes the control-plane index. Records that will not parse are
-    skipped rather than aborting the report."""
+    skipped rather than aborting the report.
+
+    Live/archive dedupe: archiving a release copies
+    ``.quality-loop/agent-record.json`` verbatim into ``docs/records/``, so the
+    live record and its archived twin share a ``task_id`` and would otherwise
+    each emit a row — double-counting the latest release and inflating every
+    total. The live row is dropped whenever an archived row carries the same
+    ``task_id`` (archives win, being the immutable historical copy)."""
     rows: list[dict[str, Any]] = []
     for path in _record_files(root):
         try:
@@ -2384,6 +2391,11 @@ def review_yield(root: Path) -> dict[str, Any]:
             "resolved_findings": resolved,
             "outcome": verdict if isinstance(verdict, str) and verdict else None,
         })
+    # Archives win: drop the live row when an archived twin shares its task_id
+    # (see docstring). Done after all rows are built so an archive appearing
+    # anywhere in docs/records/ suppresses the live duplicate.
+    archived_task_ids = {r["task_id"] for r in rows if not r["live"]}
+    rows = [r for r in rows if not (r["live"] and r["task_id"] in archived_task_ids)]
     totals: dict[str, Any] = {
         "records": len(rows),
         "independent_findings": sum(r["independent_findings"] for r in rows),

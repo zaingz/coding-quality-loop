@@ -1,6 +1,7 @@
 // CLI dispatcher. Parses argv by hand (no yargs/commander) to keep zero deps
 // and shave ~200ms off cold start.
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { existsSync } from "node:fs";
 import { detectHosts, KNOWN_HOSTS } from "./detect.mjs";
 import { confirm, select } from "./prompts.mjs";
 import { runInstall, runUninstall, checkInstall, readSkillVersion } from "./install.mjs";
@@ -139,10 +140,20 @@ async function commandInit(args) {
   // lands). Same wording as scripts/install.py's footer.
   steps.push(`${n++}. ${c.bold("Commit the install:")} git add -A && git commit -m "chore: install coding-quality-loop"`);
   if (showSetupModels) {
-    steps.push(`${n++}. ${c.bold("Create your config:")} cp assets/quality-loop.config.example.json quality-loop.config.json`);
+    const hasRootConfig = existsSync(join(target, "quality-loop.config.json"));
+    if (hasRootConfig) {
+      steps.push(`${n++}. ${c.bold("Check your config:")}  quality-loop.config.json exists — make sure model_routing.host is set`);
+    } else {
+      // Set model_routing.host to the detected host so cross-family review
+      // enforcement actually activates (kept in sync with scripts/install.py).
+      steps.push(`${n++}. ${c.bold("Create your config:")} cp assets/quality-loop.config.example.json quality-loop.config.json, then set model_routing.host to "${modelRoutedHost}" so cross-family review enforcement activates`);
+    }
     steps.push(`${n++}. ${c.bold("Set your models:")}    python3 scripts/quality_loop.py setup-models --host ${modelRoutedHost}`);
   }
   steps.push(`${n++}. ${c.bold("Try it out:")}         ${invokeExample}`);
+  // Merge-base anti-evasion and helper-integrity are CI-anchored, so a local
+  // install alone does not enforce them — point at the GitHub Action.
+  steps.push(`${n++}. ${c.bold("Wire the CI anchor:")} add the GitHub Action (action.yml / hosts/github/quality-loop-example.yml) — merge-base anti-evasion and helper integrity are enforced in CI`);
   steps.push(``);
   steps.push(c.dim(`Docs: https://github.com/zaingz/coding-quality-loop#quickstart`));
   box("Next steps:", steps);
