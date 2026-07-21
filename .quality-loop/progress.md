@@ -38,7 +38,7 @@
   (functional) + final claims approve. Verify umbrella: Overall PASS at package
   with both reviews attested. 250 core + 37 add-on green; npm tests 33/0.
 
-## 2026-07-21 — subtraction pass (branch cleanup/subtraction-pass, PR #22) — IN REVIEW
+## 2026-07-21 — v6.4.0 subtraction pass (branch cleanup/subtraction-pass, PR #22) — RELEASED
 - Net −233 lines (+147/−380) + a 47KB binary across 32 files; 7 themed commits.
 - Cut: dead run-journal reader (writer archived in v3.0), unreachable ORCHESTRATE
   step entry, bench/metrics dead CLI, npm dead surface (step/smoke/exports),
@@ -53,5 +53,6 @@
 - Loop: record at package, verify umbrella Overall PASS (11 commands re-executed);
   Codex cross-family review round 1 request_changes (2 blocking -> fixed/rebutted
   with recorded resolutions), round 2 approve with ran_checks. Suites 249+37.
-- NEXT: maintainer sign-off on PR #22 -> merge -> record outcome + archive record
-  at the next release tag.
+- Released as v6.4.0 (three-round Codex review: request_changes -> approve -> release
+  confirm; record archived at docs/records/v6.4.0-agent-record.json).
+- NEXT: record the post-ship outcome (clean/regressed/reverted) once field truth exists.

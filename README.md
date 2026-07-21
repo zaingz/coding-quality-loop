@@ -10,7 +10,7 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-6.3.1-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-6.4.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
 [![offline gates](https://img.shields.io/badge/offline%20gates-249%20core%20cases-111111?style=flat-square)](evals/)

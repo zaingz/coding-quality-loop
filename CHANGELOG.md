@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 6.4.0
 
 Subtraction pass: net-negative cleanup — dead surface deleted, duplicate
 implementations collapsed, docs realigned with the code. No behavior change
