@@ -159,6 +159,19 @@ def diff_sha256(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir:
     return hashlib.sha256(diff_patch(base, cwd, exclude_record_dir).encode("utf-8")).hexdigest()
 
 
+def canonical_diff_sha256(base: str = "HEAD", cwd: Path | None = None) -> str:
+    """THE canonical diff hash for a base: sha256 of the tracked diff vs base
+    excluding .quality-loop/, plus the untracked pseudo-diff.
+
+    The single implementation shared by attest-review, the review-freshness
+    gate, and the `verify` umbrella's last-verified marker — the stop-gate fast
+    path imports this same helper to recompute the hash, so the marker writer
+    and the marker reader can never diverge on hash semantics. Raises
+    SystemExit (via run_git) outside a git repository.
+    """
+    return diff_sha256(base, cwd, exclude_record_dir=True)
+
+
 def _path_matches_high_tier(path: str, extra: tuple[str, ...] = ()) -> bool:
     """Built-in high-tier paths, extended (never replaced) by the config's
     high_risk_paths entries: an entry matches as a path component, a basename,
@@ -392,7 +405,7 @@ def verify_gates_against_diff(
             # Attestation hashes exclude .quality-loop/ so record-only trailing
             # commits (evidence, progress) do not go stale. Records attested by
             # older versions carry the full-diff hash; accept either.
-            valid_hashes = {diff_sha256(base, cwd, exclude_record_dir=True), diff_sha256(base, cwd)}
+            valid_hashes = {canonical_diff_sha256(base, cwd), diff_sha256(base, cwd)}
             # An empty current diff means there is nothing under review against
             # this base (e.g. the reviewed work is now the base itself, after a
             # merge) — freshness is N/A, not stale. The terminal-status phantom
@@ -440,7 +453,7 @@ def attest_review(
     """
     cwd = cwd or Path.cwd()
     out = dict(review)
-    out["diff_sha256"] = diff_sha256(base, cwd, exclude_record_dir=True)
+    out["diff_sha256"] = canonical_diff_sha256(base, cwd)
     out["attested_at"] = datetime.now().isoformat(timespec="seconds")
     return out
 

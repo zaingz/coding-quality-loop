@@ -35,6 +35,17 @@
       "additionalProperties": false
     },
     "harness_update": {"type": ["string", "object", "null"], "minLength": 1},
+    "outcome": {
+      "type": "object",
+      "description": "Optional shipped-work outcome, set after the fact by `record outcome <path> <verdict>`. Absence is valid; no gate requires it. The same verdict/note/recorded_at are appended as one line ({task_id, verdict, note, recorded_at}) to .quality-loop/outcomes.jsonl, which the brief tally reads.",
+      "properties": {
+        "verdict": {"type": "string", "enum": ["clean", "regressed", "reverted"]},
+        "note": {"type": "string"},
+        "recorded_at": {"type": "string"}
+      },
+      "required": ["verdict"],
+      "additionalProperties": true
+    },
     "models_used": {
       "type": "array",
       "description": "Optional per-role model attribution (v4.2 routing evidence): which model on which host ran each role, with attempts and optional cost. This is the R5 evidence base; cost per accepted record = sum(cost_usd) over records with status done and an approving independent_review.",

@@ -1605,6 +1605,95 @@ def case_multilang_test_lexicon(tmp: Path) -> tuple[bool, str]:
     )
 
 
+def _low_risk_done_record() -> dict:
+    """A tiny low-risk record that passes the whole verify umbrella: no pass
+    commands (run-evidence skipped), string AC (valid at low), no boundary or
+    bugfix keywords, terminal status with a non-empty diff (no phantom)."""
+    return {
+        "task_id": "t-marker",
+        "goal": "rename a local helper for clarity",
+        "task_class": "small",
+        "risk_tier": "low",
+        "acceptance_criteria": ["helper renamed"],
+        "constraints": [],
+        "non_goals": [],
+        "assumptions": [],
+        "verification_plan": ["manual read-through"],
+        "minimality_decision": {"rung": "reuse", "reason": "existing helper covers it"},
+        "plan": ["edit src/mod.py"],
+        "commands_run": [],
+        "open_risks": [],
+        "review_findings": [],
+        "status": "done",
+    }
+
+
+def case_verify_writes_last_verified_marker(tmp: Path) -> tuple[bool, str]:
+    """The verify umbrella writes .quality-loop/last-verified.json ONLY on an
+    overall PASS — {diff_sha256 (canonical), base (resolved), status,
+    verified_at} — and a failing verify removes any stale marker, so the
+    stop-gate fast path can never skip on a diff/status the umbrella did not
+    actually pass."""
+    repo = make_repo(tmp)
+    src = repo / "src"
+    src.mkdir()
+    (src / "mod.py").write_text("def helper():\n    return 2\n")
+    record_path = repo / "record.json"
+    record_path.write_text(json.dumps(_low_risk_done_record()))
+
+    code_pass, out_pass, err_pass = run_cli("verify", "record.json", "--base", "HEAD", cwd=str(repo))
+    marker_path = repo / ".quality-loop" / "last-verified.json"
+    try:
+        marker = json.loads(marker_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        marker = {}
+    expected_hash = qlreal.canonical_diff_sha256("HEAD", cwd=repo)
+    marker_ok = bool(
+        marker.get("diff_sha256") == expected_hash
+        and marker.get("base") == "HEAD"
+        and marker.get("status") == "done"
+        and isinstance(marker.get("verified_at"), str) and marker["verified_at"]
+    )
+    wrote_on_pass = code_pass == 0 and marker_ok
+
+    # Now a FAILING verify (medium record, no implementer, unallowlisted pass
+    # command) must remove the stale marker: absence == "run the full umbrella".
+    record_path.write_text(json.dumps(passing_record(repo, implementer=None)))
+    code_fail, out_fail, _ = run_cli("verify", "record.json", "--base", "HEAD", cwd=str(repo))
+    removed_on_fail = code_fail != 0 and not marker_path.exists()
+
+    ok = wrote_on_pass and removed_on_fail
+    return ok, (
+        f"pass(exit={code_pass},marker_ok={marker_ok}); "
+        f"fail(exit={code_fail},removed={removed_on_fail}); "
+        f"marker={marker!r}"[:300]
+    )
+
+
+def case_canonical_diff_sha256_single_source(tmp: Path) -> tuple[bool, str]:
+    """canonical_diff_sha256 IS the hash attest-review embeds and freshness
+    checks (one implementation), and it stales when untracked content changes."""
+    repo = make_repo(tmp)
+    (repo / "mod.py").write_text("def helper():\n    return 2\n")
+    review_path = repo / "review.json"
+    review_path.write_text(json.dumps({"reviewer": "agent-b", "verdict": "approve"}))
+    code, out, err = run_cli("attest-review", str(review_path), "--base", "HEAD", cwd=str(repo))
+    try:
+        attested = json.loads(out)
+    except json.JSONDecodeError:
+        attested = {}
+    canonical = qlreal.canonical_diff_sha256("HEAD", cwd=repo)
+    same_impl = (
+        code == 0
+        and attested.get("diff_sha256") == canonical
+        and canonical == qlreal.diff_sha256("HEAD", cwd=repo, exclude_record_dir=True)
+    )
+    (repo / "extra.py").write_text("x = 1\n")
+    stales = qlreal.canonical_diff_sha256("HEAD", cwd=repo) != canonical
+    ok = same_impl and stales
+    return ok, f"exit={code}; same_impl={same_impl}; stales_on_new_content={stales}"
+
+
 CASES = [
     ("action.yml python invocations all run the pinned copy", case_action_invocations_are_pinned),
     ("phantom completion (done + empty diff) is caught", case_phantom_completion),
@@ -1654,6 +1743,8 @@ CASES = [
     ("empty current diff makes review freshness N/A, not stale (post-merge)", case_empty_diff_freshness_is_na),
     ("security_review freshness is checked, not only independent_review", case_security_review_freshness_checked),
     ("render-prompt keeps a literal {evidence} token in the diff intact (single pass)", case_render_prompt_literal_token_survives),
+    ("verify writes the last-verified marker on PASS and removes it on FAIL", case_verify_writes_last_verified_marker),
+    ("canonical_diff_sha256 is the one attest/freshness hash and stales on new content", case_canonical_diff_sha256_single_source),
 ]
 
 

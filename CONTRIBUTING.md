@@ -37,12 +37,14 @@ the repo stays trustable.
       python3 evals/run_control_evals.py    # control-plane add-on suite (in-repo checkout)
       ```
 
-      The six core gate suites total **234 offline gate cases** (20 static + 55 behavioral +
-      32 memory + 48 reality + 30 routing + 49 hook). The opt-in control plane adds
-      **35 add-on cases** (`run_control_evals.py`), counted separately because the
-      add-on is not installed by default. The canonical numbers live in
-      `evals/run_evals.py` (`CANONICAL_GATE_CASES` / `CONTROL_ADDON_CASES`); a lint
-      fails if any public doc — this one included — contradicts them.
+      The six core gate suites total **247 offline gate cases** (20 static + 61 behavioral +
+      32 memory + 50 reality + 30 routing + 54 hook). The opt-in control plane adds
+      **36 add-on cases** (`run_control_evals.py`), counted separately because the
+      add-on is not installed by default. The canonical numbers are DERIVED at
+      runtime from the suites (`canonical_gate_cases()` / `control_addon_cases()` in
+      `evals/run_evals.py`) — nothing to bump when a count changes; a lint fails if
+      any public doc — this one included — states a wrong total, breakdown addend,
+      or sum.
 
 - [ ] If your change touches `bench/`, follow the pre-registered protocol in
       [`bench/PROTOCOL.md`](bench/PROTOCOL.md) — decision rules are committed before

@@ -1113,6 +1113,73 @@ def case_arm_costs_query(tmp: Path) -> tuple[bool, str]:
                 f"since_ids={[s['session_id'] for s in data2['sessions']]}; iso_err={'ISO-8601' in err3}")
 
 
+def case_review_yield_query(tmp: Path) -> tuple[bool, str]:
+    """v6.2: control-report --review-yield emits a per-record table over the
+    live record + docs/records/*.json — independent/security finding counts,
+    the number of review_findings[] carrying a non-empty 'resolution' (the
+    finding->fix proxy), and the outcome verdict when present. Markdown by
+    default; --json parses to the same shape; a repo with no records exits 0."""
+    repo = make_repo(tmp)
+    docs = repo / "docs" / "records"
+    docs.mkdir(parents=True)
+    # Archived record: 1 independent finding, 1 security finding, 2 review
+    # findings of which exactly 1 carries a resolution; outcome recorded clean.
+    r1 = _fixture_record()
+    r1["task_id"] = "v6.1.0"
+    r1["independent_review"] = {"reviewer": "other-model", "verdict": "approve",
+                                "fresh_context": True, "diff_sha256": "0" * 64,
+                                "findings": [{"severity": "high", "text": "x"}]}
+    r1["security_review"] = {"reviewer": "sec-model", "verdict": "approve",
+                             "findings": [{"severity": "critical", "text": "leak"}]}
+    r1["review_findings"] = [
+        {"severity": "high", "text": "off-by-one", "resolution": "fixed the slice bound"},
+        {"severity": "low", "text": "nit"},  # no resolution -> not counted
+    ]
+    r1["outcome"] = {"verdict": "clean", "note": "shipped", "recorded_at": "2026-01-01T00:00:00Z"}
+    (docs / "v6.1.0.json").write_text(json.dumps(r1), encoding="utf-8")
+    # Live record: no channel findings, a bare-string review finding, no outcome.
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    r2 = _fixture_record()
+    r2["task_id"] = "v6.2.0"
+    r2["review_findings"] = ["approved"]  # bare string -> not resolvable
+    (qdir / "agent-record.json").write_text(json.dumps(r2), encoding="utf-8")
+    md_code, md_out, _ = run_stdin([sys.executable, str(QL), "control-report",
+                                    "--review-yield", "--cwd", str(repo)], "", repo)
+    js_code, js_out, _ = run_stdin([sys.executable, str(QL), "control-report",
+                                    "--review-yield", "--json", "--cwd", str(repo)], "", repo)
+    try:
+        data = json.loads(js_out)
+    except ValueError:
+        data = {}
+    by_task = {r["task_id"]: r for r in data.get("records", [])}
+    row1 = by_task.get("v6.1.0", {})
+    row2 = by_task.get("v6.2.0", {})
+    totals = data.get("totals", {})
+    # Empty repo (no records) still exits 0 with the empty-table note.
+    empty = make_repo(tmp, "empty")
+    e_code, e_out, _ = run_stdin([sys.executable, str(QL), "control-report",
+                                  "--review-yield", "--cwd", str(empty)], "", empty)
+    ok = (md_code == 0 and js_code == 0
+          and "release/task_id" in md_out and "v6.1.0" in md_out and "clean" in md_out
+          and row1.get("independent_findings") == 1
+          and row1.get("security_findings") == 1
+          and row1.get("review_findings") == 2
+          and row1.get("resolved_findings") == 1
+          and row1.get("outcome") == "clean"
+          and row2.get("live") is True and row2.get("resolved_findings") == 0
+          and row2.get("outcome") is None
+          and totals.get("records") == 2
+          and totals.get("independent_findings") == 1
+          and totals.get("resolved_findings") == 1
+          and totals.get("outcomes", {}).get("clean") == 1
+          and e_code == 0 and "No records found" in e_out)
+    return ok, (f"md={md_code}; js={js_code}; row1=(ind:{row1.get('independent_findings')},"
+                f"sec:{row1.get('security_findings')},rf:{row1.get('review_findings')},"
+                f"res:{row1.get('resolved_findings')},out:{row1.get('outcome')}); "
+                f"totals={totals}; empty=(code={e_code}, note={'No records found' in e_out})")
+
+
 # ---------------------------------------------------------------------------
 # Ingest + shim cases
 # ---------------------------------------------------------------------------
@@ -1338,6 +1405,7 @@ CASES = [
     ("retention_days prunes every table by one cutoff; no resurrection", case_retention_prunes_all_tables),
     ("schema bump exports hook events to an append-safe backup first", case_schema_bump_backs_up_events),
     ("control-report --arm-costs emits bench-arm cost JSON; --since filters", case_arm_costs_query),
+    ("control-report --review-yield tables findings/resolutions/outcome per record", case_review_yield_query),
     ("control-ingest records events and SessionEnd closes the session", case_ingest_event_roundtrip),
     ("ingest is a no-op when control_plane is absent or disabled", case_ingest_disabled_noop),
     ("ingest exits 0 on garbage stdin (never breaks a session)", case_ingest_never_breaks),

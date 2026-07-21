@@ -43,19 +43,45 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "quality_loop.py"
 
-# Canonical count of offline CORE gate cases. This is the single source of truth
-# the count-consistency lint (case_doc_counts_match_canonical) asserts every
-# public doc agrees with. It EXCLUDES the opt-in control-plane add-on suite,
-# which is tracked separately as CONTROL_ADDON_CASES and must be phrased
-# "<n> add-on cases" in docs. (The trigger smoke fixture, whose default grader
-# structurally could not fail, was deleted in v6.1.0.)
-#
-# BUMP THESE whenever a suite's case count changes. Current breakdown:
-#   20 static + 55 behavioral + 32 memory + 48 reality + 30 routing + 49 hook
-#   = 234 core; control add-on = 35
-# (behavioral is this file: len(CASES); run each suite to confirm.)
-CANONICAL_GATE_CASES = 234
-CONTROL_ADDON_CASES = 35
+# Canonical count of offline CORE gate cases — COMPUTED, never hand-set. The
+# old hand-bumped literal drifted from the real suites twice (116->121, then
+# again in v6 review); canonical_gate_cases() now derives the total at runtime
+# from the suites themselves: len(CASES) of each core suite module (behavioral
+# = this file, memory, reality, routing, hook) + the count of static
+# evals/cases/*.json files. The count-consistency lint
+# (case_doc_counts_match_canonical) asserts every public doc agrees with the
+# computed total. It EXCLUDES the opt-in control-plane add-on suite, derived
+# the same way by control_addon_cases() and phrased "<n> add-on cases" in
+# docs. Suite modules are imported lazily (inside the lint), so plain eval
+# runs never pay for importing the sibling suites.
+_CORE_SUITE_MODULES = (
+    "run_memory_evals",
+    "run_reality_evals",
+    "run_routing_evals",
+    "run_hook_evals",
+)
+
+
+def _suite_case_count(module_name: str) -> int:
+    """len(CASES) of a sibling suite module, imported lazily from evals/."""
+    import importlib
+
+    evals_dir = str(ROOT / "evals")
+    if evals_dir not in sys.path:
+        sys.path.insert(0, evals_dir)
+    return len(importlib.import_module(module_name).CASES)
+
+
+def canonical_gate_cases() -> int:
+    """The derived core gate-case total: static cases/*.json + every core
+    suite's len(CASES). The single source of truth the doc lint checks."""
+    static = len(list((ROOT / "evals" / "cases").glob("*.json")))
+    return static + len(CASES) + sum(_suite_case_count(m) for m in _CORE_SUITE_MODULES)
+
+
+def control_addon_cases() -> int:
+    """The derived opt-in control-plane add-on case count."""
+    return _suite_case_count("run_control_evals")
 
 sys.path.insert(0, str(ROOT / "scripts"))
 import quality_loop  # noqa: E402  (SECRET_PATTERNS reused by the untracked-secret case)
@@ -919,15 +945,88 @@ def case_require_terminal_noop_when_done(tmp: Path) -> tuple[bool, str]:
     return ok, f"flag(exit={code_flag},no_finding={no_finding}); no_flag(exit={code_no}); unaffected={unaffected}"
 
 
+# Matches the headline phrasings only: "<n> cases", "<n> gate cases",
+# "<n> eval cases", "<n> offline cases", "<n> offline gate/eval cases".
+# Also catches "<n> core cases" — including URL-encoded ("<n>%20core%20cases")
+# so a shields.io badge cannot drift invisibly — and "| **<n>** |" /
+# "| <n> |" table cells, the two phrasings the v6 final review found the
+# plain word-boundary regex could not see.
+_COUNT_PATTERN = re.compile(
+    r"(\d+)(?:\s+|%20)(?:offline(?:\s+|%20))?(?:gate(?:\s+|%20)|eval(?:\s+|%20)|core(?:\s+|%20))?cases\b",
+    re.IGNORECASE,
+)
+_TABLE_CELL_PATTERN = re.compile(r"\|\s*\*{0,2}(\d+)\*{0,2}\s*\|")
+# The add-on suite's own phrasing ("<n> add-on cases"), invisible to the
+# core pattern above and vice versa.
+_ADDON_PATTERN = re.compile(r"(\d+)(?:-case)?\s+add-on\s+(?:gate\s+|eval\s+)?cases?\b", re.IGNORECASE)
+_HISTORICAL_LINE = re.compile(r"\bas of v\d", re.IGNORECASE)
+# Only lint table cells inside the canonical "Total core gate cases" row —
+# per-suite rows carry their own (varying) counts that are not the total.
+_TOTAL_ROW = re.compile(r"total\s+core\s+gate\s+cases", re.IGNORECASE)
+# Per-suite breakdown addends, e.g. "20 static", "54/54 hook". A right TOTAL
+# with a wrong per-suite addend (a 53 that should be 54) slipped past the
+# total-only lint twice; this catches the arithmetic itself (v6.2 review).
+_BREAKDOWN_ADDEND = re.compile(
+    r"(\d+)(?:/\d+)?\s+(static|behavioral|memory|reality|routing|hook)\b", re.IGNORECASE)
+
+
+def _doc_count_mismatches(
+    text: str, rel: str, allow_trigger: bool, canonical: int, addon: int,
+    suite_counts: dict[str, int] | None = None,
+) -> list[str]:
+    """Count-lint one doc's text against the derived canonical/add-on totals.
+
+    Module-level (not a closure) so the derived-count eval case can feed it a
+    synthetic doc and prove a wrong number is still caught. When ``suite_counts``
+    is supplied, per-suite breakdown addends ("... 30 routing + 54 hook") are
+    also checked against the real per-suite counts and their arithmetic — a
+    right TOTAL with a wrong addend slipped past the total-only lint twice.
+    """
+    mismatches: list[str] = []
+    for line in text.splitlines():
+        if _HISTORICAL_LINE.search(line):
+            continue  # "as of vX.Y" marks a historical count; exempt
+        for m in _ADDON_PATTERN.finditer(line):
+            if int(m.group(1)) != addon:
+                mismatches.append(f"{rel}: {m.group(0)!r} != {addon} (add-on)")
+        stripped = _ADDON_PATTERN.sub("", line)
+        for m in _COUNT_PATTERN.finditer(stripped):
+            n = int(m.group(1))
+            if allow_trigger and n == 10:
+                continue
+            if n != canonical:
+                mismatches.append(f"{rel}: {m.group(0)!r} != {canonical}")
+        if _TOTAL_ROW.search(line):
+            for m in _TABLE_CELL_PATTERN.finditer(line):
+                if int(m.group(1)) != canonical:
+                    mismatches.append(f"{rel}: total-row cell {m.group(0)!r} != {canonical}")
+        if suite_counts:
+            addends = _BREAKDOWN_ADDEND.findall(line)
+            # Every addend is checked against its real suite count wherever it
+            # appears. The SUM is only checked when all six suite names are on
+            # one line (a complete breakdown) — a breakdown that wraps across
+            # lines would otherwise sum a partial line to a false total.
+            names_on_line = {name.lower() for _, name in addends}
+            for num, name in addends:
+                real = suite_counts.get(name.lower())
+                if real is not None and int(num) != real:
+                    mismatches.append(f"{rel}: breakdown addend '{num} {name}' != {real}")
+            if names_on_line >= set(suite_counts):
+                total = sum(int(num) for num, _ in addends)
+                if total != canonical:
+                    mismatches.append(f"{rel}: breakdown sums to {total}, not {canonical}")
+    return mismatches
+
+
 def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
     # Numbers-consistency lint (critical review R2 + improvement plan 2.5): every
-    # public doc that states an offline gate-case count must state
-    # CANONICAL_GATE_CASES (core suites), and every "<n> add-on cases" mention
-    # must state CONTROL_ADDON_CASES (the opt-in control-plane suite). Guards
-    # against the 116->121 drift the review flagged. Two deliberate exemptions:
-    # the CHANGELOG top entry may reference the historical 10-case trigger
-    # fixture (deleted in v6.1.0), and any LINE annotated "as of vX.Y" is
-    # historical by declaration — the lint must never rewrite history again
+    # public doc that states an offline gate-case count must state the DERIVED
+    # canonical_gate_cases() total (core suites), and every "<n> add-on cases"
+    # mention must state control_addon_cases() (the opt-in control-plane suite).
+    # Guards against the 116->121 drift the review flagged. Two deliberate
+    # exemptions: the CHANGELOG top entry may reference the historical 10-case
+    # trigger fixture (deleted in v6.1.0), and any LINE annotated "as of vX.Y"
+    # is historical by declaration — the lint must never rewrite history again
     # (it once overwrote ROADMAP's v3.0-era count with the then-current one).
     docs = [
         ROOT / "README.md",
@@ -945,55 +1044,36 @@ def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
     # tree they audited.
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     top_entry = re.split(r"\n## ", changelog)[1] if "\n## " in changelog else changelog
-    # Matches the headline phrasings only: "<n> cases", "<n> gate cases",
-    # "<n> eval cases", "<n> offline cases", "<n> offline gate/eval cases".
-    # Also catches "<n> core cases" — including URL-encoded ("<n>%20core%20cases")
-    # so a shields.io badge cannot drift invisibly — and "| **<n>** |" /
-    # "| <n> |" table cells, the two phrasings the v6 final review found the
-    # plain word-boundary regex could not see.
-    pattern = re.compile(
-        r"(\d+)(?:\s+|%20)(?:offline(?:\s+|%20))?(?:gate(?:\s+|%20)|eval(?:\s+|%20)|core(?:\s+|%20))?cases\b",
-        re.IGNORECASE,
-    )
-    table_pattern = re.compile(r"\|\s*\*{0,2}(\d+)\*{0,2}\s*\|")
-    # The add-on suite's own phrasing ("<n> add-on cases"), invisible to the
-    # core pattern above and vice versa.
-    addon_pattern = re.compile(r"(\d+)(?:-case)?\s+add-on\s+(?:gate\s+|eval\s+)?cases?\b", re.IGNORECASE)
-    historical = re.compile(r"\bas of v\d", re.IGNORECASE)
-    # Only lint table cells inside the canonical "Total core gate cases" row —
-    # per-suite rows carry their own (varying) counts that are not the total.
-    total_row = re.compile(r"total\s+core\s+gate\s+cases", re.IGNORECASE)
-    mismatches = []
-
-    def check_text(text: str, rel: str, allow_trigger: bool) -> None:
-        for line in text.splitlines():
-            if historical.search(line):
-                continue  # "as of vX.Y" marks a historical count; exempt
-            for m in addon_pattern.finditer(line):
-                if int(m.group(1)) != CONTROL_ADDON_CASES:
-                    mismatches.append(f"{rel}: {m.group(0)!r} != {CONTROL_ADDON_CASES} (add-on)")
-            stripped = addon_pattern.sub("", line)
-            for m in pattern.finditer(stripped):
-                n = int(m.group(1))
-                if allow_trigger and n == 10:
-                    continue
-                if n != CANONICAL_GATE_CASES:
-                    mismatches.append(f"{rel}: {m.group(0)!r} != {CANONICAL_GATE_CASES}")
-            if total_row.search(line):
-                for m in table_pattern.finditer(line):
-                    if int(m.group(1)) != CANONICAL_GATE_CASES:
-                        mismatches.append(f"{rel}: total-row cell {m.group(0)!r} != {CANONICAL_GATE_CASES}")
+    canonical = canonical_gate_cases()
+    addon = control_addon_cases()
+    suite_counts = {
+        "static": len(list((ROOT / "evals" / "cases").glob("*.json"))),
+        "behavioral": len(CASES),
+        "memory": _suite_case_count("run_memory_evals"),
+        "reality": _suite_case_count("run_reality_evals"),
+        "routing": _suite_case_count("run_routing_evals"),
+        "hook": _suite_case_count("run_hook_evals"),
+    }
+    mismatches: list[str] = []
 
     for doc in docs:
         rel = str(doc.relative_to(ROOT))
         if not doc.exists():
             mismatches.append(f"{rel}: MISSING")
             continue
-        check_text(doc.read_text(encoding="utf-8"), rel, allow_trigger=False)
-    check_text(top_entry, "CHANGELOG.md (top entry)", allow_trigger=True)
+        mismatches.extend(
+            _doc_count_mismatches(
+                doc.read_text(encoding="utf-8"), rel, False, canonical, addon, suite_counts
+            )
+        )
+    mismatches.extend(
+        _doc_count_mismatches(
+            top_entry, "CHANGELOG.md (top entry)", True, canonical, addon, suite_counts)
+    )
 
     ok = not mismatches
-    return ok, ("all docs match canonical" if ok else f"mismatches={mismatches}")
+    detail = f"canonical={canonical}; addon={addon}"
+    return ok, (f"all docs match {detail}" if ok else f"{detail}; mismatches={mismatches}")
 
 
 def case_bench_validate_requires_cost_fields(tmp: Path) -> tuple[bool, str]:
@@ -1563,6 +1643,223 @@ def case_check_config_always_prints_heterogeneity(tmp: Path) -> tuple[bool, str]
     return ok, f"exit={code}; skipped_line={skipped_line}; out={out.strip()[:160]!r}"
 
 
+def case_record_mutation_roundtrip(tmp: Path) -> tuple[bool, str]:
+    """record set-status/add-evidence/add-ac mutate the record atomically,
+    preserve unknown fields, and the mutated record still passes check-record."""
+    record = base_record(status="implement")
+    record["custom_extra"] = {"keep": "me"}  # unknown field must survive mutation
+    path = tmp / "record.json"
+    path.write_text(json.dumps(record))
+
+    c1, _, e1 = run_cli("record", "set-status", str(path), "verify")
+    c2, _, e2 = run_cli(
+        "record", "add-evidence", str(path),
+        "--cmd", "pytest -q", "--result", "pass", "--class", "unit",
+        "--evidence", "13 passed",
+    )
+    c3, _, e3 = run_cli(
+        "record", "add-ac", str(path),
+        "--criterion", "totals round once", "--proving-command", "pytest -q",
+    )
+    mutated = json.loads(path.read_text())
+    status_set = mutated.get("status") == "verify"
+    row = (mutated.get("commands_run") or [])[-1]
+    row_ok = row == {"cmd": "pytest -q", "class": "unit", "result": "pass", "evidence": "13 passed"}
+    ac = (mutated.get("acceptance_criteria") or [])[-1]
+    ac_ok = ac == {"criterion": "totals round once", "proving_command": "pytest -q"}
+    preserved = mutated.get("custom_extra") == {"keep": "me"}
+    check_code, _, check_err = run_cli("check-record", str(path))
+    ok = (
+        c1 == c2 == c3 == 0 and status_set and row_ok and ac_ok
+        and preserved and check_code == 0
+    )
+    return ok, (
+        f"exits=({c1},{c2},{c3}); status_set={status_set}; row_ok={row_ok}; "
+        f"ac_ok={ac_ok}; preserved={preserved}; check_record={check_code} "
+        f"err={(e1 + e2 + e3 + check_err).strip()[:120]!r}"
+    )
+
+
+def case_record_mutation_malformed_errors(tmp: Path) -> tuple[bool, str]:
+    """Malformed record-mutation input (missing file, bad status, bad result
+    enum, non-object record, blank criterion) exits non-zero with a clear
+    stderr message — never a traceback."""
+    path = tmp / "record.json"
+    path.write_text(json.dumps(base_record()))
+    list_path = tmp / "list.json"
+    list_path.write_text("[1, 2]")
+
+    runs = [
+        run_cli("record", "set-status", str(tmp / "missing.json"), "plan"),
+        run_cli("record", "set-status", str(path), "shipped"),
+        run_cli(
+            "record", "add-evidence", str(path),
+            "--cmd", "x", "--result", "maybe", "--class", "unit", "--evidence", "e",
+        ),
+        run_cli("record", "set-status", str(list_path), "plan"),
+        run_cli("record", "add-ac", str(path), "--criterion", "   ", "--proving-command", "x"),
+    ]
+    all_nonzero = all(code != 0 for code, _, _ in runs)
+    no_traceback = all("Traceback" not in (out + err) for _, out, err in runs)
+    messages = [
+        ("not found", runs[0][2]),
+        ("invalid choice", runs[1][2]),
+        ("invalid choice", runs[2][2]),
+        ("must be a JSON object", runs[3][2]),
+        ("non-empty string", runs[4][2]),
+    ]
+    clear = all(needle in err for needle, err in messages)
+    untouched = json.loads(path.read_text())["status"] == "intake"  # failed runs never wrote
+    ok = all_nonzero and no_traceback and clear and untouched
+    return ok, (
+        f"exits={[c for c, _, _ in runs]}; no_traceback={no_traceback}; "
+        f"clear={clear}; untouched={untouched}"
+    )
+
+
+def case_record_mutation_refuses_invalid_result(tmp: Path) -> tuple[bool, str]:
+    """A mutation that would INTRODUCE a validation error is refused and leaves
+    the file untouched (v6.2 cross-family review): the CLI must never persist a
+    record it just made invalid. Concretely, `set-status done` on a record with
+    no minimality_decision introduces the 'required at minimality_gate or later'
+    error, so it must exit non-zero, print that error, and NOT write."""
+    path = tmp / "record.json"
+    rec = base_record()
+    rec["status"] = "intake"
+    rec.pop("minimality_decision", None)
+    path.write_text(json.dumps(rec))
+    code, out, err = run_cli("record", "set-status", str(path), "done")
+    refused = code != 0 and "minimality_decision is required" in err and "invalid" in err.lower()
+    untouched = json.loads(path.read_text())["status"] == "intake"
+    # And a mutation that keeps the record valid still succeeds.
+    code_ok, _, _ = run_cli("record", "set-status", str(path), "explore")
+    advanced = code_ok == 0 and json.loads(path.read_text())["status"] == "explore"
+    ok = refused and untouched and advanced
+    return ok, f"refused={refused}; untouched={untouched}; valid_move_ok={advanced}"
+
+
+def case_record_outcome_writes_field_and_ledger(tmp: Path) -> tuple[bool, str]:
+    """record outcome sets record['outcome'] (verdict/note/recorded_at), appends
+    a {task_id, verdict, note, recorded_at} line to .quality-loop/outcomes.jsonl,
+    the record still passes check-record, and a malformed outcome fails it."""
+    path = tmp / "record.json"
+    path.write_text(json.dumps(base_record()))
+    c1, out1, err1 = run_cli("record", "outcome", str(path), "clean", "--note", "shipped fine")
+    c2, _, _ = run_cli("record", "outcome", str(path), "regressed", "--note", "hotfixed later")
+
+    record = json.loads(path.read_text())
+    field = record.get("outcome") or {}
+    field_ok = bool(
+        field.get("verdict") == "regressed"
+        and field.get("note") == "hotfixed later"
+        and isinstance(field.get("recorded_at"), str) and field["recorded_at"]
+    )
+    ledger = tmp / ".quality-loop" / "outcomes.jsonl"
+    rows = [json.loads(l) for l in ledger.read_text().splitlines()] if ledger.is_file() else []
+    ledger_ok = (
+        len(rows) == 2
+        and rows[0] == {"task_id": "t-eval", "verdict": "clean", "note": "shipped fine",
+                        "recorded_at": rows[0].get("recorded_at")}
+        and rows[1].get("verdict") == "regressed"
+    )
+    check_code, _, _ = run_cli("check-record", str(path))
+
+    bad = base_record()
+    bad["outcome"] = {"verdict": "meh"}
+    bad_path = tmp / "bad.json"
+    bad_path.write_text(json.dumps(bad))
+    bad_code, _, bad_err = run_cli("check-record", str(bad_path))
+    bad_rejected = bad_code == 1 and "outcome.verdict" in bad_err
+
+    ok = c1 == c2 == 0 and field_ok and ledger_ok and check_code == 0 and bad_rejected
+    return ok, (
+        f"exits=({c1},{c2}); field_ok={field_ok}; ledger_rows={len(rows)}; "
+        f"ledger_ok={ledger_ok}; check_record={check_code}; bad_rejected={bad_rejected}"
+    )
+
+
+def case_brief_prints_outcome_tally(tmp: Path) -> tuple[bool, str]:
+    """brief prints the one-line outcomes tally when .quality-loop/outcomes.jsonl
+    exists (skipping malformed lines) and stays silent when it is absent."""
+    silent_dir = tmp / "no-ledger"
+    silent_dir.mkdir()
+    code_s, out_s, _ = run_cli("brief", "--cwd", str(silent_dir), cwd=str(silent_dir))
+    silent = code_s == 0 and "outcomes (this repo)" not in out_s
+
+    ql_dir = tmp / ".quality-loop"
+    ql_dir.mkdir()
+    rows = [
+        {"task_id": "a", "verdict": "clean", "note": "", "recorded_at": "2026-07-21T00:00:00+00:00"},
+        {"task_id": "b", "verdict": "clean", "note": "", "recorded_at": "2026-07-21T00:00:01+00:00"},
+        {"task_id": "c", "verdict": "regressed", "note": "x", "recorded_at": "2026-07-21T00:00:02+00:00"},
+    ]
+    (ql_dir / "outcomes.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\nnot json\n"
+    )
+    code_t, out_t, _ = run_cli("brief", "--cwd", str(tmp), cwd=str(tmp))
+    expected = "outcomes (this repo): 3 recorded — 2 clean, 1 regressed, 0 reverted"
+    tally = code_t == 0 and expected in out_t
+    code_j, out_j, _ = run_cli("brief", "--cwd", str(tmp), "--json", cwd=str(tmp))
+    try:
+        json_tally = json.loads(out_j).get("outcomes_tally") == expected
+    except json.JSONDecodeError:
+        json_tally = False
+    ok = silent and tally and code_j == 0 and json_tally
+    return ok, f"silent={silent}; tally={tally}; json_tally={json_tally}; exits=({code_s},{code_t},{code_j})"
+
+
+def case_derived_count_lint_catches_wrong_number(tmp: Path) -> tuple[bool, str]:
+    """canonical_gate_cases()/control_addon_cases() are DERIVED from the real
+    suites (static cases/*.json + each suite's len(CASES)), and the lint still
+    fails a doc stating a wrong number against the derived totals."""
+    import importlib
+
+    evals_dir = str(ROOT / "evals")
+    if evals_dir not in sys.path:
+        sys.path.insert(0, evals_dir)
+    static = len(list((ROOT / "evals" / "cases").glob("*.json")))
+    suites = {
+        m: len(importlib.import_module(m).CASES)
+        for m in ("run_memory_evals", "run_reality_evals", "run_routing_evals", "run_hook_evals")
+    }
+    expected = static + len(CASES) + sum(suites.values())
+    canonical = canonical_gate_cases()
+    addon = control_addon_cases()
+    derived_ok = (
+        canonical == expected
+        and addon == len(importlib.import_module("run_control_evals").CASES)
+        and canonical > 0 and addon > 0
+    )
+
+    wrong = _doc_count_mismatches(
+        f"the suite ships {canonical + 1} gate cases plus {addon + 1} add-on cases",
+        "synthetic.md", False, canonical, addon,
+    )
+    right = _doc_count_mismatches(
+        f"the suite ships {canonical} gate cases plus {addon} add-on cases",
+        "synthetic.md", False, canonical, addon,
+    )
+    catches = len(wrong) == 2 and right == []
+
+    # Per-suite breakdown arithmetic (v6.2 review): a right TOTAL with ONE wrong
+    # addend (hook off by one) must be caught when suite_counts is supplied.
+    sc = {"static": static, "behavioral": len(CASES), "memory": suites["run_memory_evals"],
+          "reality": suites["run_reality_evals"], "routing": suites["run_routing_evals"],
+          "hook": suites["run_hook_evals"]}
+    good_bd = (f"{sc['static']} static + {sc['behavioral']} behavioral + {sc['memory']} memory + "
+               f"{sc['reality']} reality + {sc['routing']} routing + {sc['hook']} hook = {canonical} cases")
+    bad_bd = good_bd.replace(f"{sc['hook']} hook", f"{sc['hook'] - 1} hook")  # addend wrong, total right-looking
+    bd_clean = _doc_count_mismatches(good_bd, "synthetic.md", False, canonical, addon, sc) == []
+    bd_caught = len(_doc_count_mismatches(bad_bd, "synthetic.md", False, canonical, addon, sc)) >= 1
+
+    ok = derived_ok and catches and bd_clean and bd_caught
+    return ok, (
+        f"canonical={canonical} (static={static} + behavioral={len(CASES)} + {suites}); "
+        f"addon={addon}; derived_ok={derived_ok}; wrong_flagged={len(wrong)}; "
+        f"bd_clean={bd_clean}; bd_caught={bd_caught}"
+    )
+
+
 CASES = [
     ("tiny work does not require mission artifacts", case_tiny_no_artifacts),
     ("diff-audit flags secrets in untracked files", case_untracked_secret_flagged),
@@ -1619,6 +1916,12 @@ CASES = [
     ("control_plane shape is validated in core even without the add-on installed", case_check_config_core_control_plane_shape),
     ("check-config prints heterogeneity_status even without model_routing (SKIPPED)", case_check_config_always_prints_heterogeneity),
     ("config schema version is pinned three ways (engine == schema const == example)", case_config_schema_version_pinned),
+    ("record set-status/add-evidence/add-ac round-trip; mutated record passes check-record", case_record_mutation_roundtrip),
+    ("malformed record-mutation input errors cleanly (no traceback, no write)", case_record_mutation_malformed_errors),
+    ("record mutation refuses to write a newly-invalid record", case_record_mutation_refuses_invalid_result),
+    ("record outcome writes the field and the outcomes.jsonl ledger", case_record_outcome_writes_field_and_ledger),
+    ("brief prints the outcomes tally and stays silent without a ledger", case_brief_prints_outcome_tally),
+    ("derived count lint computes the real total and still catches a wrong doc number", case_derived_count_lint_catches_wrong_number),
 ]
 
 

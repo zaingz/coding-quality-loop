@@ -88,6 +88,29 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
   stdout — pipe it to the reviewing CLI (see `docs/cross-cli-recipe.md`).
 - `scan-text --stdin` secret-scans text for host hook shims.
 
+**Record mutation (`record <verb>`).** The sanctioned, structured way to change
+the record: each verb does an atomic, schema-validated write that preserves
+unknown fields, so an agent advances the lifecycle without hand-editing JSON or
+shelling out a heredoc. Malformed input (missing file, unknown status, bad
+`--result` enum) exits non-zero with a clear stderr message, never a traceback.
+
+```bash
+python3 scripts/quality_loop.py record set-status .quality-loop/agent-record.json implement
+python3 scripts/quality_loop.py record add-evidence .quality-loop/agent-record.json --cmd "pytest -q" --result pass --class unit --evidence "42 passed"
+python3 scripts/quality_loop.py record add-ac .quality-loop/agent-record.json --criterion "totals round once" --proving-command "pytest -q tests/test_round.py"
+python3 scripts/quality_loop.py record outcome .quality-loop/agent-record.json clean --note "shipped, no regressions after a week"
+```
+
+- `record set-status` validates the status against the known lifecycle statuses.
+- `record add-evidence` appends a `commands_run` row (`--reason` optional, for a
+  `blocked` result).
+- `record add-ac` appends an object acceptance criterion with its proving command.
+- `record outcome <clean|regressed|reverted>` sets `record["outcome"] =
+  {verdict, note, recorded_at}` **and** appends one line to
+  `.quality-loop/outcomes.jsonl` (`{task_id, verdict, note, recorded_at}`) — the
+  post-merge feedback the next session's `brief` tallies. The `outcome` field is
+  optional in the schema; its absence is valid and no gate requires it.
+
 Memory: `memory-recall`, `memory-commit`, `memory-prune`, `memory-status` (see
 `references/memory.md`).
 
@@ -102,8 +125,12 @@ subcommands are absent from `--help` and rejected by argparse. See `docs/control
 - `control-ingest --event NAME` — hook entry point; no-op unless `control_plane.enabled`,
   always exits 0.
 - `control-report --task-id <id>` — per-task audit bundle (goal, rung, plan, delegations,
-  verdicts+findings, spend, sessions) as markdown or JSON; `control-report --arm-costs
-  [--since ISO-TS]` emits per-session `tokens_in`/`tokens_out`/`duration_sec` JSON.
+  verdicts+findings, spend, sessions) as markdown or JSON. `control-report --review-yield`
+  emits a per-record table (independent/security finding counts, `review_findings[]` entries
+  carrying a non-empty `resolution`, and the `outcome` verdict) read straight from
+  `docs/records/*.json` + the live record — the index is not touched. `control-report
+  --arm-costs [--since ISO-TS]` emits per-session `tokens_in`/`tokens_out`/`duration_sec` JSON.
+  All three are queries — no gate reads their output.
 
 Contract: the index is a disposable cache over evidence — no gate reads it.
 
@@ -169,6 +196,8 @@ Shipped host hooks (see `references/enforcement-matrix.md`) block or escalate:
   sudo-wrapped forms, `git checkout -- <path>`, and force pushes).
 - Data deletion, irreversible migrations, or payment side effects.
 - Tampering with the harness itself (`protect_harness`, default on): edits to the helper
-  scripts, hook shims, the active record, or the canonical config are denied — tamper
-  evidence, not immutability.
+  scripts, hook shims, and the canonical config are denied — tamper evidence, not
+  immutability. The active record is deliberately **not** denied (the lifecycle mutates it
+  continuously; the `record` CLI is the sanctioned structured write), and `rm` of the record
+  or `.quality-loop/` is still denied.
 - Completion claims for non-trivial tasks with no completion record (the shipping gate).

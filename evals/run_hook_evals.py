@@ -17,6 +17,12 @@ STOP = ROOT / "hosts" / "claude-code" / "stop_gate.py"
 START = ROOT / "hosts" / "claude-code" / "sessionstart_context.py"
 INSTALL = ROOT / "scripts" / "install.py"
 
+# Import the stop gate itself so the last-verified marker cases compute the diff
+# hash with the hook's OWN helper — the value the hook will compare against —
+# instead of duplicating the canonical-diff logic here (they can never diverge).
+sys.path.insert(0, str(STOP.parent))
+import stop_gate  # noqa: E402
+
 PASS = "PASS"
 FAIL = "FAIL"
 
@@ -754,6 +760,124 @@ def case_stop_gate_terminal_runs_verify_umbrella(tmp: Path) -> tuple[bool, str]:
     return ok_default and ok_env, f"default_ok={ok_default} env_ok={ok_env}; out={out.strip()[:200]!r}"
 
 
+def _marker_repo(tmp: Path, gate_exit: int = 1) -> tuple[Path, str | None]:
+    """A terminal-status repo whose working tree carries a real (non-.quality-
+    loop) change, so the stop reaches the last-verified marker check rather than
+    the closed-record path. scripts/quality_loop.py is a stub that prints ARGS
+    on every invocation — its ABSENCE from the output proves no re-execution.
+    ``gate_exit`` is the stub umbrella's exit code: the SKIP test passes 0 (a
+    would-PASS runner, so the fixture is honest — the marker claims a passing
+    verify), while the NEGATIVE tests keep 1 (a would-FAIL runner) to prove the
+    umbrella actually ran and BLOCKED. Returns (repo, canonical_diff_sha256)."""
+    repo = make_repo(tmp, with_scripts=True)
+    # Overwrite the gate runner with an observable stub (uncommitted -> dirty
+    # tree, and a real diff outside .quality-loop).
+    (repo / "scripts" / "quality_loop.py").write_text(
+        f"import sys\nprint('ARGS: ' + ' '.join(sys.argv[1:]))\nsys.exit({gate_exit})\n")
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    (qdir / "agent-record.json").write_text(json.dumps(done_record()))
+    # The record + marker live under .quality-loop, which the canonical diff
+    # excludes, so writing them never changes the hash.
+    digest = stop_gate._canonical_diff_sha256("HEAD", repo)
+    return repo, digest
+
+
+def _write_marker(repo: Path, base: str, digest: str, status: str,
+                  record_digest: str | None = None) -> None:
+    import hashlib as _hl
+    if record_digest is None:
+        record_digest = _hl.sha256(
+            (repo / ".quality-loop" / "agent-record.json").read_bytes()).hexdigest()
+    (repo / ".quality-loop" / "last-verified.json").write_text(json.dumps({
+        "diff_sha256": digest, "record_sha256": record_digest, "base": base,
+        "status": status, "verified_at": "2026-07-21T00:00:00Z",
+    }), encoding="utf-8")
+
+
+def case_stop_gate_skips_reexec_on_fresh_marker(tmp: Path) -> tuple[bool, str]:
+    # Smart stop gate: a last-verified.json whose diff hash + record hash +
+    # status match the current state means the full `verify` umbrella already
+    # passed for this exact state — skip the re-execution (pure latency win).
+    # The stub is a would-PASS runner (exit 0) so the fixture is honest: the
+    # marker claims a passing verify. The stub is NOT invoked, so 'ARGS:' must
+    # be absent and the stderr note must appear (a regressed skip would run the
+    # exit-0 stub and 'ARGS:' would appear, failing this assertion).
+    repo, digest = _marker_repo(tmp, gate_exit=0)
+    if not digest:
+        return False, "canonical_diff_sha256 returned no hash (Lane 1 helper + diff_sha256 both unavailable)"
+    _write_marker(repo, "HEAD", digest, "done")
+    code, out, err = _stop(repo)
+    ok = (code == 0 and out.strip() == "" and "ARGS:" not in out
+          and "verified clean" in err and "skipping re-execution" in err)
+    return ok, f"exit={code}; out={out.strip()[:80]!r}; err={err.strip()[:160]!r}"
+
+
+def case_stop_gate_reruns_umbrella_on_stale_marker(tmp: Path) -> tuple[bool, str]:
+    # New work lands AFTER verify wrote the marker: the diff hash no longer
+    # matches, so the marker is stale and the full umbrella must still run
+    # (stub prints 'ARGS: verify' and exits 1 -> block). Fails SAFE toward the gate.
+    repo, digest = _marker_repo(tmp)
+    if not digest:
+        return False, "canonical_diff_sha256 returned no hash"
+    _write_marker(repo, "HEAD", digest, "done")
+    # A further edit outside .quality-loop changes the canonical diff.
+    (repo / "scripts" / "quality_loop.py").write_text(
+        "import sys\nprint('ARGS: ' + ' '.join(sys.argv[1:]))\nsys.exit(1)\n# changed after verify\n")
+    code, out, err = _stop(repo)
+    ok = (code == 0 and _decision(out) == "block" and "ARGS: verify " in out
+          and "verified clean" not in err)
+    return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:120]!r}; err={err.strip()[:100]!r}"
+
+
+def case_stop_gate_reruns_umbrella_on_record_mutation(tmp: Path) -> tuple[bool, str]:
+    # Regression guard (v6.2.0 cross-family review): the umbrella verdict
+    # depends on the RECORD (it re-executes commands_run and checks AC
+    # coverage), and the record lives under .quality-loop/, which the canonical
+    # DIFF hash EXCLUDES. A marker keyed on diff+status alone would let a
+    # post-verify `record add-evidence` append a failing pass-claim, flip the
+    # umbrella to FAIL, yet still match and be skipped. The marker must also
+    # bind the record content hash: mutating the record after the marker is
+    # written must force the full umbrella (stub prints 'ARGS: verify', blocks).
+    repo, digest = _marker_repo(tmp)
+    if not digest:
+        return False, "canonical_diff_sha256 returned no hash"
+    _write_marker(repo, "HEAD", digest, "done")  # captures the current record hash
+    rec_path = repo / ".quality-loop" / "agent-record.json"
+    rec = json.loads(rec_path.read_text())
+    rec.setdefault("commands_run", []).append(
+        {"cmd": "sh -c 'exit 7'", "result": "pass", "class": "unit", "evidence": "claims pass, actually fails"})
+    rec_path.write_text(json.dumps(rec), encoding="utf-8")
+    code, out, err = _stop(repo)
+    ok = (code == 0 and _decision(out) == "block" and "ARGS: verify " in out
+          and "verified clean" not in err)
+    return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:120]!r}; err={err.strip()[:110]!r}"
+
+
+def case_stop_gate_runs_umbrella_without_marker(tmp: Path) -> tuple[bool, str]:
+    # No last-verified.json at all: the optimization is absent and the terminal
+    # stop runs the full umbrella exactly as it does today (stub -> block).
+    repo, _ = _marker_repo(tmp)
+    code, out, err = _stop(repo)
+    ok = code == 0 and _decision(out) == "block" and "ARGS: verify " in out
+    return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:120]!r}"
+
+
+def case_stop_gate_marker_bad_base_fails_safe(tmp: Path) -> tuple[bool, str]:
+    # Fail-safe: a marker whose `base` is an unresolvable ref makes the canonical
+    # diff helper's git wrapper exit (SystemExit). The hook must swallow it and
+    # run the full umbrella (block via stub) — NOT crash out with a non-2 exit,
+    # which Claude Code would read as ALLOW (the unsafe direction). The stub's
+    # 'ARGS: verify' in the block proves the umbrella ran, and the JSON decision
+    # (a clean hook exit) proves the hook did not die on the SystemExit.
+    repo, _ = _marker_repo(tmp)
+    _write_marker(repo, "no-such-ref-xyz", "0" * 64, "done")
+    code, out, err = _stop(repo)
+    ok = (code == 0 and _decision(out) == "block" and "ARGS: verify " in out
+          and "verified clean" not in err)
+    return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:120]!r}; err={err.strip()[:100]!r}"
+
+
 def case_stop_gate_timeout_failure_names_override(tmp: Path) -> tuple[bool, str]:
     # A timeout-looking gate failure must tell the agent that slow suites can
     # raise the limit via QUALITY_LOOP_TIMEOUT.
@@ -905,6 +1029,11 @@ CASES = [
     ("Install writes portable hooks; uninstall survives interpreter drift", case_install_hooks_portable_and_uninstall_survives_drift),
     ("Stop hook timeout covers the terminal verify umbrella budget", case_settings_stop_timeout_covers_verify),
     ("Stop gate runs the verify umbrella at terminal statuses", case_stop_gate_terminal_runs_verify_umbrella),
+    ("Stop gate skips re-execution when a fresh last-verified marker matches", case_stop_gate_skips_reexec_on_fresh_marker),
+    ("Stop gate re-runs the umbrella when the last-verified marker is stale", case_stop_gate_reruns_umbrella_on_stale_marker),
+    ("Stop gate re-runs the umbrella when the record is mutated after the marker", case_stop_gate_reruns_umbrella_on_record_mutation),
+    ("Stop gate runs the umbrella when no last-verified marker exists", case_stop_gate_runs_umbrella_without_marker),
+    ("Stop gate fails safe (runs umbrella) when the marker base is unresolvable", case_stop_gate_marker_bad_base_fails_safe),
     ("Stop gate names QUALITY_LOOP_TIMEOUT on timeout-looking failures", case_stop_gate_timeout_failure_names_override),
     ("Stop gate names the cause and remedies on runner exit 2", case_stop_gate_terminal_exit2_names_cause),
     ("Stop gate skips active stop loop", case_stop_gate_skips_active_loop),

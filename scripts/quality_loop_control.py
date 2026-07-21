@@ -2320,6 +2320,111 @@ def render_report_md(bundle: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _record_files(root: Path) -> list[Path]:
+    """The record files review-yield reads: the live record, then every
+    archived record under docs/records/ (sorted). Read straight from disk — the
+    query never touches the index DB."""
+    files: list[Path] = []
+    live = root / ".quality-loop" / "agent-record.json"
+    if live.is_file():
+        files.append(live)
+    records_dir = root / "docs" / "records"
+    if records_dir.is_dir():
+        files.extend(sorted(records_dir.glob("*.json")))
+    return files
+
+
+def _channel_finding_count(review: Any) -> int:
+    """Number of findings raised by a review channel (its ``findings[]`` array)."""
+    if isinstance(review, dict) and isinstance(review.get("findings"), list):
+        return len(review["findings"])
+    return 0
+
+
+def review_yield(root: Path) -> dict[str, Any]:
+    """Per-record review yield: for every agent record (live + docs/records
+    history), how many findings each review channel raised, how many
+    ``review_findings[]`` entries were actually acted on (carry a non-empty
+    ``resolution`` — the finding->fix proxy), and the recorded outcome verdict
+    when present.
+
+    A pure query over the record files on disk: never a gate, and it neither
+    reads nor writes the control-plane index. Records that will not parse are
+    skipped rather than aborting the report."""
+    rows: list[dict[str, Any]] = []
+    for path in _record_files(root):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(record, dict):
+            continue
+        try:
+            rel = path.relative_to(root).as_posix()
+        except ValueError:
+            rel = path.name
+        review_findings = record.get("review_findings")
+        rf_total = len(review_findings) if isinstance(review_findings, list) else 0
+        resolved = 0
+        if isinstance(review_findings, list):
+            for entry in review_findings:
+                if isinstance(entry, dict):
+                    resolution = entry.get("resolution")
+                    if isinstance(resolution, str) and resolution.strip():
+                        resolved += 1
+        outcome = record.get("outcome")
+        verdict = outcome.get("verdict") if isinstance(outcome, dict) else None
+        rows.append({
+            "task_id": str(record.get("task_id") or rel),
+            "source": rel,
+            "live": rel.startswith(".quality-loop"),
+            "independent_findings": _channel_finding_count(record.get("independent_review")),
+            "security_findings": _channel_finding_count(record.get("security_review")),
+            "review_findings": rf_total,
+            "resolved_findings": resolved,
+            "outcome": verdict if isinstance(verdict, str) and verdict else None,
+        })
+    totals: dict[str, Any] = {
+        "records": len(rows),
+        "independent_findings": sum(r["independent_findings"] for r in rows),
+        "security_findings": sum(r["security_findings"] for r in rows),
+        "review_findings": sum(r["review_findings"] for r in rows),
+        "resolved_findings": sum(r["resolved_findings"] for r in rows),
+    }
+    outcomes: dict[str, int] = {}
+    for r in rows:
+        if r["outcome"]:
+            outcomes[r["outcome"]] = outcomes.get(r["outcome"], 0) + 1
+    totals["outcomes"] = outcomes
+    return {"records": rows, "totals": totals}
+
+
+def render_review_yield_md(payload: dict[str, Any]) -> str:
+    """Markdown table of the review-yield query (one row per record + a total)."""
+    rows = payload.get("records") or []
+    lines = ["# Review yield", ""]
+    if not rows:
+        lines.append("_No records found "
+                     "(looked at .quality-loop/agent-record.json + docs/records/*.json)._")
+        return "\n".join(lines) + "\n"
+    lines.append("| release/task_id | independent | security | review_findings | resolved | outcome |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | --- |")
+    for r in rows:
+        lines.append(
+            f"| {r['task_id']} | {r['independent_findings']} | {r['security_findings']} "
+            f"| {r['review_findings']} | {r['resolved_findings']} | {r['outcome'] or '—'} |"
+        )
+    t = payload.get("totals") or {}
+    outcomes = t.get("outcomes") or {}
+    outcome_cell = ", ".join(f"{k}:{v}" for k, v in sorted(outcomes.items())) if outcomes else "—"
+    lines.append(
+        f"| **total ({t.get('records', 0)})** | {t.get('independent_findings', 0)} "
+        f"| {t.get('security_findings', 0)} | {t.get('review_findings', 0)} "
+        f"| {t.get('resolved_findings', 0)} | {outcome_cell} |"
+    )
+    return "\n".join(lines) + "\n"
+
+
 def arm_costs(conn: sqlite3.Connection, since: str | None = None) -> dict[str, Any]:
     """Per-session token/duration figures shaped for a bench results arm.
 
@@ -2366,12 +2471,20 @@ def arm_costs(conn: sqlite3.Connection, since: str | None = None) -> dict[str, A
 
 
 def cmd_report(args: Any) -> int:
-    """Emit a per-task audit bundle (markdown default, --json optional), or —
-    with --arm-costs — per-session cost figures for a bench results arm.
+    """Emit a per-task audit bundle (markdown default, --json optional); with
+    --review-yield, a per-record review-yield table instead; with --arm-costs,
+    per-session cost figures for a bench results arm.
 
     Exit 0 on success; exit 2 with a helpful message when the task is unknown.
     """
     root = _root_from(args)
+    if getattr(args, "review_yield", False):
+        payload = review_yield(root)
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+        else:
+            print(render_review_yield_md(payload), end="")
+        return 0
     if getattr(args, "arm_costs", False):
         since = getattr(args, "since", None)
         if since and _parse_ts(since) is None:

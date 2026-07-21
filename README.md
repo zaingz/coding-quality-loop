@@ -10,10 +10,10 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-6.1.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-6.2.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-234%20core%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-247%20core%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-routed-111111?style=flat-square)](#install--use-matrix)
@@ -197,7 +197,7 @@ python3 evals/run_control_evals.py                                              
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 10. bench fixture smoke
 ```
 
-Current result: **20/20 static** + **55/55 behavioral** + **32/32 memory** + **48/48 reality** + **30/30 routing** + **49/49 hook** = **234 gate cases** across the six core suites, plus **35 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
+Current result: **20/20 static** + **61/61 behavioral** + **32/32 memory** + **50/50 reality** + **30/30 routing** + **54/54 hook** = **247 gate cases** across the six core suites, plus **36 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -442,7 +442,7 @@ python3 scripts/quality_loop.py control-serve    # dashboard at http://127.0.0.1
 
 <img src="docs/images/control-plane-task-timeline.png" alt="Control plane task-audit view for task v5-docs-overhaul — header tiles for model calls, input/output tokens, findings (6), and delegations (3) over a single chronological timeline that interleaves delegations (implementer, validator, simplicity_reviewer), the minimal_new_code minimality rung, review findings by severity, and tool events: the per-task audit trail tying findings, delegations, verdicts, and spend to the sessions that produced them" width="900">
 
-It is an **index over evidence, never a gate**: a disposable SQLite cache under `.quality-loop/control/` (self-gitignored, excluded from attestation) rebuilt from sources of truth — host transcripts and loop artifacts. Local-only by construction: stdlib `http.server` hard-bound to `127.0.0.1`, GET-only API, zero dependencies, no conversation bodies stored beyond a 160-char title line and truncated tool targets. Spend is reported in tokens; USD appears only if you supply your own `control_plane.prices` — no vendor price data ships. Opt-in hooks (`control_plane.enabled`) record session start/end and autostart the server; the ingest path always exits 0, so a broken observability plane can never break a session. **35 add-on cases** pin the whole surface (kept out of the core gate-case headline because the add-on is not installed by default). See [`docs/control-plane.md`](docs/control-plane.md).
+It is an **index over evidence, never a gate**: a disposable SQLite cache under `.quality-loop/control/` (self-gitignored, excluded from attestation) rebuilt from sources of truth — host transcripts and loop artifacts. Local-only by construction: stdlib `http.server` hard-bound to `127.0.0.1`, GET-only API, zero dependencies, no conversation bodies stored beyond a 160-char title line and truncated tool targets. Spend is reported in tokens; USD appears only if you supply your own `control_plane.prices` — no vendor price data ships. Opt-in hooks (`control_plane.enabled`) record session start/end and autostart the server; the ingest path always exits 0, so a broken observability plane can never break a session. **36 add-on cases** pin the whole surface (kept out of the core gate-case headline because the add-on is not installed by default). See [`docs/control-plane.md`](docs/control-plane.md).
 
 ---
 
@@ -522,7 +522,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all suites green: 20 static + 55 behavioral + 32 memory + 48 reality + 30 routing + 49 hook = 234 gate cases, plus 35 add-on cases for the control plane).
+     and the full eval suite (all suites green: 20 static + 61 behavioral + 32 memory + 50 reality + 30 routing + 54 hook = 247 gate cases, plus 36 add-on cases for the control plane).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules

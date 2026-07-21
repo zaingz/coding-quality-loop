@@ -4,9 +4,36 @@
 > commitment; the loop's non-negotiable is that we ship the smallest correct change,
 > and that includes the roadmap itself.
 
-Last updated: 2026-07-20.
+Last updated: 2026-07-21.
 
-## Now — landed in v6.1.0 (the field-truth release)
+## Now — landed in v6.2.0 (prove it, smooth it, learn from it)
+
+v6.1.0 made the trust chain true in the field; v6.2.0 wraps three loops around
+it — measure the yield, remove the friction that pushes agents off the honest
+path, and feed the shipped outcome back. No new gate: the blocking surface is
+unchanged. See `CHANGELOG.md` §6.2.0. The six live `§6.2` benchmark runs are
+still deliberately **not** claimed done — they are an operator action, now one
+CLI call away rather than a dashboard hand-copy; they remain the named next
+milestone below.
+
+- ✅ **Measurement is a query, not a chore.** `control-report --review-yield`
+  tables per-record finding counts, resolved `review_findings[]`, and the
+  outcome verdict from the records already in git; with the existing
+  `--arm-costs` bench-cost query, the numbers a pilot needs are one command
+  away. Both are queries — no gate reads them.
+- ✅ **Friction removed from the honest path.** A structured `record` CLI
+  (`set-status` / `add-evidence` / `add-ac` / `outcome`) does atomic,
+  schema-validated writes so the agent advances the lifecycle without heredocs;
+  a smart Stop gate skips the `verify` re-execution when a `last-verified`
+  marker proves the same diff + status already passed (fails safe to the full
+  umbrella on any mismatch); and the canonical gate-case count is derived from
+  the suites at runtime, so the badges cannot drift from a hand-set literal.
+- ✅ **Outcome feedback closes the loop.** `record outcome
+  <clean|regressed|reverted>` records post-merge truth on the record and appends
+  to `.quality-loop/outcomes.jsonl`; the next session's `brief` tallies it. The
+  field is optional — absence is valid, no gate requires it.
+
+## Landed in v6.1.0 (the field-truth release)
 
 Executed against [`docs/improvement-plan-v6.0.1-2026-07-20.md`](docs/improvement-plan-v6.0.1-2026-07-20.md)
 (a same-day second review round: 13 dual-verified majors, then two fresh-context

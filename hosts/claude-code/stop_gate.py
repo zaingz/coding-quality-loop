@@ -17,6 +17,10 @@ Decision table (evaluated top to bottom):
       (== base, no local modifications)            from base with nothing in flight; skips the
                                                    verify umbrella so a cloned/merged done record
                                                    does not re-execute its commands at every Stop)
+  - status in {package, done} + fresh last-       -> allow (the SAME diff+status already passed the
+      verified marker (diff + status unchanged)    full `verify` umbrella; skip the re-execution as
+                                                   a pure latency win — any mismatch or unreadable
+                                                   marker runs the umbrella exactly as it would today)
   - status in {package, done}                   -> run `verify` umbrella; block on failure
   - {verify, review, retrospect, reasonless escalated}
       + dirty tree                              -> run `verify-gates`; block on failure
@@ -31,6 +35,7 @@ the PR. It is never silently ungated end-to-end.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -201,6 +206,93 @@ def _record_is_closed(root: Path, record: Path) -> bool:
     return head_blob.stdout == base_blob.stdout
 
 
+def _canonical_diff_sha256(base: str, root: Path) -> str | None:
+    """Current canonical diff hash for ``base``, computed by Lane 1's shared
+    helper in quality_loop_reality — the SAME hash attest-review, review
+    freshness, and the `verify` umbrella use, so the marker written by `verify`
+    and the value checked here can never diverge on hash semantics.
+
+    Imported lazily from the record repo's own scripts dir (the copy the gates
+    run from), preferring ``canonical_diff_sha256`` and falling back to the
+    long-standing ``diff_sha256(..., exclude_record_dir=True)`` it wraps. Any
+    failure — module or helper absent, git error, unreadable tree — returns
+    None so the caller fails SAFE toward re-running the full umbrella."""
+    scripts = root / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    try:
+        import quality_loop_reality as qlr  # noqa: PLC0415
+    except Exception:  # noqa: BLE001 - a missing/broken shim must not lift the gate
+        return None
+    try:
+        fn = getattr(qlr, "canonical_diff_sha256", None)
+        if callable(fn):
+            result = fn(base, root)
+        else:
+            result = qlr.diff_sha256(base, root, exclude_record_dir=True)
+    except (Exception, SystemExit):
+        # SystemExit is included on purpose: the reality helper's git wrapper
+        # (run_git) exits on a bad/unresolvable base ref. A bare `except
+        # Exception` would let that SystemExit escape, the hook would exit
+        # non-zero, and Claude Code treats a non-2 exit as ALLOW — the exact
+        # unsafe direction. Swallow it and fall through to the full umbrella.
+        return None
+    return result if isinstance(result, str) and result else None
+
+
+def _verified_clean(root: Path, status: str, record: Path) -> str | None:
+    """When ``.quality-loop/last-verified.json`` proves this exact diff, record
+    content, and status already passed the full `verify` umbrella, return its
+    ``verified_at`` stamp so the terminal stop can skip re-execution. Returns
+    None (run the umbrella) on any missing / unreadable / mismatched marker.
+
+    This is purely a latency optimization: it must never allow a stop the full
+    umbrella would have blocked, so every uncertain path falls through to the
+    umbrella. Three things must all match:
+
+    - the canonical DIFF hash, recomputed against the marker's own base (a moved
+      base ref or any code change forces the umbrella); and
+    - the RECORD content hash — load-bearing, because the umbrella verdict
+      depends on the record (it re-executes commands_run and checks AC
+      coverage) and the record lives under .quality-loop/, which the canonical
+      diff EXCLUDES. Without this, a post-verify `record add-evidence` could
+      append a failing pass-claim, flip the umbrella to FAIL, yet leave the
+      diff hash + status unchanged and be skipped; and
+    - the record ``status``.
+
+    Scope, honestly: this only proves nothing changed since a passing verify.
+    The marker is a plain file, so like every local gate input it is
+    tamper-evident, not a boundary against a forging agent (which could rewrite
+    the record it attests anyway). CI never reads the marker and re-executes
+    unconditionally — it remains the anchor."""
+    marker = root / ".quality-loop" / "last-verified.json"
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    recorded_hash = data.get("diff_sha256")
+    recorded_record_hash = data.get("record_sha256")
+    base = data.get("base")
+    if (data.get("status") != status
+            or not isinstance(recorded_hash, str) or not recorded_hash
+            or not isinstance(recorded_record_hash, str) or not recorded_record_hash
+            or not isinstance(base, str) or not base):
+        return None
+    try:
+        current_record_hash = hashlib.sha256(record.read_bytes()).hexdigest()
+    except OSError:
+        return None
+    if current_record_hash != recorded_record_hash:
+        return None
+    current = _canonical_diff_sha256(base, root)
+    if current is None or current != recorded_hash:
+        return None
+    verified_at = data.get("verified_at")
+    return verified_at if isinstance(verified_at, str) and verified_at else "an earlier verify"
+
+
 def _tree_is_dirty(root: Path) -> bool:
     """Cheap working-tree diff check: any tracked change or untracked (non-ignored)
     file. Mirrors the change set `verify-gates --against-diff` reasons over.
@@ -318,6 +410,18 @@ def main() -> int:
                 "working tree is clean — treating the task as CLOSED and allowing the stop "
                 "(skipping verify re-execution). A record that differs from base, or any local "
                 "modification anywhere in the tree, still runs the full gate.",
+                file=sys.stderr,
+            )
+            return 0
+        verified_at = _verified_clean(root, status, record)
+        if verified_at is not None:
+            # The full `verify` umbrella already passed for this exact diff +
+            # status (last-verified.json written by Lane 1's verify on PASS).
+            # Skip the re-execution purely to save latency; a mismatch or any
+            # unreadable marker fell through to the umbrella above.
+            print(
+                f"quality-loop: verified clean at {verified_at}; diff + record + status "
+                "unchanged — skipping re-execution.",
                 file=sys.stderr,
             )
             return 0
