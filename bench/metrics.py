@@ -3,9 +3,6 @@
 
 from __future__ import annotations
 
-import json
-import sys
-from pathlib import Path
 from typing import Any
 
 
@@ -40,17 +37,3 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "avg_duration_sec": round(duration / n, 1) if n else 0,
         }
     return out
-
-
-def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: metrics.py RESULTS.json", file=sys.stderr)
-        return 2
-    data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-    rows = data.get("runs", data)
-    print(json.dumps(summarize(rows), indent=2, sort_keys=True))
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

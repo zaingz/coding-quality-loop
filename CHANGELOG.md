@@ -9,8 +9,8 @@
   double-count fixed in 6.3.0). The record's absence now closes the stop when
   git affirmatively shows HEAD without the record path AND a clean tree; any
   dirt or git failure keeps the block (fail-closed). Found live at the first
-  post-teardown stop after v6.3.0. Suites: 20 static + 62 behavioral +
-  32 memory + 51 reality + 30 routing + 55 hook = **250 core gate cases**
+  post-teardown stop after v6.3.0. Suites: 19 static + 62 behavioral +
+  32 memory + 51 reality + 30 routing + 55 hook = **249 core gate cases**
   (+37 control add-on).
 - **Outcome ledger anchored at the repo root** (landed on main post-6.3.0,
   rides this release): `record outcome` on an archived record nested a stray

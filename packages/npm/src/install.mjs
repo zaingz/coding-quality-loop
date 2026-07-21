@@ -51,7 +51,7 @@ async function isCqlRepoRoot(root) {
   }
 }
 
-export async function resolveSkillRoot() {
+async function resolveSkillRoot() {
   const repoRoot = resolve(PACKAGE_ROOT, "..", "..");
   if (
     (await isCqlRepoRoot(repoRoot)) &&
@@ -70,7 +70,7 @@ export async function resolveSkillRoot() {
 /**
  * Pick a python3 binary. Prefers `python3`, falls back to `python`.
  */
-export function resolvePython() {
+function resolvePython() {
   for (const candidate of ["python3", "python"]) {
     const probe = spawnSync(candidate, ["--version"], { stdio: "ignore" });
     if (probe.status === 0) return candidate;
@@ -262,8 +262,8 @@ export async function checkInstall(target) {
 }
 
 /**
- * Read the vendored version to display in --version. Falls back to the
- * package.json version if the skill CHANGELOG can't be read.
+ * Read the version to display in --version from the package's own
+ * package.json, returning "unknown" if it can't be read.
  */
 export async function readSkillVersion() {
   try {

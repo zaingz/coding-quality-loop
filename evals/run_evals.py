@@ -264,26 +264,30 @@ def case_security_requires_distinct_review(tmp: Path) -> tuple[bool, str]:
     return ok, f"self-attested(exit={code_s},flagged={('security_review' in out_s)}); reviewed(exit={code_r}: {out_r.strip()!r})"
 
 
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _git_repo_with_base(tmp: Path, name: str = "repo") -> Path:
+    """A git repo with one 'base' commit of main.py — the shared starting
+    point the diff-grounded cases previously each rebuilt verbatim."""
+    repo = tmp / name
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "eval@example.com")
+    _git(repo, "config", "user.name", "eval")
+    (repo / "main.py").write_text("print('hi')\n")
+    _git(repo, "add", "main.py")
+    _git(repo, "commit", "-m", "base")
+    return repo
+
+
 def case_right_size_gate_dependency(tmp: Path) -> tuple[bool, str]:
-    def git(repo: Path, *args: str) -> None:
-        subprocess.run(
-            ["git", "-C", str(repo), *args],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-    def init_repo(name: str) -> Path:
-        repo = tmp / name
-        repo.mkdir()
-        git(repo, "init")
-        git(repo, "config", "user.email", "eval@example.com")
-        git(repo, "config", "user.name", "eval")
-        (repo / "main.py").write_text("print('hi')\n")
-        git(repo, "add", "main.py")
-        git(repo, "commit", "-m", "base")
-        return repo
-
     # Severity tiers (P1.4): dependency and migration edits are ADVISORY, not
     # blocking. They must surface in the audit's `advisory` list but exit 0, so a
     # benign lockfile bump or a legitimate migration does not fail the loop (and
@@ -295,23 +299,23 @@ def case_right_size_gate_dependency(tmp: Path) -> tuple[bool, str]:
         except json.JSONDecodeError:
             return []
 
-    dep_repo = init_repo("dep")
+    dep_repo = _git_repo_with_base(tmp, "dep")
     (dep_repo / "requirements.txt").write_text("leftpad==1.0.0\n")
-    git(dep_repo, "add", "requirements.txt")
+    _git(dep_repo, "add", "requirements.txt")
     dep_code, dep_out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(dep_repo))
     dep_ok = dep_code == 0 and any("dependency files changed" in a for a in advisory_of(dep_out))
 
-    changelog_repo = init_repo("changelog")
+    changelog_repo = _git_repo_with_base(tmp, "changelog")
     (changelog_repo / "CHANGELOG.md").write_text("## Changed\n\n- Document migration guidance.\n")
-    git(changelog_repo, "add", "CHANGELOG.md")
+    _git(changelog_repo, "add", "CHANGELOG.md")
     changelog_code, changelog_out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(changelog_repo))
     changelog_ok = changelog_code == 0 and "migration/schema-related" not in changelog_out
 
-    migration_repo = init_repo("migration")
+    migration_repo = _git_repo_with_base(tmp, "migration")
     migration_file = migration_repo / "db" / "migrate" / "001_add_users.sql"
     migration_file.parent.mkdir(parents=True)
     migration_file.write_text("alter table users add column nickname text;\n")
-    git(migration_repo, "add", str(migration_file.relative_to(migration_repo)))
+    _git(migration_repo, "add", str(migration_file.relative_to(migration_repo)))
     migration_code, migration_out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(migration_repo))
     migration_ok = migration_code == 0 and any(
         "migration/schema-related files changed" in a for a in advisory_of(migration_out)
@@ -334,23 +338,7 @@ def case_diff_audit_untracked_hygiene(tmp: Path) -> tuple[bool, str]:
     import os as _os
     import stat as _stat
 
-    repo = tmp / "repo"
-    repo.mkdir()
-
-    def git(*args: str) -> None:
-        subprocess.run(
-            ["git", "-C", str(repo), *args],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-    git("init")
-    git("config", "user.email", "eval@example.com")
-    git("config", "user.name", "eval")
-    (repo / "main.py").write_text("print('hi')\n")
-    git("add", "main.py")
-    git("commit", "-m", "base")
+    repo = _git_repo_with_base(tmp, "repo")
 
     # P1.5: scaffolding + caches are untracked but must be dropped from the sweep.
     (repo / ".quality-loop").mkdir()
@@ -556,23 +544,7 @@ def case_repeated_failure_requires_harness_update(tmp: Path) -> tuple[bool, str]
 def case_untracked_secret_flagged(tmp: Path) -> tuple[bool, str]:
     # `git diff <base>` excludes untracked files; a brand-new module with a
     # secret must still be caught by diff-audit.
-    repo = tmp / "repo"
-    repo.mkdir()
-
-    def git(*args: str) -> None:
-        subprocess.run(
-            ["git", "-C", str(repo), *args],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-    git("init")
-    git("config", "user.email", "eval@example.com")
-    git("config", "user.name", "eval")
-    (repo / "main.py").write_text("print('hi')\n")
-    git("add", "main.py")
-    git("commit", "-m", "base")
+    repo = _git_repo_with_base(tmp, "repo")
 
     # leak.py is NEVER `git add`-ed - it stays untracked.
     (repo / "leak.py").write_text('AKIA' + 'A' * 16 + '\napi_key = abcd1234abcd1234\n')
@@ -870,23 +842,7 @@ def case_run_metrics_string_cost_fails(tmp: Path) -> tuple[bool, str]:
 def _repo_with_uncommitted_change(tmp: Path, name: str) -> Path:
     """A git repo with a base commit plus a new untracked file, so the diff vs
     HEAD is non-empty (the shipped-work case --require-terminal guards)."""
-    repo = tmp / name
-    repo.mkdir()
-
-    def git(*args: str) -> None:
-        subprocess.run(
-            ["git", "-C", str(repo), *args],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-    git("init")
-    git("config", "user.email", "eval@example.com")
-    git("config", "user.name", "eval")
-    (repo / "main.py").write_text("print('hi')\n")
-    git("add", "main.py")
-    git("commit", "-m", "base")
+    repo = _git_repo_with_base(tmp, name)
     (repo / "feature.py").write_text("def feature():\n    return 1\n")  # untracked -> dirty diff
     return repo
 

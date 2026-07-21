@@ -27,7 +27,6 @@ export const ok = (msg) => console.log(`${c.green("\u2713")} ${msg}`);
 export const info = (msg) => console.log(`${c.cyan("\u2192")} ${msg}`);
 export const warn = (msg) => console.log(`${c.yellow("!")} ${msg}`);
 export const fail = (msg) => console.log(`${c.red("\u2717")} ${msg}`);
-export const step = (msg) => console.log(c.dim(msg));
 
 export function box(title, lines) {
   console.log(`\n${c.bold(title)}`);
