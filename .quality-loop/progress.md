@@ -37,3 +37,21 @@
   honor §6.0's letter (outcome NOT claimed, fires:false); confirmation approve
   (functional) + final claims approve. Verify umbrella: Overall PASS at package
   with both reviews attested. 250 core + 37 add-on green; npm tests 33/0.
+
+## 2026-07-21 — subtraction pass (branch cleanup/subtraction-pass, PR #22) — IN REVIEW
+- Net −233 lines (+147/−380) + a 47KB binary across 32 files; 7 themed commits.
+- Cut: dead run-journal reader (writer archived in v3.0), unreachable ORCHESTRATE
+  step entry, bench/metrics dead CLI, npm dead surface (step/smoke/exports),
+  redundant static case 01, orphaned memory-hooks example + terminal-demo poster,
+  retired advisor block from the example config.
+- Dedup: stop_gate + sessionstart adopt hooklib (fixes sessionstart's missing-git
+  crash, disclosed); run_evals' 4 verbatim repo-init blocks -> one helper.
+- Docs: architecture protect-harness claim + invented record example fixed; schema
+  gains protect_harness/enforcement; control-plane 35->37 + joins the count lint
+  (harness_update); one canon for phase mapping; CHANGELOG Unreleased entry.
+- Addition (1): npm-smoke now runs the 33 never-CI-run npm tests (own commit).
+- Loop: record at package, verify umbrella Overall PASS (11 commands re-executed);
+  Codex cross-family review round 1 request_changes (2 blocking -> fixed/rebutted
+  with recorded resolutions), round 2 approve with ran_checks. Suites 249+37.
+- NEXT: maintainer sign-off on PR #22 -> merge -> record outcome + archive record
+  at the next release tag.
