@@ -24,7 +24,7 @@ coding-quality-loop/
 ├── examples/           # host-native copy-paste installs + walkthroughs
 ├── evals/              # offline eval cases + harness proving the gates fire
 ├── scripts/            # quality_loop*.py — six stdlib-only modules (control is the opt-in add-on)
-└── .quality-loop/      # per-project lessons memory + run journal
+└── .quality-loop/      # per-project lessons memory + progress
 ```
 
 Progressive disclosure keeps the always-loaded surface tiny: the agent always sees the

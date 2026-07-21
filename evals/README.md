@@ -6,18 +6,18 @@ config is well-formed. They run fully offline — no models, no network, no exte
 ## Gate suites and the canonical count
 
 The offline **gate** suites — the ones that can fail on a real regression — total
-**251 gate cases across 6 core suites**, plus **37 add-on cases** for the opt-in
+**250 gate cases across 6 core suites**, plus **37 add-on cases** for the opt-in
 control plane:
 
 | Suite | Cases | Runner |
 |---|---:|---|
 | Static (intake classifier) | 20 | `quality_loop.py eval-cases evals/cases` |
-| Behavioral (record gates) | 63 | `evals/run_evals.py` |
+| Behavioral (record gates) | 62 | `evals/run_evals.py` |
 | Memory | 32 | `evals/run_memory_evals.py` |
 | Reality (record ↔ diff) | 51 | `evals/run_reality_evals.py` |
 | Routing | 30 | `evals/run_routing_evals.py` |
 | Hook (host shims) | 55 | `evals/run_hook_evals.py` |
-| **Total core gate cases** | **251** | re-run by `.github/workflows/evals.yml` |
+| **Total core gate cases** | **250** | re-run by `.github/workflows/evals.yml` |
 | Control plane add-on (index, server, ingest) | 37 | `evals/run_control_evals.py` — counted separately: the add-on is installed only via `install.py --with-control-plane` and is not in the npm tarball |
 
 The canonical numbers are **derived, not hand-set**: `canonical_gate_cases()` and

@@ -2,7 +2,6 @@ __pycache__/
 .quality-loop/memory/*.tmp
 .quality-loop/rerun-*.json
 .quality-loop/droid-prompts/
-.quality-loop/runs/
 
 # Dogfood run artifacts: per-task working dirs (plan/review/contract/completion)
 # produced when this repo runs the loop on itself. The checked-in memory store
