@@ -34,6 +34,10 @@ jobs:
           python-version: "3.11"
       - name: Prepack (vendors skill into dist/skill)
         run: node scripts/prepack.mjs
+      - name: Unit + integration tests (node --test)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: node --test test/parseArgs.test.mjs test/detect.test.mjs test/cli.integration.test.mjs
       - name: cql --version
         run: node bin/cql.mjs --version
       - name: cql --help
