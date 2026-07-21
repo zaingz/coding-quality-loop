@@ -2581,7 +2581,7 @@ def main() -> int:
     p_scan.add_argument("--stdin", action="store_true", help="Read text to scan from stdin")
     p_scan.set_defaults(func=qlreal.cmd_scan_text)
 
-    p_brief = sub.add_parser("brief", help="Print a session-start project briefing (last run, risks, lessons, progress)")
+    p_brief = sub.add_parser("brief", help="Print a session-start project briefing (last record, risks, lessons, progress)")
     p_brief.add_argument("--budget", type=int, default=800, help="Char budget for lesson recall (default 800)")
     p_brief.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
     p_brief.add_argument("--cwd", default=".", help="Working directory (default .)")
