@@ -1849,10 +1849,26 @@ def case_record_outcome_writes_field_and_ledger(tmp: Path) -> tuple[bool, str]:
     bad_code, _, bad_err = run_cli("check-record", str(bad_path))
     bad_rejected = bad_code == 1 and "outcome.verdict" in bad_err
 
-    ok = c1 == c2 == 0 and field_ok and ledger_ok and check_code == 0 and bad_rejected
+    # v6.3.0 regression: inside a git repo, an outcome recorded on an ARCHIVED
+    # record (docs/records/*.json) must append to the repo root's
+    # .quality-loop/outcomes.jsonl — where brief reads the tally — not nest a
+    # stray docs/records/.quality-loop/ next to the archive.
+    repo = tmp / "arch-repo"
+    (repo / "docs" / "records").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    arch = repo / "docs" / "records" / "vX-record.json"
+    arch.write_text(json.dumps(base_record()))
+    c3, _, _ = run_cli("record", "outcome", str(arch), "clean", "--note", "post-ship")
+    root_ledger = repo / ".quality-loop" / "outcomes.jsonl"
+    stray = repo / "docs" / "records" / ".quality-loop"
+    archived_ok = c3 == 0 and root_ledger.is_file() and not stray.exists()
+
+    ok = (c1 == c2 == 0 and field_ok and ledger_ok and check_code == 0
+          and bad_rejected and archived_ok)
     return ok, (
         f"exits=({c1},{c2}); field_ok={field_ok}; ledger_rows={len(rows)}; "
-        f"ledger_ok={ledger_ok}; check_record={check_code}; bad_rejected={bad_rejected}"
+        f"ledger_ok={ledger_ok}; check_record={check_code}; bad_rejected={bad_rejected}; "
+        f"archived_ok={archived_ok}"
     )
 
 
