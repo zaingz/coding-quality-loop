@@ -1,5 +1,22 @@
 # Changelog
 
+## 6.3.1
+
+- **Stop gate: committed PACKAGE teardown closes freely.** SKILL.md's teardown
+  archives the record and removes the live file, but the gate's missing-record
+  predicate flagged exactly that state as "deleted mid-loop" — releases were
+  forced to leave the live record behind (the source of the review-yield
+  double-count fixed in 6.3.0). The record's absence now closes the stop when
+  git affirmatively shows HEAD without the record path AND a clean tree; any
+  dirt or git failure keeps the block (fail-closed). Found live at the first
+  post-teardown stop after v6.3.0. Suites: 20 static + 63 behavioral +
+  32 memory + 51 reality + 30 routing + 55 hook = **251 core gate cases**
+  (+37 control add-on).
+- **Outcome ledger anchored at the repo root** (landed on main post-6.3.0,
+  rides this release): `record outcome` on an archived record nested a stray
+  `docs/records/.quality-loop/` ledger that `brief` never read; the ledger now
+  resolves via git toplevel with a record-adjacent fallback outside git.
+
 ## 6.3.0
 
 The measured release. Three versions in a row shipped measurement

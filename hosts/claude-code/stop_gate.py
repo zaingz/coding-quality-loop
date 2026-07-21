@@ -359,6 +359,33 @@ def _run_gates(root: Path, record: Path, terminal: bool) -> tuple[int, str]:
     return proc.returncode, detail
 
 
+def _record_removed_by_committed_teardown(root: Path) -> bool:
+    """True only when the live record's absence is COMMITTED teardown (SKILL.md
+    PACKAGE: archive to docs/records/, remove the live file), never a mid-loop
+    deletion: git must affirmatively report that HEAD does not contain
+    .quality-loop/agent-record.json AND that the working tree is clean. Any git
+    failure (no git, no HEAD, broken repo) returns False so the missing-record
+    block stays — this helper only ever RELAXES toward allowing a stop, so it
+    fails closed, unlike _tree_is_dirty which fails open for the opposite
+    reason."""
+    try:
+        in_head = subprocess.run(
+            ["git", "-C", str(root), "ls-tree", "--name-only", "HEAD",
+             "--", ".quality-loop/agent-record.json"],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        status = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return False
+    return (in_head.returncode == 0 and not in_head.stdout.strip()
+            and status.returncode == 0 and not status.stdout.strip())
+
+
 def _block(reason: str) -> int:
     print(json.dumps({"decision": "block", "reason": reason}))
     return 0
@@ -375,12 +402,20 @@ def main() -> int:
         # state exists without a record, the record was deleted mid-loop —
         # deletion must not lift the gate. (A fresh install's manifest alone
         # is NOT loop state: see _loop_was_active.)
-        if _loop_was_active(root):
+        #
+        # One legitimate exception: SKILL.md's PACKAGE teardown archives the
+        # record to docs/records/ and REMOVES the live file. When that removal
+        # is committed — git works, HEAD does not contain the record path, and
+        # the working tree is affirmatively clean — the task is closed, not
+        # evaded: the deletion itself survived review/CI. Any git failure or
+        # any dirt keeps the block (fail-closed).
+        if _loop_was_active(root) and not _record_removed_by_committed_teardown(root):
             return _block(
                 "Quality Loop was active here (config or loop state exists) "
                 "but no agent record was found — the record may have been deleted mid-loop. Restore it "
                 "(e.g. git restore --source=HEAD -- .quality-loop/agent-record.json) or recreate it with "
-                "python3 scripts/quality_loop.py init-record --goal \"<goal>\" before stopping."
+                "python3 scripts/quality_loop.py init-record --goal \"<goal>\" before stopping. "
+                "(A record archived by PACKAGE teardown — removal committed, tree clean — closes freely.)"
             )
         return 0
     parsed = _record(record)
