@@ -6,25 +6,28 @@ config is well-formed. They run fully offline — no models, no network, no exte
 ## Gate suites and the canonical count
 
 The offline **gate** suites — the ones that can fail on a real regression — total
-**234 gate cases across 6 core suites**, plus **35 add-on cases** for the opt-in
+**247 gate cases across 6 core suites**, plus **36 add-on cases** for the opt-in
 control plane:
 
 | Suite | Cases | Runner |
 |---|---:|---|
 | Static (intake classifier) | 20 | `quality_loop.py eval-cases evals/cases` |
-| Behavioral (record gates) | 55 | `evals/run_evals.py` |
+| Behavioral (record gates) | 61 | `evals/run_evals.py` |
 | Memory | 32 | `evals/run_memory_evals.py` |
-| Reality (record ↔ diff) | 48 | `evals/run_reality_evals.py` |
+| Reality (record ↔ diff) | 50 | `evals/run_reality_evals.py` |
 | Routing | 30 | `evals/run_routing_evals.py` |
-| Hook (host shims) | 49 | `evals/run_hook_evals.py` |
-| **Total core gate cases** | **234** | re-run by `.github/workflows/evals.yml` |
-| Control plane add-on (index, server, ingest) | 35 | `evals/run_control_evals.py` — counted separately: the add-on is installed only via `install.py --with-control-plane` and is not in the npm tarball |
+| Hook (host shims) | 54 | `evals/run_hook_evals.py` |
+| **Total core gate cases** | **247** | re-run by `.github/workflows/evals.yml` |
+| Control plane add-on (index, server, ingest) | 36 | `evals/run_control_evals.py` — counted separately: the add-on is installed only via `install.py --with-control-plane` and is not in the npm tarball |
 
-The canonical numbers live in exactly one place — `CANONICAL_GATE_CASES` and
-`CONTROL_ADDON_CASES` in [`run_evals.py`](run_evals.py) — and a behavioral case
-(`case_doc_counts_match_canonical`) fails if any public doc states a contradicting
-count (lines annotated "as of vX.Y" are exempt as declared-historical). Bump the
-constants when a suite's case count changes.
+The canonical numbers are **derived, not hand-set**: `canonical_gate_cases()` and
+`control_addon_cases()` in [`run_evals.py`](run_evals.py) compute the totals from the
+suites themselves (static `cases/*.json` + each core suite's `len(CASES)`), and a
+behavioral case (`case_doc_counts_match_canonical`) fails if any public doc states a
+contradicting total, a wrong per-suite breakdown addend, or a breakdown that does not
+sum to the total (lines annotated "as of vX.Y" are exempt as declared-historical).
+Nothing to bump when a suite's case count changes — the derived total moves with it,
+and the lint tells you which docs to update.
 
 ## What they check
 

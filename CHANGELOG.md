@@ -1,5 +1,77 @@
 # Changelog
 
+## 6.2.0
+
+The prove-it, smooth-it, learn-from-it release. v6.1.0 made the trust chain
+true in the field; v6.2.0 closes the loop around it in three stages —
+**measure** the yield, **remove** the friction that stops agents using the
+loop honestly, and **learn** from what shipped. Nothing here is a new gate: the
+blocking surface is unchanged. Suites: 20 static + 61 behavioral + 32 memory +
+50 reality + 30 routing + 54 hook = **247 core gate cases** (+36 control
+add-on).
+
+### Measurement: what is the loop actually catching?
+
+- **Review yield in one query.** `control-report --review-yield` reads the live
+  record + `docs/records/*.json` straight from disk (never the index) and prints
+  a per-record table: how many findings each review channel raised
+  (`independent_review` / `security_review`), how many `review_findings[]`
+  entries carry a non-empty `resolution` (the finding→fix proxy), and the
+  recorded `outcome` verdict. It is a query, never a gate — the first honest
+  answer to "is the review step earning its cost?"
+- **A benchmark is one command away.** Between `--review-yield` (finding→fix→
+  outcome yield) and the existing `--arm-costs` (per-session tokens/duration for
+  a bench arm), the measurement a real pilot needs is now a single CLI call, not
+  a hand-copy from a dashboard.
+
+### Friction: make the honest path the easy path
+
+- **A structured `record` CLI.** `record set-status`, `record add-evidence`,
+  `record add-ac`, and `record outcome` each do an atomic, schema-validated
+  write that preserves unknown fields. The agent advances the lifecycle without
+  hand-editing JSON or shelling a heredoc; malformed input exits non-zero with a
+  clear message, never a traceback. The record stays deliberately **outside**
+  the edit-deny set — structured writes are the sanctioned path, not a new
+  restriction.
+- **A smart Stop gate.** When the `verify` umbrella passes it writes
+  `.quality-loop/last-verified.json` (`diff_sha256`, `record_sha256`, `base`,
+  `status`, `verified_at`). On the next terminal Stop, if that marker's canonical
+  diff hash (the same one attest-review and review-freshness use), the record
+  content hash, and status all still match, the umbrella is skipped with a
+  one-line stderr note instead of re-executing every recorded command. It is a
+  latency optimization that fails safe: any mismatch, missing/unreadable marker,
+  or hashing failure runs the full umbrella exactly as before. The
+  `record_sha256` is load-bearing — the umbrella verdict depends on the record,
+  which lives under `.quality-loop/` (excluded from the canonical *diff*), so a
+  post-verify `record add-evidence` correctly re-runs the umbrella rather than
+  riding a stale skip (caught by this release's own cross-family review). Scope,
+  honestly: the marker skips re-execution only when nothing changed since a
+  passing verify; it is a plain file, so like every local gate input it is
+  tamper-evident, not a boundary against a forging agent (which could rewrite
+  the record it attests anyway). CI never reads the marker and re-executes
+  unconditionally.
+- **Eval counts are derived, not hand-bumped.** The canonical gate-case total is
+  computed at runtime from each suite's `len(CASES)` + the static `cases/*.json`
+  count (control add-on the same way), and the doc-count lint checks every
+  public doc against the computed value — so a suite can grow without a stale
+  literal drifting out from under the badges.
+
+### Learning: feed the outcome back
+
+- **Outcome feedback.** `record outcome <clean|regressed|reverted>` sets an
+  optional `outcome` object on the record **and** appends one line to
+  `.quality-loop/outcomes.jsonl`; the next session's `brief` tallies it
+  (`outcomes (this repo): N recorded — X clean, Y regressed, Z reverted`). The
+  `outcome` field is optional in the schema — absence is valid and no gate
+  requires it — so post-merge truth can flow back into the loop without becoming
+  another thing that blocks.
+
+**Not done here (operator action).** This release makes the six planned §6.2
+measurement runs *possible* with one command each; it does **not** run them. The
+numbers a real pilot would produce — review yield, escalation rate, cost per
+shipped change, regression rate — remain unmeasured until an operator executes
+those runs against their own repo. CQL still ships zero field data by doctrine.
+
 ## 6.1.0
 
 The field-truth release. A same-day second review round (50 fresh-context

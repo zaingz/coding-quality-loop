@@ -53,7 +53,8 @@ python3 scripts/quality_loop.py control-serve    # open http://127.0.0.1:4477/
    `control_plane.prices` with your own rates — the repo ships no vendor
    price data (decaying vendor data stays documentation-only, per ROADMAP).
    `control-report` is the sanctioned **local audit/report surface**: a
-   read-only query over the index (per-task audit bundle; `--arm-costs` for
+   read-only query over the index (per-task audit bundle; `--review-yield`
+   for the per-record findings→resolution→outcome table; `--arm-costs` for
    bench cost capture), never a gate — no gate reads its output and nothing
    it prints affects the loop. This supersedes the v3.0 "no report
    subcommand" stance for the control plane specifically; the `jq` recipe in
@@ -143,6 +144,7 @@ transcript format may have changed") whenever it is nonzero.
 | `control-stop` | SIGTERM the running server. |
 | `control-ingest --event NAME` | Hook entry point: records one event from stdin JSON. No-op unless enabled; **always exits 0**. |
 | `control-report --task-id ID [--json]` | Print a per-task audit bundle — goal, status, minimality rung, plan, delegations (with matched sessions), verdicts, findings, escalations, and linked-session spend — as markdown (default) or `--json`. Exits 2 on an unknown task id. |
+| `control-report --review-yield [--json]` | Review-yield table (a query, never a gate): read the live record + `docs/records/*.json` straight from disk (the index is not touched) and, per record, count `independent_review`/`security_review` findings, how many `review_findings[]` entries carry a non-empty `resolution` (the finding→fix proxy), and the recorded `outcome` verdict. Markdown by default (a `release/task_id` table with a totals row); `--json` for the same shape. |
 | `control-report --arm-costs [--since TS]` | Bench cost capture (a query, never a gate): emit per-session `tokens_in`/`tokens_out`/`duration_sec` as JSON, plus totals, shaped for a bench results arm (`bench/runner.py` `COST_FIELDS`; `cost_usd` stays yours to compute). `--since` keeps only sessions active at/after the ISO-8601 cutoff. The gate CLI registers these flags in a control-plane checkout: `python3 scripts/quality_loop.py control-report --arm-costs --since 2026-07-14T00:00:00Z` (the module has no direct entry point; the former standalone parser was folded in v6.1.0). |
 
 ### JSON API (all GET, all local)

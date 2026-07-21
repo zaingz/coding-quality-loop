@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -397,10 +398,176 @@ def init_record(args: argparse.Namespace) -> int:
     return 0
 
 
+def _utc_now_iso() -> str:
+    """UTC timestamp, ISO-8601 to the second (marker + outcome ledger stamps)."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def check_record(args: argparse.Namespace) -> int:
-    record = load_json(Path(args.record))
+def _file_sha256(path: Path) -> str | None:
+    """sha256 of a file's raw bytes, or None if it cannot be read. Used to bind
+    the last-verified marker to the record content the umbrella verdict depends
+    on (the record is under .quality-loop/, which the canonical diff excludes)."""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+# --- record mutation subcommands (v6.2) --------------------------------------
+# One `record <verb>` family so agents mutate the record through validated,
+# atomic writes instead of hand-editing JSON. Every verb: loads via load_json
+# (missing file / bad JSON exit 2 with a clear stderr message, never a
+# traceback), validates its inputs (enums via argparse choices, non-empty
+# strings here), writes atomically via write_json, and preserves unknown
+# fields (the loaded dict is mutated in place, never rebuilt).
+
+
+def _load_record_object(path: Path) -> dict[str, Any]:
+    record = load_json(path)
+    if not isinstance(record, dict):
+        print(f"error: record must be a JSON object: {path}", file=sys.stderr)
+        raise SystemExit(2)
+    return record
+
+
+def _require_nonempty(label: str, value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return f"{label} must be a non-empty string"
+    return None
+
+
+def _commit_record_mutation(
+    path: Path, record: dict, errors_before: list[str], success_msg: str
+) -> int:
+    """Write the mutated record only if the change introduces no NEW validation
+    error (comparing against errors already present before the mutation, so a
+    verb is never blocked by pre-existing breakage it did not touch). On a new
+    error the original file is left untouched — the CLI never persists a record
+    it just made invalid (v6.2 cross-family review)."""
+    new_errors = [e for e in record_validation_issues(record)[0] if e not in errors_before]
+    if new_errors:
+        print("error: refusing to write — this change would make the record invalid:",
+              file=sys.stderr)
+        for e in new_errors:
+            print(f"error:   {e}", file=sys.stderr)
+        return 2
+    write_json(path, record)
+    print(success_msg)
+    return 0
+
+
+def record_set_status(args: argparse.Namespace) -> int:
+    path = Path(args.record)
+    record = _load_record_object(path)
+    errors_before = record_validation_issues(record)[0]
+    record["status"] = args.status
+    return _commit_record_mutation(path, record, errors_before, f"status -> {args.status}")
+
+
+def record_add_evidence(args: argparse.Namespace) -> int:
+    path = Path(args.record)
+    record = _load_record_object(path)
+    errors_before = record_validation_issues(record)[0]
+    errors = [
+        e for e in (
+            _require_nonempty("--cmd", args.cmd),
+            _require_nonempty("--evidence", args.evidence),
+            _require_nonempty("--reason", args.reason) if args.reason is not None else None,
+        ) if e
+    ]
+    commands = record.setdefault("commands_run", [])
+    if not isinstance(commands, list):
+        errors.append("commands_run in the record is not an array; refusing to overwrite it")
+    if errors:
+        for error in errors:
+            print(f"error: {error}", file=sys.stderr)
+        return 2
+    row: dict[str, Any] = {
+        "cmd": args.cmd,
+        "class": args.cmd_class,
+        "result": args.result,
+        "evidence": args.evidence,
+    }
+    if args.reason is not None:
+        row["reason"] = args.reason
+    commands.append(row)
+    return _commit_record_mutation(
+        path, record, errors_before,
+        f"appended commands_run[{len(commands) - 1}]: {args.cmd} ({args.result})")
+
+
+def record_add_ac(args: argparse.Namespace) -> int:
+    path = Path(args.record)
+    record = _load_record_object(path)
+    errors_before = record_validation_issues(record)[0]
+    errors = [
+        e for e in (
+            _require_nonempty("--criterion", args.criterion),
+            _require_nonempty("--proving-command", args.proving_command),
+        ) if e
+    ]
+    criteria = record.setdefault("acceptance_criteria", [])
+    if not isinstance(criteria, list):
+        errors.append("acceptance_criteria in the record is not an array; refusing to overwrite it")
+    if errors:
+        for error in errors:
+            print(f"error: {error}", file=sys.stderr)
+        return 2
+    criteria.append({"criterion": args.criterion, "proving_command": args.proving_command})
+    return _commit_record_mutation(
+        path, record, errors_before,
+        f"appended acceptance_criteria[{len(criteria) - 1}]: {args.criterion}")
+
+
+def record_outcome(args: argparse.Namespace) -> int:
+    """Set record["outcome"] and append one line to .quality-loop/outcomes.jsonl.
+
+    The ledger line ({task_id, verdict, note, recorded_at}) is what the brief
+    tally counts; the record field is the per-task copy check-record validates.
+    The note is whitespace-collapsed and secret-redacted before persistence,
+    matching the lessons-memory posture (outcomes.jsonl may be checked in).
+    """
+    path = Path(args.record)
+    record = _load_record_object(path)
+    errors_before = record_validation_issues(record)[0]
+    note = redact(" ".join((args.note or "").split()))
+    recorded_at = _utc_now_iso()
+    record["outcome"] = {"verdict": args.verdict, "note": note, "recorded_at": recorded_at}
+    new_errors = [e for e in record_validation_issues(record)[0] if e not in errors_before]
+    if new_errors:
+        print("error: refusing to write — this change would make the record invalid:",
+              file=sys.stderr)
+        for e in new_errors:
+            print(f"error:   {e}", file=sys.stderr)
+        return 2
+    write_json(path, record)
+    # Same ledger-base resolution as init_record's allowlist scaffold: a record
+    # living inside .quality-loop/ must not nest a second .quality-loop/.
+    record_dir = path.resolve().parent
+    base = record_dir if record_dir.name == ".quality-loop" else record_dir / ".quality-loop"
+    ledger = base / "outcomes.jsonl"
+    try:
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        with ledger.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "task_id": str(record.get("task_id", "")),
+                "verdict": args.verdict,
+                "note": note,
+                "recorded_at": recorded_at,
+            }, sort_keys=True) + "\n")
+    except OSError as exc:
+        print(f"error: outcome set on the record but the ledger append failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"outcome {args.verdict} recorded; appended to {ledger}")
+    return 0
+
+
+def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
+    """Structural + shape + lifecycle-stage validation, shared by `check-record`
+    and the `record` mutation verbs. Returns (errors, warnings); the caller
+    decides how to surface them. A mutation verb refuses to write when it would
+    INTRODUCE an error not already present in the original record, so the CLI
+    can never persist a record it just made invalid."""
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -522,6 +689,23 @@ def check_record(args: argparse.Namespace) -> int:
                 elif value < 0:
                     errors.append(f"run_metrics.{key} must be >= 0")
 
+    # Optional shipped-work outcome (v6.2): {verdict, note, recorded_at}, set by
+    # `record outcome`. Absence is valid and no gate requires it; when present
+    # the verdict must be a known value so the outcomes ledger and the brief
+    # tally stay machine-readable.
+    outcome = record.get("outcome")
+    if outcome is not None:
+        if not isinstance(outcome, dict):
+            errors.append("outcome must be an object")
+        else:
+            if outcome.get("verdict") not in qlmem.OUTCOMES:
+                errors.append(
+                    "outcome.verdict must be one of: " + ", ".join(qlmem.OUTCOMES)
+                )
+            for key in ("note", "recorded_at"):
+                if key in outcome and not isinstance(outcome.get(key), str):
+                    errors.append(f"outcome.{key} must be a string")
+
     if "implementer" in record and record["implementer"] is not None:
         if not isinstance(record["implementer"], str) or not record["implementer"].strip():
             errors.append("implementer must be a non-empty string")
@@ -614,6 +798,12 @@ def check_record(args: argparse.Namespace) -> int:
         if not record.get("verification_plan"):
             warnings.append("verification_plan is empty after PLAN")
 
+    return errors, warnings
+
+
+def check_record(args: argparse.Namespace) -> int:
+    record = load_json(Path(args.record))
+    errors, warnings = record_validation_issues(record)
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
@@ -1518,6 +1708,42 @@ def _latest_record_summary(cwd: Path) -> dict[str, Any]:
     return {}
 
 
+def _outcomes_tally(cwd: Path) -> str | None:
+    """One-line tally of the `record outcome` ledger (.quality-loop/outcomes.jsonl).
+
+    Returns None when the ledger is absent or unreadable — brief stays silent
+    rather than printing an empty tally. Malformed lines are skipped; rows with
+    an unknown verdict still count as recorded.
+    """
+    path = cwd / ".quality-loop" / "outcomes.jsonl"
+    if not path.is_file():
+        return None
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    total = 0
+    counts = {"clean": 0, "regressed": 0, "reverted": 0}
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        total += 1
+        verdict = obj.get("verdict")
+        if verdict in counts:
+            counts[verdict] += 1
+    return (
+        "outcomes (this repo): %d recorded — %d clean, %d regressed, %d reverted"
+        % (total, counts["clean"], counts["regressed"], counts["reverted"])
+    )
+
+
 def _progress_tail(cwd: Path, max_lines: int = 15) -> str:
     for path in (cwd / ".quality-loop" / "progress.md", cwd / "progress.md"):
         if path.is_file():
@@ -1570,6 +1796,9 @@ def cmd_brief(args: argparse.Namespace) -> int:
         sections.append("## Last record\nnone found")
     if outcome_notes:
         sections.append("## Shipped outcomes\n" + "\n".join(outcome_notes))
+    outcomes_tally = _outcomes_tally(cwd)
+    if outcomes_tally:
+        sections.append(outcomes_tally)
 
     if run_summary:
         steps_str = " -> ".join(run_summary["steps"][-8:])
@@ -1606,6 +1835,7 @@ def cmd_brief(args: argparse.Namespace) -> int:
             "lessons_recalled": len(selected),
             "lessons_digest": lessons_text,
             "progress": progress,
+            "outcomes_tally": outcomes_tally,
             "model_routing": routing_info,
             "next_step": next_hint,
         }, indent=2, default=str))
@@ -2018,6 +2248,34 @@ def verify(args: argparse.Namespace) -> int:
     # umbrella, so a section exit code can never be silently swallowed.
     section_fail = any(rc != 0 for _, rc, _ in sections)
     overall = 1 if (all_findings or section_fail) else 0
+
+    # Last-verified marker for the stop-gate fast path: written ONLY on an
+    # overall PASS, under .quality-loop/ (hash-excluded, so writing it never
+    # stales a review). The hook skips re-running the umbrella only when the
+    # marker's canonical diff hash, the record's own content hash, AND the
+    # record status all still match; a FAIL removes any stale marker so absence
+    # always means "run the full umbrella". The record hash is load-bearing:
+    # the umbrella verdict depends on the record (it re-executes commands_run
+    # and checks AC coverage), and the record lives under .quality-loop/, which
+    # the canonical DIFF hash excludes — so without binding the record content
+    # a post-verify `record add-evidence` could flip the umbrella to FAIL while
+    # the marker still matched. Purely a latency optimization — best-effort,
+    # never exit-affecting.
+    marker = Path.cwd() / ".quality-loop" / "last-verified.json"
+    try:
+        if overall == 0:
+            write_json(marker, {
+                "diff_sha256": qlreal.canonical_diff_sha256(base, Path.cwd()),
+                "record_sha256": _file_sha256(record_path),
+                "base": base,
+                "status": record.get("status"),
+                "verified_at": _utc_now_iso(),
+            })
+        else:
+            marker.unlink(missing_ok=True)
+    except (OSError, SystemExit):
+        pass
+
     print(f"\nOverall: {'FAIL' if overall else 'PASS'}")
     return overall
 
@@ -2149,6 +2407,38 @@ def main() -> int:
     p_check.add_argument("--strict", action="store_true", help="Exit non-zero on warnings")
     p_check.set_defaults(func=check_record)
 
+    p_record = sub.add_parser(
+        "record",
+        help="Atomic, validated record mutations (set-status, add-evidence, add-ac, outcome) — no hand-edited JSON",
+    )
+    record_sub = p_record.add_subparsers(required=True)
+
+    p_rstatus = record_sub.add_parser("set-status", help="Set the record's lifecycle status")
+    p_rstatus.add_argument("record")
+    p_rstatus.add_argument("status", choices=sorted(STATUSES))
+    p_rstatus.set_defaults(func=record_set_status)
+
+    p_rev = record_sub.add_parser("add-evidence", help="Append a commands_run row")
+    p_rev.add_argument("record")
+    p_rev.add_argument("--cmd", required=True, help="The command that was run")
+    p_rev.add_argument("--result", required=True, choices=sorted(COMMAND_RESULTS))
+    p_rev.add_argument("--class", dest="cmd_class", required=True, choices=sorted(COMMAND_CLASSES))
+    p_rev.add_argument("--evidence", required=True, help="Verifiable evidence handle (output tail, artifact path)")
+    p_rev.add_argument("--reason", help="Why a result=blocked row could not run (verify-gates requires one on blocked rows)")
+    p_rev.set_defaults(func=record_add_evidence)
+
+    p_rac = record_sub.add_parser("add-ac", help="Append an object acceptance criterion {criterion, proving_command}")
+    p_rac.add_argument("record")
+    p_rac.add_argument("--criterion", required=True, help="What must be true")
+    p_rac.add_argument("--proving-command", dest="proving_command", required=True, help="The check that proves it (matched against commands_run by AC coverage)")
+    p_rac.set_defaults(func=record_add_ac)
+
+    p_rout = record_sub.add_parser("outcome", help="Record a shipped-work outcome on the record and append it to .quality-loop/outcomes.jsonl (tallied by brief)")
+    p_rout.add_argument("record")
+    p_rout.add_argument("verdict", choices=sorted(qlmem.OUTCOMES))
+    p_rout.add_argument("--note", default="", help="Short context (e.g. what regressed and why)")
+    p_rout.set_defaults(func=record_outcome)
+
     p_diff = sub.add_parser("diff-audit", help="Summarize and flag git diff risks")
     p_diff.add_argument("--base", default="HEAD")
     p_diff.add_argument("--staged", action="store_true", help="Audit the staged (cached) diff instead of a base ref — pre-commit mode")
@@ -2279,10 +2569,11 @@ def main() -> int:
         p_cstop.add_argument("--cwd", default=".", help="Repo root (default .)")
         p_cstop.set_defaults(func=qlctl.cmd_stop)
 
-        p_creport = sub.add_parser("control-report", help="Print a per-task audit bundle (goal, rung, plan, delegations, verdicts+findings, spend, sessions) as markdown or JSON, or per-session cost figures with --arm-costs")
+        p_creport = sub.add_parser("control-report", help="Print a per-task audit bundle (goal, rung, plan, delegations, verdicts+findings, spend, sessions) as markdown or JSON; --review-yield for a per-record findings/resolution/outcome table; --arm-costs for per-session cost figures")
         p_creport.add_argument("--cwd", default=".", help="Repo root (default .)")
         p_creport.add_argument("--task-id", help="Task id to report on (matches the record artifact title)")
         p_creport.add_argument("--json", action="store_true", help="Emit the bundle as JSON instead of markdown")
+        p_creport.add_argument("--review-yield", action="store_true", help="Emit a per-record review-yield table (independent/security finding counts, resolved review_findings, outcome verdict) over docs/records/*.json + the live record instead of a task bundle")
         p_creport.add_argument("--arm-costs", action="store_true", help="Emit per-session tokens_in/tokens_out/duration_sec JSON for a bench results arm instead of a task bundle")
         p_creport.add_argument("--since", help="With --arm-costs: only sessions started at/after this ISO-8601 timestamp")
         p_creport.set_defaults(func=qlctl.cmd_report)

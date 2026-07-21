@@ -53,3 +53,40 @@ continuously, and record integrity comes instead from the freshness hash,
 `verify` recomputation, and the CI anchor. This is tamper evidence, not
 immutability: it raises the cost of the quiet soften-the-gate move; the
 externally owned hash comparison remains the backstop.
+
+The **sanctioned mutation path** for the record is the `record` CLI
+(`record set-status`, `add-evidence`, `add-ac`, `outcome`): each does an
+atomic, schema-validated write that preserves unknown fields, so an agent can
+advance status or append evidence without hand-editing JSON and without a Bash
+heredoc. It exists precisely because the record stays outside the edit-deny set
+— structured writes are safer than free-form edits, but neither is denied at
+tool time; the gates reason over the resulting record, not over how it was
+written.
+
+## Smart Stop gate (skip re-execution when already verified)
+
+At a terminal status (`package`/`done`) the Stop hook runs the full `verify`
+umbrella, which re-executes recorded evidence. Two allow-and-skip shortcuts
+keep that from firing needlessly, and **both fail safe toward running the
+umbrella**:
+
+- **Closed record.** A committed record byte-identical to its base with a clean
+  tree is a merged/cloned artifact — the stop is allowed without re-execution.
+- **Fresh `last-verified` marker.** When the `verify` umbrella passes it writes
+  `.quality-loop/last-verified.json` (`diff_sha256`, `record_sha256`, `base`,
+  `status`, `verified_at`). On the next terminal stop, if the marker's diff hash
+  (the same canonical diff attest-review and review-freshness use), the record
+  content hash, **and** status all match the current state, the umbrella is
+  skipped with a one-line stderr note. Any mismatch, missing/unreadable marker,
+  or hashing failure runs the full umbrella exactly as before. The `record_sha256`
+  is load-bearing: the umbrella verdict depends on the record (it re-executes
+  `commands_run` and checks AC coverage) and the record lives under
+  `.quality-loop/`, which the canonical *diff* excludes — so without binding the
+  record content a post-verify `record add-evidence` could flip the umbrella to
+  FAIL while the diff hash still matched. Scope, honestly: this skips
+  re-execution only when nothing changed since a passing verify. Like every
+  local gate input, the marker is a plain file an agent can write, so it is not
+  a boundary against a *forging* agent (which could equally rewrite the record
+  it attests) — it is tamper-evident, not immutable, exactly like the rest of
+  the local surface. CI (which never reads the marker) re-executes
+  unconditionally and remains the anchor.
