@@ -153,12 +153,6 @@ def main():
     )
     print(f"wrote {OUT} ({OUT.stat().st_size} bytes)")
 
-    # Also emit a static PNG poster (first + last frame side-by-side is
-    # unnecessary here; just save the final frame as a fallback).
-    poster = OUT.with_name("terminal-demo-poster.png")
-    frames[-1].save(poster, "PNG", optimize=True)
-    print(f"wrote {poster} ({poster.stat().st_size} bytes)")
-
 
 if __name__ == "__main__":
     main()

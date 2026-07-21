@@ -14,7 +14,7 @@ assets, checked in as-is.
 
 ```bash
 python3 docs/images/src/evidence_dashboard.py  # evidence-dashboard.png
-python3 docs/images/src/terminal_demo.py       # terminal-demo.gif, terminal-demo-poster.png
+python3 docs/images/src/terminal_demo.py       # terminal-demo.gif
 python3 docs/images/src/anatomy.py             # anatomy-of-a-change.png
 python3 docs/images/src/gate_gaming.py         # gate-gaming.png
 ```

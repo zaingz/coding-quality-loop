@@ -10,7 +10,7 @@ brief and hands back a result the orchestrator judges.
 
 This file defines the routing model; its machine-readable form is
 `assets/quality-loop.config.example.json`. Phases and sub-steps are canonical in
-`references/lifecycle.md`; task classes are canonical in **SKILL.md** (§Task Class); the
+**SKILL.md §Lifecycle** (expanded in `references/lifecycle.md`); task classes are canonical in **SKILL.md** (§Task Class); the
 canonical role table is **§Role architecture** below. This file adds only the routing surface.
 
 ## The routed loop: two hosts, two vendors

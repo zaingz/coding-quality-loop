@@ -50,6 +50,15 @@
         "minLength": 1
       }
     },
+    "protect_harness": {
+      "type": "boolean",
+      "description": "PreToolUse-guard key (not a gate key). Default when absent: on. The shipped guard denies edits to the gate scripts, hook shims, this config, and the install manifest — tamper evidence, not immutability. This repo's own config sets it false because here the gate scripts are the workpiece. Shape-validated by check-config."
+    },
+    "enforcement": {
+      "type": "string",
+      "enum": ["required", "advisory"],
+      "description": "PreToolUse-guard key (not a gate key). \"required\" makes the guard block medium/high-risk edits until the record passes PLAN + MINIMALITY_GATE; any other or absent value is advisory. Read best-effort by the guard; not shape-validated by check-config today."
+    },
     "profiles": {
       "type": "object",
       "additionalProperties": {
@@ -171,7 +180,7 @@
     },
     "advisor": {
       "type": "object",
-      "description": "Optional Anthropic advisor-tool block. A cheap executor consults a stronger reasoning model at reasoning walls; the advisor never calls tools.",
+      "description": "Retired v3–v4 advisor/Smart Friend block — v5.0.0 inverted the topology (the orchestrator reasons at the top; workers never consult upward). Tolerated for legacy configs; no code reads it.",
       "properties": {
         "description": {
           "type": "string"

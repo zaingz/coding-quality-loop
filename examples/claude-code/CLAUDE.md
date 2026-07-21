@@ -14,6 +14,6 @@ Routing by capability class: plan/orchestrate on frontier reasoning, implement o
 
 Escalate before: destructive migrations, secrets/credentials, payments/billing, production infra, ambiguous user-facing behavior, or after two failed repair loops.
 
-Hooks (advisory by default): `python3 scripts/install.py --host claude-code`. Set `.quality-loop/config.json` to `{"enforcement": "required"}` to block medium/high edits before PLAN + MINIMALITY_GATE.
+Hooks (advisory by default): `python3 scripts/install.py --host claude-code`. Set `quality-loop.config.json` (repo root) to `{"enforcement": "required"}` to block medium/high edits before PLAN + MINIMALITY_GATE.
 
 Usage: `claude "Follow the Coding Quality Loop to fix the invoice rounding bug and open a PR."`

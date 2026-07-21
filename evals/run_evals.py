@@ -970,6 +970,7 @@ def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
         ROOT / "docs" / "README.md",
         ROOT / "docs" / "comparison.md",
         ROOT / "docs" / "launch-kit.md",
+        ROOT / "docs" / "control-plane.md",
         ROOT / "docs" / "images" / "src" / "README.md",
         ROOT / "evals" / "README.md",
     ]

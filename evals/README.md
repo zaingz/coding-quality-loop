@@ -121,6 +121,7 @@ should-trigger prompt still activates and a should-not prompt does not.
 | `17-proving-path-no-floor` | Boundary-looking path in a `proving_command` | low | command paths do not feed the risk floor |
 | `18-tiny-boundary-risk-trumps-size` | Tiny diff touching authn | high | risk trumps size; boundary forces heavy gates |
 | `19-escalation-needs-failing-check` | Escalation citing no failing check | low | self-reported escalation is not evidence |
+| `20-medium-object-ac-empty-criterion` | Object AC with a proving_command but no criterion text | low | at medium+, each AC object must state what the command proves; fails |
 
 ## Add a case
 

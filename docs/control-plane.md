@@ -229,7 +229,7 @@ the per-file offset cache means an unchanged source file is never re-read.
 
 ## Eval coverage
 
-The 35-case `evals/run_control_evals.py` suite pins: exact token math,
+The **37 add-on cases** in `evals/run_control_evals.py` pin: exact token math,
 incremental/rescan dedupe, malformed-line resilience, subagent attribution,
 artifact ingestion, price arithmetic, every API endpoint, the 127.0.0.1
 bind, GET-only enforcement, dashboard self-containment, ingest no-op when

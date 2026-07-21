@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+Subtraction pass: net-negative cleanup — dead surface deleted, duplicate
+implementations collapsed, docs realigned with the code. No behavior change
+except the deletions themselves. Suites: 19 static + 62 behavioral +
+32 memory + 51 reality + 30 routing + 55 hook = **249 core gate cases**
+(+37 control add-on).
+
+- **Dead surface removed.** `brief`'s "Last run" section read
+  `.quality-loop/runs/` journals whose writer was archived in v3.0 — a
+  reader with no writer for four major versions; `STRONG_REASONING_STEPS`
+  carried an `ORCHESTRATE` entry no valid config can reach (the step enum
+  rejects it first); `bench/metrics.py` shipped a CLI entry point nothing
+  invoked; the npm package carried a dead `step` helper, an orphaned
+  `smoke` script, and two exports nothing imported; `install.py` had a
+  condition argparse guarantees false and a one-caller quoting wrapper.
+- **One copy per concept.** `stop_gate.py` and `sessionstart_context.py`
+  import hooklib's `json_input`/`project_root` instead of private copies —
+  sessionstart's had drifted (no OSError guard: a missing git binary
+  crashed the SessionStart hook); `run_evals.py`'s four verbatim
+  git-repo-init blocks collapsed into one helper; static case 01 deleted
+  (expect-identical to case 05, which pins the same surface).
+- **Docs match the code again.** `docs/architecture.md` no longer claims
+  `protect_harness` denies record edits (the guard deliberately does not)
+  and its invented record example is now a pointer to the real walkthrough
+  record; the config schema gains the two real root keys it omitted
+  (`protect_harness`, `enforcement`) and the example config drops the
+  retired v3–v4 advisor block; `docs/control-plane.md`'s stale add-on
+  count is fixed and the file joins the doc-count lint's watch list;
+  `references/tool-contracts.md`'s executable-evidence list gains the
+  missing `lint` class; the orphaned memory-hooks example and the
+  never-displayed terminal-demo poster are deleted.
+- **CI newly runs the npm package's 33 unit/integration tests**
+  (previously executed by no workflow) — the one addition in the pass.
+
 ## 6.3.1
 
 - **Stop gate: committed PACKAGE teardown closes freely.** SKILL.md's teardown
@@ -9,8 +44,8 @@
   double-count fixed in 6.3.0). The record's absence now closes the stop when
   git affirmatively shows HEAD without the record path AND a clean tree; any
   dirt or git failure keeps the block (fail-closed). Found live at the first
-  post-teardown stop after v6.3.0. Suites: 19 static + 62 behavioral +
-  32 memory + 51 reality + 30 routing + 55 hook = **249 core gate cases**
+  post-teardown stop after v6.3.0. Suites: 20 static + 63 behavioral +
+  32 memory + 51 reality + 30 routing + 55 hook = **251 core gate cases**
   (+37 control add-on).
 - **Outcome ledger anchored at the repo root** (landed on main post-6.3.0,
   rides this release): `record outcome` on an archived record nested a stray
