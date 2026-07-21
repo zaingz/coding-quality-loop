@@ -1180,6 +1180,77 @@ def case_review_yield_query(tmp: Path) -> tuple[bool, str]:
                 f"totals={totals}; empty=(code={e_code}, note={'No records found' in e_out})")
 
 
+def case_review_yield_dedupes_live_archive_twin(tmp: Path) -> tuple[bool, str]:
+    """v6.3: archiving a release copies .quality-loop/agent-record.json into
+    docs/records/, so the live record and its archived twin share a task_id.
+    review-yield drops the live row when an archived row carries the same
+    task_id (archives win) — the latest release is counted once, not twice. A
+    live record whose task_id matches no archive keeps its own row."""
+    # Repo A: live twin of an archived record — one row for the shared task_id.
+    repo = make_repo(tmp, "twin")
+    docs = repo / "docs" / "records"
+    docs.mkdir(parents=True)
+    arch_old = _fixture_record()
+    arch_old["task_id"] = "v6.1.0"
+    (docs / "v6.1.0.json").write_text(json.dumps(arch_old), encoding="utf-8")
+    arch_latest = _fixture_record()
+    arch_latest["task_id"] = "v6.2.0"
+    arch_latest["review_findings"] = [
+        {"severity": "high", "text": "x", "resolution": "fixed"},
+    ]
+    (docs / "v6.2.0.json").write_text(json.dumps(arch_latest), encoding="utf-8")
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    live_twin = _fixture_record()          # same task_id as the v6.2.0 archive
+    live_twin["task_id"] = "v6.2.0"
+    live_twin["review_findings"] = [
+        {"severity": "high", "text": "x", "resolution": "fixed"},
+    ]
+    (qdir / "agent-record.json").write_text(json.dumps(live_twin), encoding="utf-8")
+    _, out, _ = run_stdin([sys.executable, str(QL), "control-report",
+                           "--review-yield", "--json", "--cwd", str(repo)], "", repo)
+    try:
+        data = json.loads(out)
+    except ValueError:
+        data = {}
+    rows = data.get("records", [])
+    v620_rows = [r for r in rows if r["task_id"] == "v6.2.0"]
+    # Exactly one v6.2.0 row and it is the archived copy (live dropped).
+    dedup_ok = (len(v620_rows) == 1 and v620_rows[0].get("live") is False
+                and v620_rows[0].get("source", "").startswith("docs/records")
+                and len(rows) == 2  # v6.1.0 + the single v6.2.0
+                and data.get("totals", {}).get("records") == 2
+                # resolved counted once, not doubled by the twin.
+                and data.get("totals", {}).get("resolved_findings") == 1)
+
+    # Repo B: a live record whose task_id matches no archive keeps its own row.
+    repo2 = make_repo(tmp, "distinct")
+    docs2 = repo2 / "docs" / "records"
+    docs2.mkdir(parents=True)
+    a2 = _fixture_record()
+    a2["task_id"] = "v6.1.0"
+    (docs2 / "v6.1.0.json").write_text(json.dumps(a2), encoding="utf-8")
+    qdir2 = repo2 / ".quality-loop"
+    qdir2.mkdir()
+    live_distinct = _fixture_record()
+    live_distinct["task_id"] = "v9.9.9-wip"
+    (qdir2 / "agent-record.json").write_text(json.dumps(live_distinct), encoding="utf-8")
+    _, out2, _ = run_stdin([sys.executable, str(QL), "control-report",
+                            "--review-yield", "--json", "--cwd", str(repo2)], "", repo2)
+    try:
+        data2 = json.loads(out2)
+    except ValueError:
+        data2 = {}
+    rows2 = {r["task_id"]: r for r in data2.get("records", [])}
+    distinct_ok = (rows2.get("v9.9.9-wip", {}).get("live") is True
+                   and "v6.1.0" in rows2
+                   and data2.get("totals", {}).get("records") == 2)
+    ok = dedup_ok and distinct_ok
+    return ok, (f"dedup_ok={dedup_ok} (v6.2.0_rows={len(v620_rows)}, "
+                f"total_rows={len(rows)}); distinct_ok={distinct_ok} "
+                f"(tasks={sorted(rows2)})")
+
+
 # ---------------------------------------------------------------------------
 # Ingest + shim cases
 # ---------------------------------------------------------------------------
@@ -1406,6 +1477,7 @@ CASES = [
     ("schema bump exports hook events to an append-safe backup first", case_schema_bump_backs_up_events),
     ("control-report --arm-costs emits bench-arm cost JSON; --since filters", case_arm_costs_query),
     ("control-report --review-yield tables findings/resolutions/outcome per record", case_review_yield_query),
+    ("review-yield drops the live row when an archived twin shares its task_id", case_review_yield_dedupes_live_archive_twin),
     ("control-ingest records events and SessionEnd closes the session", case_ingest_event_roundtrip),
     ("ingest is a no-op when control_plane is absent or disabled", case_ingest_disabled_noop),
     ("ingest exits 0 on garbage stdin (never breaks a session)", case_ingest_never_breaks),

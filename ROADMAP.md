@@ -4,9 +4,47 @@
 > commitment; the loop's non-negotiable is that we ship the smallest correct change,
 > and that includes the roadmap itself.
 
-Last updated: 2026-07-21.
+Last updated: 2026-07-21 (v6.3.0).
 
-## Now — landed in v6.2.0 (prove it, smooth it, learn from it)
+## Now — landed in v6.3.0 (measured)
+
+The §6.2 micro-task cell **ran**: six live cells, {baseline, full} ×
+claude-code × 3 seeds, committed at
+[`bench/results/micro-bugfix-live-2026-07-21.json`](bench/results/micro-bugfix-live-2026-07-21.json)
+and validated in CI. Every cell was objectively perfect in both arms; the
+full path cost **8.1× output tokens / 7.65× dollars / ~10× wall time**
+(medians) — ~5× past the §6.2 threshold, yet the pre-registered outcome is
+**not claimed**: §6.0's letter forbids any §6 outcome when every arm passes
+the objective battery, and every arm did. The results file records
+`fires: false` verbatim; §6.0 is amended for future runs only. See
+`CHANGELOG.md` §6.3.0.
+
+- ✅ **Cut candidate opened (operator decision, not a fired rule).** The
+  always-loaded ladder/class text in SKILL.md is now a documented cut
+  candidate, justified by the measured 6–8× overhead but explicitly not
+  claimed as a pre-registered outcome (§6.0). The cut itself is deliberately
+  NOT taken in the same release that produced the number — it lands (or is
+  rejected with reasons) next release, so the measurement and the reaction
+  stay separately reviewable.
+- ✅ **Measurement integrity.** review-yield dedupe; every archived record
+  passes check-record (lint-pinned); void judge numbers annotated where
+  quoted; measured cost figures replace the token estimate.
+- ✅ **Defaults match claims.** Gate-config-aware `check-config`; loud
+  NOT-ENFORCED line for dormant reviewer heterogeneity; CI-anchor +
+  `model_routing.host` in installer next steps; `record outcome` in the
+  lifecycle text.
+- ✅ **Bench tooling.** Protocol recipe rot fixed (`--safe-mode` is gone from
+  claude ≥2.x); `bench/runner.py --materialize` makes a §6.2 cell two
+  commands.
+
+**Field observations recorded with the data (for the next releases to act
+on):** in all three live full arms, the pristine gate failed the finished
+record (proving-command mismatches; no bugfix-test waiver for a task whose
+failing test is pre-committed), the "independent review" resolved to a
+same-family Claude subagent with `ran_checks: false`, and risk tiering for
+the same billing task was inconsistent (low ×1, medium ×2).
+
+## Landed in v6.2.0 (prove it, smooth it, learn from it)
 
 v6.1.0 made the trust chain true in the field; v6.2.0 wraps three loops around
 it — measure the yield, remove the friction that pushes agents off the honest
@@ -195,22 +233,33 @@ Executed against [`docs/improvement-plan-2026-07-20.md`](docs/improvement-plan-2
 
 ## Next
 
-**The next milestone is the §6.2 micro-task cell: six judge-free, token-only
-runs.** The spec is committed at
-[`bench/tasks/14-micro-bugfix.json`](bench/tasks/14-micro-bugfix.json) —
-{baseline, full} × Claude × 3 seeds, an afternoon's work, no judges, no
-blinding. Either outcome wins: a measured overhead figure replaces the
-philosophy-page estimate, or the >1.5× rule fires and the always-loaded
-ladder text becomes the pre-registered cut candidate.
+**1. Act on the §6.2 measurement and the live field observations.** The cut
+candidate (always-loaded ladder/class text) gets cut or rejected-with-reasons.
+The three process defects the live runs replicated 3-for-3 get fixes: a
+bugfix-test waiver path for tasks whose failing test is pre-committed (the
+pristine gate failed every honest full-arm record); an honest degraded mode
+for single-CLI contexts where cross-family review is structurally unavailable
+(record `same_family_fallback` loudly instead of calling a same-family
+subagent "independent"); and a risk-tier consistency check for
+billing/payments-adjacent wording (tiering of the same task varied low/medium
+across seeds — the floor lexicon gap is documented, not yet recalibrated).
 
-**After it: Wave 4.3, the full live ablation — or retract.** The protocol is
+**2. Discriminating objective tasks before Wave 4.3.** The judge-based webapp
+ablation is underpowered as designed: the one live run had zero objective
+discriminating power (§6.0) and the same-packet judge spread (0.25–3.75) is
+the noise floor at n=3. Before paying for ~36 judged runs, commit 3–5
+bugfix/feature specs in the `14-micro-bugfix` format, hard enough that a
+baseline demonstrably fails part of the held-out suite (30–70% target).
+Quality-lift claims then rest on objective pass-rate deltas; judges become
+secondary.
+
+**3. Wave 4.3, the full live ablation — or retract.** The protocol is
 pre-registered in [`bench/PROTOCOL.md`](bench/PROTOCOL.md) (arms, tasks,
 judging, cost capture, and decision rules committed before the data exists; a
-completed run forces the stated outcome — v6.1.0 added the
-discriminating-power precondition and judge-independence rules so the run
-cannot measure judge noise). Everything the project still argues about in
-prose — which gates earn their tokens, the R5 per-model process depth — is
-decided by that run. Capped at ~36 runs.
+completed run forces the stated outcome). Everything the project still argues
+about in prose — which gates earn their tokens, the R5 per-model process
+depth — is decided by that run. Capped at ~36 runs, and gated on item 2 so it
+cannot measure judge noise.
 
 ### Hardening from the webapp live eval (2026-07-07) — landed
 

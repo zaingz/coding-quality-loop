@@ -57,8 +57,13 @@ Isolation, per arm (proven mechanics from the 2026-07-07 webapp live eval):
 - **Codex**: clean `CODEX_HOME` containing only `auth.json` (no user AGENTS.md,
   no user skills). `codex exec -s workspace-write` from the workspace. Delete
   the auth copy after the run.
-- **Claude Code**: `claude -p --safe-mode --dangerously-skip-permissions`
-  (safe-mode disables user CLAUDE.md, skills, hooks).
+- **Claude Code**: `claude -p --setting-sources project --permission-mode
+  acceptEdits --output-format json "<prompt>"`. `--setting-sources project`
+  excludes user CLAUDE.md/skills/hooks (only project-scoped settings load —
+  this is the old `--safe-mode` intent); `--permission-mode acceptEdits`
+  suffices for file-edit tasks. `--dangerously-skip-permissions` remains an
+  alternative for unattended operator shells that allow it. (The pre-2.x
+  `--safe-mode` flag no longer exists — see the amendment note below.)
 - Baseline arms: verify the CQL ban post-hoc by grepping transcripts and
   checking for `.quality-loop/` artifacts.
 - Post-hoc pristine-gate re-run: `verify` with the **repo's** scripts, never
@@ -104,13 +109,29 @@ Every live (non-fixture) run row MUST record:
   at the model's published rate (record `0` under a flat-rate subscription and
   note it).
 
-Two ways to fill them:
+Three ways to fill them:
 
-1. **Control-plane add-on** (repo checkout with `--with-control-plane`):
+1. **`claude -p --output-format json`** (the §4 recipe): the output is a JSON
+   value whose shape varies by CLI version — claude 2.1.216 (the version the
+   2026-07-21 run used) emits an **array** of entries, while the official
+   headless docs describe a single result **object**. Parse defensively:
+   select the object with `type: "result"` (the last such entry when the
+   output is an array; the top-level object otherwise). It carries a `usage`
+   object plus `total_cost_usd` and `duration_ms`. Map them:
+   - `tokens_in` = `usage.input_tokens` + `usage.cache_creation_input_tokens`
+     + `usage.cache_read_input_tokens` (total input tokens, cached and
+     uncached). Also record the three raw components on the run row as
+     `tokens_in_uncached` (= `usage.input_tokens`), `tokens_in_cache_write`
+     (= `usage.cache_creation_input_tokens`), and `tokens_in_cache_read`
+     (= `usage.cache_read_input_tokens`), so the cache split stays auditable.
+   - `tokens_out` = `usage.output_tokens`.
+   - `duration_sec` = `duration_ms` / 1000.
+   - `cost_usd` = `total_cost_usd`.
+2. **Control-plane add-on** (repo checkout with `--with-control-plane`):
    `python3 scripts/quality_loop.py control-report --arm-costs --since <ts>`
    emits per-session `tokens_in`/`tokens_out`/`duration_sec` JSON that maps
    1:1 onto these fields.
-2. **Manual:** the host CLI's own end-of-run usage summary (`claude` and
+3. **Manual:** the host CLI's own end-of-run usage summary (`claude` and
    `codex` both print one; do not invent flags) plus wall-clock timing.
 
 Every live run row MUST also record its provenance as machine-checked string
@@ -202,3 +223,23 @@ python3 bench/runner.py --validate bench/results/<results>.json
 ```
 
 Commit live results under `bench/results/<name>-YYYY-MM-DD.json`.
+
+## Amendments
+
+- **2026-07-21 (§6.0 scope, future runs only).** The 2026-07-21 §6.2 live run
+  met the 1.5× token threshold decisively, but §6.0's letter ("before any §6
+  rule may fire") blocked the outcome because every arm passed the objective
+  battery — even though §6.2 is a token-cost rule and tokens separated the
+  arms 6–8×. The run's outcome is recorded as **not claimed**
+  (`bench/results/micro-bugfix-live-2026-07-21.json`), honoring the text as
+  committed. For **future runs only**: §6.0's discriminating-power
+  precondition applies to the quality-delta rules (§6.1, §6.3), whose evidence
+  is arm-vs-baseline quality differences; §6.2 instead requires discrimination
+  on its own decision metric (a token/cost separation exceeding seed spread),
+  which quality-indistinguishable arms can still provide. This amendment is
+  not applied retroactively.
+
+- **2026-07-21:** recipe updated for claude CLI ≥2.x flag changes — the
+  removed `--safe-mode` flag is replaced by `--setting-sources project`, and
+  §5 documents usage capture from `-p --output-format json` (§4, §5). The
+  pre-registered §6 decision rules are untouched.

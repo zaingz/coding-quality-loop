@@ -830,13 +830,39 @@ def main() -> int:
         report.append(
             "Config: legacy .quality-loop/config.json found — the canonical config is "
             "quality-loop.config.json at the project root; move your keys there "
-            "(the legacy fallback is deprecated and will stop being read)"
+            "(only the PreToolUse guard still reads the legacy file, as a one-release "
+            "fallback with a warning; routing and the gates already read only the root config)"
         )
+    # Host to point model_routing.host at (matches the npm CLI's modelRoutedHost:
+    # a single-host default of claude-code when the install spanned every host).
+    # git/github are hook/CI targets, not model-routing hosts — for those the
+    # config/setup-models step is suppressed (mirrors the npm CLI's
+    # showSetupModels gating) instead of recommending an unsupported host.
+    routing_hosts = {"claude-code", "codex", "droid", "pi"}
+    show_setup_models = (not args.host) or args.host == "all" or args.host in routing_hosts
+    host_hint = args.host if args.host in routing_hosts else "claude-code"
     footer = [
         "Core gates remain scripts/quality_loop.py; host hooks are advisory unless your host config requires them.",
         'Step 0 — commit the install so it stays out of your task diff: git add -A && git commit -m "chore: install coding-quality-loop"',
-        "Next: copy assets/quality-loop.config.example.json to quality-loop.config.json, set model_routing, run: python3 scripts/quality_loop.py setup-models",
     ]
+    if not show_setup_models:
+        pass
+    elif (target / "quality-loop.config.json").is_file():
+        footer.append(
+            "Next: review quality-loop.config.json (make sure model_routing.host is set), then run: "
+            "python3 scripts/quality_loop.py setup-models"
+        )
+    else:
+        footer.append(
+            "Next: copy assets/quality-loop.config.example.json to quality-loop.config.json and set "
+            f'model_routing.host to "{host_hint}" (the host you just installed) so cross-family '
+            "review enforcement activates, then run: python3 scripts/quality_loop.py setup-models"
+        )
+    footer.append(
+        "Then wire the CI anchor: add the GitHub Action (action.yml / "
+        "hosts/github/quality-loop-example.yml) — merge-base anti-evasion and helper integrity are "
+        "enforced in CI, so a local install alone does not activate them"
+    )
     if args.json:
         payload = {
             "host": args.host,

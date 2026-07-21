@@ -413,6 +413,30 @@ def case_verify_umbrella_fails_when_section_fails(tmp: Path) -> tuple[bool, str]
     return ok, f"exit={code}; report={has_report}; overall_fail={overall_fail}; flagged={flagged}"
 
 
+def case_verify_surfaces_dormant_heterogeneity(tmp: Path) -> tuple[bool, str]:
+    """v6.3: when reviewer-heterogeneity enforcement is dormant (no
+    model_routing.host resolved — here the repo carries no config), the verify
+    umbrella surfaces one loud 'reviewer heterogeneity: NOT ENFORCED' line as a
+    WARNING, never a finding and never affecting the exit code. Reuses the one
+    resolver check-config enforces on."""
+    repo = make_repo(tmp)  # no quality-loop.config.json -> heterogeneity skipped
+    invoice = repo / "src" / "invoice"
+    invoice.mkdir(parents=True)
+    (invoice / "round.py").write_text("def round_total(): return round(1.0, 2)\n")
+    record = passing_record(repo, completion_record=_completion(files=["src/invoice/round.py"]))
+    path = write_record(repo, record)
+    code, out, err = run_cli("verify", str(path), "--base", "HEAD", cwd=str(repo))
+    combined = out + err
+    het = "reviewer heterogeneity: NOT ENFORCED"
+    present = het in combined
+    # Classified as a WARNING: the line appears in the Warnings block, and NOT
+    # in the Findings block that precedes it — proving warn-only, never a gate.
+    before_warnings = combined.split("Warnings (")[0]
+    is_warning = present and "Warnings (" in combined and het not in before_warnings
+    ok = present and is_warning
+    return ok, f"exit={code}; present={present}; is_warning={is_warning}"
+
+
 def case_verify_in_non_git_repo(tmp: Path) -> tuple[bool, str]:
     """In a non-git directory, verify must NOT exit 129 with no report. It should
     emit the unified report with the diff-audit/verify-gates sections recorded as
@@ -1710,6 +1734,7 @@ CASES = [
     ("a clean, well-mapped record passes --against-diff", case_clean_record_passes_against_diff),
     ("run-evidence refuses a command not on the allowlist", case_run_evidence_allowlist),
     ("verify umbrella fails when a constituent section fails (verify-gates)", case_verify_umbrella_fails_when_section_fails),
+    ("verify surfaces dormant reviewer heterogeneity as a warn-only line", case_verify_surfaces_dormant_heterogeneity),
     ("verify in a non-git repo emits a report instead of exit 129", case_verify_in_non_git_repo),
     ("unresolvable --base falls back to a sane ref with a hint (P1.7)", case_unresolvable_base_falls_back_with_hint),
     ("verify AC coverage reads proving_command off object acceptance criteria", case_verify_object_ac_coverage),

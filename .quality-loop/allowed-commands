@@ -9,3 +9,7 @@ python3 evals/run_reality_evals.py
 python3 evals/run_routing_evals.py
 python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
 python3 scripts/quality_loop.py verify-gates examples/walkthrough/agent-record.json
+python3 bench/runner.py --validate bench/results/micro-bugfix-live-2026-07-21.json
+python3 scripts/quality_loop.py check-config quality-loop.config.json
+python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json
+python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py

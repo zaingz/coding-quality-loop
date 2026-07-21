@@ -248,7 +248,7 @@
   },
   "minimality_decision": {
     "rung": "minimal_new_code",
-    "rationale": "Deletion-shaped release: one resolver replaces three (~-55 lines), the cannot-fail trigger suite is deleted, duplicate AC copies and dead _main folded, 1.6MB archives moved out of examples/. New code is confined to sharpening existing gates (lexicon rows, three config keys, closed-record predicate, interpreter substitution) - each rejected lower rungs because the fix required touching the gate itself, not configuration or reuse.",
+    "reason": "Deletion-shaped release: one resolver replaces three (~-55 lines), the cannot-fail trigger suite is deleted, duplicate AC copies and dead _main folded, 1.6MB archives moved out of examples/. New code is confined to sharpening existing gates (lexicon rows, three config keys, closed-record predicate, interpreter substitution) - each rejected lower rungs because the fix required touching the gate itself, not configuration or reuse.",
     "rejected": [
       "new subsystem for record integrity (rejected: freshness hash + CI already hold)",
       "config surface beyond three keys (rejected: second-program risk)",
@@ -267,73 +267,73 @@
     {
       "cmd": "python3 evals/run_evals.py",
       "result": "pass",
-      "class": "test",
+      "class": "unit",
       "evidence": "exit 0 in 8.1s:  | 55/55 eval cases passed"
     },
     {
       "cmd": "python3 evals/run_reality_evals.py",
       "result": "pass",
-      "class": "test",
+      "class": "unit",
       "evidence": "exit 0 in 17.1s:  | 48/48 reality eval cases passed"
     },
     {
       "cmd": "python3 evals/run_hook_evals.py",
       "result": "pass",
-      "class": "test",
+      "class": "unit",
       "evidence": "exit 0 in 9.3s:  | 49/49 hook eval cases passed"
     },
     {
       "cmd": "python3 evals/run_routing_evals.py",
       "result": "pass",
-      "class": "test",
+      "class": "unit",
       "evidence": "exit 0 in 5.0s:  | 30/30 routing eval cases passed"
     },
     {
       "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json",
       "result": "pass",
-      "class": "test",
+      "class": "unit",
       "evidence": "exit 0 in 0.1s:  | 20/20 eval cases passed"
     },
     {
       "cmd": "python3 evals/run_memory_evals.py",
       "result": "pass",
-      "class": "test",
+      "class": "unit",
       "evidence": "exit 0 in 1.9s: 32/32 memory eval cases passed | error: --outcome must be one of ['clean', 'regressed', 'reverted'], got 'exploded'"
     },
     {
       "cmd": "python3 evals/run_control_evals.py",
       "result": "pass",
-      "class": "test",
+      "class": "unit",
       "evidence": "exit 0 in 6.5s:  | 35/35 control-plane eval cases passed"
     },
     {
       "cmd": "python3 scripts/quality_loop.py verify-gates examples/walkthrough/agent-record.json",
       "result": "pass",
-      "class": "test",
+      "class": "unit",
       "evidence": "exit 0 in 0.1s: verification gates look sufficient for recorded risk tier"
     },
     {
       "cmd": "python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py",
       "result": "pass",
-      "class": "test",
+      "class": "build",
       "evidence": "exit 0 in 0.1s: "
     },
     {
       "cmd": "python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json",
       "result": "pass",
-      "class": "test",
+      "class": "lint",
       "evidence": "exit 0 in 0.1s: reviewer heterogeneity: SKIPPED \u2014 implementer/reviewer host or model_class unresolved (set model_routing.host, steps[].model_class, or main_session); heterogeneity is not enforced for this config | co"
     },
     {
       "cmd": "node --test packages/npm/test/parseArgs.test.mjs packages/npm/test/detect.test.mjs packages/npm/test/cli.integration.test.mjs",
       "result": "pass",
-      "class": "test",
+      "class": "integration",
       "evidence": "exit 0 in 1.2s: # todo 0 | # duration_ms 1119.998292"
     },
     {
       "cmd": "python3 bench/runner.py --validate bench/results/fixture-smoke-2026-07-20.json",
       "result": "pass",
-      "class": "test",
+      "class": "build",
       "evidence": "exit 0 in 0.0s: OK: 12 run(s), document mode 'fixture', run modes consistent, cost fields ['tokens_in', 'tokens_out', 'duration_sec'] present."
     },
     {
@@ -431,10 +431,27 @@
   ],
   "next_action": "Release: commit, push, open PR.",
   "status": "done",
-  "models_used": {
-    "orchestrator": "claude-fable-5",
-    "implement": "claude-fable-5 (core), claude-opus-4-8 (hosts, docs, bench)",
-    "review": "claude-fable-5 (fresh context, xhigh, separate subagent session)"
-  },
+  "models_used": [
+    {
+      "role": "orchestrator",
+      "model": "claude-fable-5"
+    },
+    {
+      "role": "implementer",
+      "model": "claude-fable-5",
+      "scope": "core"
+    },
+    {
+      "role": "implementer",
+      "model": "claude-opus-4-8",
+      "scope": "hosts, docs, bench"
+    },
+    {
+      "role": "fresh_reviewer",
+      "model": "claude-fable-5",
+      "thinking": "xhigh",
+      "scope": "fresh context, separate subagent session"
+    }
+  ],
   "escalation_reason": "Awaiting the final-diff fresh-context re-review (Fable xhigh) on the post-fix tree. Both prior review passes returned request_changes on pre-fix code; all 11 blocking findings are now fixed and bridged in review_findings, and all 13 evidence rows + 234 core eval cases pass. On the re-review's verdict: attest independent_review + security_review, advance review -> done, then commit/push/release on branch release/v6.1.0-field-truth. Recording an approve before the re-review confirms the fixes would be exactly the self-attestation this project exists to prevent."
 }

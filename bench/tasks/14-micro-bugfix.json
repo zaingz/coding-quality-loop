@@ -83,13 +83,13 @@
   },
   "isolation": {
     "per_arm": "One fresh git workspace per arm (§4). Seed it with invoice.py and test_invoice.py from this spec only. For CQL (`full`) arms also drop in SKILL.md, references/, assets/, and the complete scripts/ directory; baseline arms get neither the drop-in nor any nested agent CLI.",
-    "claude": "claude -p --safe-mode --dangerously-skip-permissions (safe-mode disables user CLAUDE.md, skills, hooks).",
+    "claude": "claude -p --setting-sources project --permission-mode acceptEdits --output-format json \"<prompt>\" (--setting-sources project excludes user CLAUDE.md/skills/hooks — the old --safe-mode intent; --permission-mode acceptEdits suffices for file edits; --dangerously-skip-permissions is an alternative for unattended operator shells). The pre-2.x --safe-mode flag no longer exists in claude CLI 2.x.",
     "baseline_check": "After the run, grep the transcript and confirm no .quality-loop/ artifacts and no nested-CLI invocation (verify the CQL ban post-hoc).",
     "pristine_gate": "For CQL arms, re-run `verify` with the REPO's scripts (never the workspace copy) and compare helper-integrity hashes."
   },
   "cost_capture": {
     "required_fields": ["tokens_in", "tokens_out", "duration_sec"],
-    "how": "Read tokens_in/tokens_out/duration_sec from the host CLI's own end-of-run usage summary (claude prints one; do not invent flags), or from `python3 scripts/quality_loop.py control-report --arm-costs --since <ts>` in a control-plane checkout. cost_usd stays optional (record 0 under a flat-rate subscription and note it).",
+    "how": "With the §4 recipe `claude -p --output-format json`, read the last `type:\"result\"` entry: tokens_in = usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens; tokens_out = usage.output_tokens; duration_sec = duration_ms/1000; cost_usd = total_cost_usd. Also record the raw input split as tokens_in_uncached (usage.input_tokens), tokens_in_cache_write (usage.cache_creation_input_tokens), tokens_in_cache_read (usage.cache_read_input_tokens). Alternatively use `python3 scripts/quality_loop.py control-report --arm-costs --since <ts>` in a control-plane checkout. cost_usd stays optional (record 0 under a flat-rate subscription and note it).",
     "provenance_fields": ["host", "model", "skill_version", "prompt_file"]
   },
   "decision_rule": "Feeds PROTOCOL §6.2: {baseline, full} x Claude x 3 seeds, tokens only, no judges, no blinding. IF the full path costs >1.5x baseline tokens on this micro-task THEN the always-loaded ladder/class text becomes a documented cut candidate for v6.1."
