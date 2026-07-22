@@ -1045,18 +1045,26 @@ def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
         nul_ok = not ctl._under_root(str(repo) + "\x00evil", repo)
     except ValueError:
         nul_ok = False
+    # A symlink loop must fail closed on every supported Python (3.11 raises
+    # RuntimeError from resolve(); newer versions OSError(ELOOP)).
+    loop_link = tmp / "loop"
+    os.symlink("loop", loop_link)
+    try:
+        loop_ok = not ctl._under_root(str(loop_link / "x"), repo)
+    except (RuntimeError, OSError):
+        loop_ok = False
     ok = ("wtsess" in hosts and hosts.get("wtsess") == "claude-code"
           and any("wtroll001" in sid for sid in hosts)
           and "droid:wt-run" in hosts
           and "decoysess" not in hosts
           and "foreignsess" not in hosts and "nocwdsess" not in hosts
           and "nulsess" not in hosts
-          and escape_ok and nul_ok
+          and escape_ok and nul_ok and loop_ok
           and not late_before and late_after and legacy_after and collision_ok)
     return ok, (f"sessions={sorted(hosts.items())}; "
                 f"late_before={late_before}; late_after={late_after}; "
                 f"legacy_after={legacy_after}; collision_ok={collision_ok}; "
-                f"escape_ok={escape_ok}; nul_ok={nul_ok}")
+                f"escape_ok={escape_ok}; nul_ok={nul_ok}; loop_ok={loop_ok}")
 
 
 def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:

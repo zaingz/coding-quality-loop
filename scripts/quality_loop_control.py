@@ -395,9 +395,11 @@ def repo_roots(root: Path) -> list[Path]:
 def _safe_resolve(path: Path) -> Path | None:
     try:
         return path.resolve()
-    except (OSError, ValueError):
-        # ValueError: an embedded NUL in a hostile/corrupt cwd — a path we
-        # cannot canonicalize proves nothing, and must never abort indexing.
+    except (OSError, ValueError, RuntimeError):
+        # ValueError: an embedded NUL in a hostile/corrupt cwd. RuntimeError:
+        # a symlink loop on Pythons that detect it that way (3.11); newer
+        # versions surface loops as OSError(ELOOP). A path we cannot
+        # canonicalize proves nothing, and must never abort indexing.
         return None
 
 
