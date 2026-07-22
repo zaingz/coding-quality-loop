@@ -898,6 +898,11 @@ _HISTORICAL_LINE = re.compile(r"\bas of v\d", re.IGNORECASE)
 # Only lint table cells inside the canonical "Total core gate cases" row —
 # per-suite rows carry their own (varying) counts that are not the total.
 _TOTAL_ROW = re.compile(r"total\s+core\s+gate\s+cases", re.IGNORECASE)
+# The add-on suite's own table row ("| Control plane add-on … | 37 | …") — the
+# v6.5.0 review found the phrase-only add-on lint let a stale table cell
+# through; any table row naming the control-plane add-on must carry the
+# derived add-on count in its numeric cell.
+_ADDON_ROW = re.compile(r"control[- ]plane\s+add-on", re.IGNORECASE)
 # Per-suite breakdown addends, e.g. "20 static", "54/54 hook". A right TOTAL
 # with a wrong per-suite addend (a 53 that should be 54) slipped past the
 # total-only lint twice; this catches the arithmetic itself (v6.2 review).
@@ -935,6 +940,10 @@ def _doc_count_mismatches(
             for m in _TABLE_CELL_PATTERN.finditer(line):
                 if int(m.group(1)) != canonical:
                     mismatches.append(f"{rel}: total-row cell {m.group(0)!r} != {canonical}")
+        elif _ADDON_ROW.search(line):
+            for m in _TABLE_CELL_PATTERN.finditer(line):
+                if int(m.group(1)) != addon:
+                    mismatches.append(f"{rel}: add-on row cell {m.group(0)!r} != {addon}")
         if suite_counts:
             addends = _BREAKDOWN_ADDEND.findall(line)
             # Every addend is checked against its real suite count wherever it

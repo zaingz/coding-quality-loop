@@ -18,7 +18,7 @@ control plane:
 | Routing | 30 | `evals/run_routing_evals.py` |
 | Hook (host shims) | 56 | `evals/run_hook_evals.py` |
 | **Total core gate cases** | **250** | re-run by `.github/workflows/evals.yml` |
-| Control plane add-on (index, server, ingest) | 37 | `evals/run_control_evals.py` — counted separately: the add-on is installed only via `install.py --with-control-plane` and is not in the npm tarball |
+| Control plane add-on (index, server, ingest) | 40 | `evals/run_control_evals.py` — counted separately: the add-on is installed only via `install.py --with-control-plane` and is not in the npm tarball |
 
 The canonical numbers are **derived, not hand-set**: `canonical_gate_cases()` and
 `control_addon_cases()` in [`run_evals.py`](run_evals.py) compute the totals from the

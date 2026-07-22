@@ -193,3 +193,28 @@ test("check without a manifest explains and suggests init", async () => {
   assert.match(out, /install-manifest\.json/);
   assert.match(out, /cql init/);
 });
+
+test("prepack ships model-neutral agent templates (pins stripped at rest)", async () => {
+  const pkgRoot = resolve(HERE, "..");
+  const repoRoot = resolve(pkgRoot, "..", "..");
+  const src = await readFile(
+    join(repoRoot, ".claude", "agents", "quality-loop-context-mapper.md"),
+    "utf8",
+  );
+  // The repo's own agent files carry the operator's activated routing…
+  assert.doesNotMatch(src.split("\n---")[0], /model: inherit/);
+  const r = spawnSync(process.execPath, [join(pkgRoot, "scripts", "prepack.mjs")], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr);
+  // …but the vendored tarball copy is neutral at rest.
+  const shipped = await readFile(
+    join(pkgRoot, "dist", "skill", ".claude", "agents", "quality-loop-context-mapper.md"),
+    "utf8",
+  );
+  const head = shipped.split("\n---")[0];
+  assert.match(head, /model: inherit/);
+  assert.doesNotMatch(head, /^effort:/m);
+  assert.doesNotMatch(head, /^reasoningEffort:/m);
+  assert.match(shipped, /Read-only context mapper/);
+});

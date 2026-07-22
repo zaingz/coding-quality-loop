@@ -20,7 +20,10 @@ Suites: 19 static + 62 behavioral + 32 memory + 51 reality + 30 routing +
   pins; the installer **neutralizes agent `model:`/`effort:` pins on copy**
   (`copy_agent_neutral`), so shipped templates stay host-neutral at rest —
   pinned by a hook case that requires the source pinned and the installed
-  copy neutral.
+  copy neutral — and `prepack` neutralizes the vendored tarball copies the
+  same way (npm test pins the packed artifact), so the pins never exist at
+  rest anywhere consumers receive them. The dogfood `$schema` pointer
+  resolves from the repo root.
 - **Persistent workers (sidekicks), honestly accounted.** SKILL.md
   §Orchestrator Layer and `references/agentic-orchestration.md` §Persistent
   workers: an implementer worker may persist across fix rounds of one slice
@@ -30,20 +33,29 @@ Suites: 19 static + 62 behavioral + 32 memory + 51 reality + 30 routing +
   later rows naming a claimed session as `follow_up` rounds — linked for the
   audit trail, carrying no token figures, so a session's tokens are
   attributed exactly once (replaces the `duplicate_session_id` unmatched
-  flag; `task_timeline` lists a persistent worker's session once).
+  flag; `task_timeline` lists a persistent worker's session once). Rounds
+  follow **numeric** ledger order — the lexicographic artifact-key order put
+  row #10 before #9, handing the token-carrying first claim to the wrong
+  round (pinned at eleven rounds).
 - **Worktree sessions attribute to the repo.** All three adapters (claude
   transcript, codex rollout, droid wrapper) now accept sessions whose cwd is
-  a linked git worktree of the repo — `repo_roots()` resolves
-  `git worktree list --porcelain` (cached, symlink-tolerant, degrades to
-  `[root]` without git; `git_capture` grows an optional `timeout`), while
-  prefix-slug decoys keep failing the per-file cwd check. The mission
-  topology's isolated-worktree workers were previously invisible to the
-  per-repo index.
+  a linked git worktree of the repo **or any subdirectory of one** —
+  `repo_roots()` resolves `git worktree list --porcelain` (refreshed every
+  index pass, symlink-tolerant on both sides, degrades to `[root]` without
+  git; `git_capture` grows an optional `timeout`), the codex adapter moves
+  from exact-root matching to descendant containment, and a roots-change
+  resets codex rollout offsets so a rollout consumed as foreign before its
+  worktree was linked is resurrected on the next pass. Prefix-slug decoys
+  keep failing the per-file cwd check. The mission topology's
+  isolated-worktree workers were previously invisible to the per-repo index.
 - **Spend per accepted completion record.** `loop_metrics` (and the
   dashboard Metrics view) expose the routing doctrine metric — per accepted
   record (every review verdict approving), the delegation-linked session
   tokens and priced spend; rejected records excluded, live/archive twins
-  counted once, follow-up rows never double-counted. A query, never a gate.
+  canonicalized with **archives winning in both directions** (the
+  review-yield twin rule), follow-up rows never double-counted. A query,
+  never a gate. The count lint additionally checks the add-on suite's own
+  table row, not just the "N add-on cases" phrase.
 - **Post-ship outcomes recorded** for v6.3.0 (`regressed` — the teardown
   Stop-gate escape v6.3.1 fixed) and v6.4.0 (`clean` — 24h field window).
 

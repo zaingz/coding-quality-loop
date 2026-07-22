@@ -858,9 +858,13 @@ def case_delegation_follow_up_rounds(tmp: Path) -> tuple[bool, str]:
     ])
     qdir = repo / ".quality-loop"
     qdir.mkdir()
+    # ELEVEN rounds: crossing the row-9/row-10 boundary pins numeric ledger
+    # order — lexicographic artifact keys put '#10' before '#9', which would
+    # hand the token-carrying first-claim to the wrong round.
     rows = []
-    for i, ts in enumerate(("2026-01-05T10:00:00Z", "2026-01-05T10:20:00Z", "2026-01-05T10:40:00Z")):
-        r = json.loads(_deleg_line("t-fix", "implementer", "impl-agent", ts, brief=f"round {i + 1}"))
+    for i in range(11):
+        r = json.loads(_deleg_line("t-fix", "implementer", "impl-agent",
+                                   f"2026-01-05T10:{i:02d}:00Z", brief=f"round {i + 1}"))
         r["session_id"] = "sidekick"
         rows.append(json.dumps(r))
     (qdir / "delegations.jsonl").write_text("\n".join(rows) + "\n", encoding="utf-8")
@@ -873,14 +877,16 @@ def case_delegation_follow_up_rounds(tmp: Path) -> tuple[bool, str]:
     linked = [d for d in joined if d["session"] is not None]
     tokened = [d for d in joined if d["session"] is not None and "tokens" in d["session"]]
     total_in = sum(d["session"]["tokens"]["input_tokens"] for d in tokened)
-    ok = (len(joined) == 3 and len(followups) == 2 and len(linked) == 3
-          and len(tokened) == 1 and not any(d["unmatched"] for d in joined)
+    first_carries = bool(tokened) and tokened[0]["brief_summary"] == "round 1"
+    ok = (len(joined) == 11 and len(followups) == 10 and len(linked) == 11
+          and len(tokened) == 1 and first_carries
+          and not any(d["unmatched"] for d in joined)
           and total_in == 200
           and tl is not None and len(tl["sessions"]) == 1
           and tl["spend"]["input_tokens"] == 200 and tl["spend"]["output_tokens"] == 80)
     return ok, (f"rows={len(joined)} followups={len(followups)} linked={len(linked)} "
-                f"tokened={len(tokened)} in={total_in} "
-                f"tl_sessions={len(tl['sessions']) if tl else '-'}")
+                f"tokened={len(tokened)} first={tokened[0]['brief_summary'] if tokened else '-'} "
+                f"in={total_in} tl_sessions={len(tl['sessions']) if tl else '-'}")
 
 
 def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
@@ -916,13 +922,23 @@ def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
         json.dumps({"type": "user", "cwd": str(tmp / "repo-decoy")}),
         assistant_line("decoysess", "d1", "2026-01-05T10:00:00Z", inp=999, out=999),
     ])
-    # Codex adapter: a rollout whose session_meta.cwd is the worktree.
+    # Codex adapter: a rollout whose session_meta.cwd is a SUBDIRECTORY of the
+    # worktree (descendant containment, not just the exact root).
     codex_base = tmp / "codex-sessions"
     day = codex_base / "2026" / "01" / "05"
     day.mkdir(parents=True)
     (day / "rollout-2026-01-05T10-00-00-wtroll001.jsonl").write_text(
         json.dumps({"type": "session_meta",
-                    "payload": {"cwd": str(wt), "timestamp": "2026-01-05T10:00:00Z"}}) + "\n",
+                    "payload": {"cwd": str(wt / "src"), "timestamp": "2026-01-05T10:00:00Z"}}) + "\n",
+        encoding="utf-8")
+    # Stale-scope recovery: this rollout's cwd is a directory that is NOT yet
+    # a worktree — the first index pass must consume it as foreign, and the
+    # pass after `git worktree add` must resurrect it (roots-change resets the
+    # codex offsets; a stale scope decision must not skip a rollout forever).
+    late_wt = tmp / "repo-late"
+    (day / "rollout-2026-01-05T11-00-00-lateroll01.jsonl").write_text(
+        json.dumps({"type": "session_meta",
+                    "payload": {"cwd": str(late_wt), "timestamp": "2026-01-05T11:00:00Z"}}) + "\n",
         encoding="utf-8")
     # Droid adapter: a wrapper run whose cwd is the worktree.
     droid_log = tmp / "droid-wt.jsonl"
@@ -939,6 +955,15 @@ def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
         conn = ctl.open_db(repo)
         hosts = {r["id"]: r["host"] for r in
                  conn.execute("SELECT id, host FROM sessions").fetchall()}
+        late_before = any("lateroll01" in sid for sid in hosts)
+        # Now the late directory BECOMES a worktree; the next pass must index
+        # the rollout it previously consumed as foreign.
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(late_wt)],
+                       check=True)
+        ctl.index_all(repo)
+        hosts2 = {r["id"]: r["host"] for r in
+                  conn.execute("SELECT id, host FROM sessions").fetchall()}
+        late_after = any("lateroll01" in sid for sid in hosts2)
         conn.close()
     finally:
         for var, val in (("CODEX_SESSIONS_DIR", saved_codex), ("DROID_WRAPPER_LOG", saved_droid)):
@@ -947,17 +972,20 @@ def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
             else:
                 os.environ[var] = val
     ok = ("wtsess" in hosts and hosts.get("wtsess") == "claude-code"
-          and any(h == "codex" for h in hosts.values())
+          and any("wtroll001" in sid for sid in hosts)
           and "droid:wt-run" in hosts
-          and "decoysess" not in hosts)
-    return ok, f"sessions={sorted(hosts.items())}"
+          and "decoysess" not in hosts
+          and not late_before and late_after)
+    return ok, (f"sessions={sorted(hosts.items())}; "
+                f"late_before={late_before}; late_after={late_after}")
 
 
 def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:
     """v6.5: loop_metrics exposes spend per accepted completion record — the
-    routing doctrine metric. Accepted = every review verdict approves; spend =
-    the task's delegation-linked session tokens (priced when prices exist);
-    rejected records are excluded and a live/archive twin counts once."""
+    routing doctrine metric. Accepted = every review verdict on the canonical
+    record approves, where ARCHIVES WIN over a live twin (the review-yield twin
+    rule, both directions); rejected records are excluded; spend = the task's
+    delegation-linked session tokens (priced when prices exist)."""
     repo = make_repo(tmp)
     proj = claude_dir(tmp, repo)
     write_transcript(proj, "wsess", [
@@ -965,16 +993,22 @@ def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:
     ])
     qdir = repo / ".quality-loop"
     qdir.mkdir()
-    rec = _fixture_record()
-    rec["task_id"] = "task-acc"
-    (qdir / "agent-record.json").write_text(json.dumps(rec), encoding="utf-8")
     docs = repo / "docs" / "records"
     docs.mkdir(parents=True)
-    (docs / "task-acc.json").write_text(json.dumps(rec), encoding="utf-8")  # archive twin
-    rej = _fixture_record()
-    rej["task_id"] = "task-rej"
-    rej["independent_review"]["verdict"] = "reject"
-    (docs / "task-rej.json").write_text(json.dumps(rej), encoding="utf-8")
+    # task-acc: live twin REJECTS but the archive APPROVES -> accepted
+    # (archives are the shipped truth).
+    acc_live = _fixture_record()
+    acc_live["task_id"] = "task-acc"
+    acc_live["independent_review"]["verdict"] = "reject"
+    (qdir / "agent-record.json").write_text(json.dumps(acc_live), encoding="utf-8")
+    acc_arch = _fixture_record()
+    acc_arch["task_id"] = "task-acc"
+    (docs / "task-acc.json").write_text(json.dumps(acc_arch), encoding="utf-8")
+    # task-rej: archived REJECTION must never be outranked by a live approval.
+    rej_arch = _fixture_record()
+    rej_arch["task_id"] = "task-rej"
+    rej_arch["independent_review"]["verdict"] = "reject"
+    (docs / "task-rej.json").write_text(json.dumps(rej_arch), encoding="utf-8")
     d = json.loads(_deleg_line("task-acc", "implementer", "impl-agent", "2026-01-05T10:00:00Z"))
     d["session_id"] = "wsess"
     (qdir / "delegations.jsonl").write_text(json.dumps(d) + "\n", encoding="utf-8")
@@ -983,14 +1017,23 @@ def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:
     m = ctl.loop_metrics(conn, repo)
     priced = ctl.loop_metrics(conn, repo, prices={
         "test-model": {"input_per_mtok": 10.0, "output_per_mtok": 50.0}})
+    # Reverse-direction twin: overwrite the live record with an approval while
+    # the archive for task-rej stays rejecting — still excluded.
+    rej_live = _fixture_record()
+    rej_live["task_id"] = "task-rej"
+    (qdir / "agent-record.json").write_text(json.dumps(rej_live), encoding="utf-8")
+    ctl.index_all(repo)
+    m2 = ctl.loop_metrics(conn, repo)
     conn.close()
     rows = m.get("spend_per_accepted_record") or []
     prow = (priced.get("spend_per_accepted_record") or [{}])[0]
+    tasks2 = [r["task_id"] for r in (m2.get("spend_per_accepted_record") or [])]
     ok = (len(rows) == 1 and rows[0]["task_id"] == "task-acc"
           and rows[0]["sessions"] == 1 and rows[0]["input_tokens"] == 500
           and rows[0]["output_tokens"] == 100 and rows[0]["cost_usd"] is None
-          and prow.get("cost_usd") == round(500 / 1e6 * 10.0 + 100 / 1e6 * 50.0, 6))
-    return ok, f"rows={rows}; priced={prow.get('cost_usd')}"
+          and prow.get("cost_usd") == round(500 / 1e6 * 10.0 + 100 / 1e6 * 50.0, 6)
+          and "task-rej" not in tasks2)
+    return ok, f"rows={rows}; priced={prow.get('cost_usd')}; after_reverse_twin={tasks2}"
 
 
 def case_delegation_unjoinable_ts(tmp: Path) -> tuple[bool, str]:

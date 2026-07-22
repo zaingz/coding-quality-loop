@@ -860,7 +860,7 @@ def _index_codex_file(
 
     meta = _codex_meta(first_line)
     cwd = str(meta["cwd"]) if isinstance(meta, dict) and meta.get("cwd") is not None else None
-    if not all_projects and (cwd is None or cwd not in {str(r) for r in repo_roots(root)}):
+    if not all_projects and not _under_root(cwd, root):
         # Foreign project (or unreadable head): consume to the tail so the stat
         # check short-circuits future passes without re-reading the file.
         _remember_file_state(conn, path, new_offset, mtime)
@@ -930,10 +930,14 @@ def droid_wrapper_log() -> Path:
 def _under_root(cwd: str | None, root: Path) -> bool:
     if not cwd:
         return False
-    for r in repo_roots(root):
-        root_s = str(r)
-        if cwd == root_s or cwd.startswith(root_s + os.sep):
-            return True
+    roots = [str(r) for r in repo_roots(root)]
+    resolved = _safe_resolve(Path(cwd))
+    for c in (cwd, str(resolved) if resolved is not None else ""):
+        if not c:
+            continue
+        for root_s in roots:
+            if c == root_s or c.startswith(root_s + os.sep):
+                return True
     return False
 
 
@@ -1270,6 +1274,21 @@ def index_all(root: Path, all_projects: bool = False) -> dict[str, Any]:
         started = time.time()
         totals = {"files": 0, "lines": 0, "skipped": 0, "model_calls": 0, "tool_calls": 0,
                   "zero_usage": 0, "droid_runs": 0}
+        # Scope decisions must not outlive the worktree topology they were made
+        # under: refresh the roots for this pass, and when the set CHANGED,
+        # forget codex rollout offsets — a rollout consumed as "foreign" before
+        # a worktree was linked would otherwise stay skipped forever (its
+        # offset sits at the tail). Claude/droid adapters re-check scope per
+        # pass/record, so only the codex consume-on-foreign path needs this.
+        _worktree_cache.pop(str(root), None)
+        roots_now = json.dumps(sorted(str(r) for r in repo_roots(root)))
+        prev_roots = conn.execute(
+            "SELECT value FROM meta WHERE key='repo_roots'").fetchone()
+        if prev_roots is not None and prev_roots["value"] != roots_now:
+            conn.execute("DELETE FROM file_state WHERE path LIKE '%rollout-%.jsonl'")
+        conn.execute(
+            "INSERT INTO meta(key, value) VALUES('repo_roots', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (roots_now,))
         for tdir, cwd_check_root in transcript_dirs(root, all_projects):
             for path in sorted(tdir.glob("*.jsonl")):
                 if cwd_check_root is not None and not _file_in_root(path, cwd_check_root):
@@ -1550,7 +1569,7 @@ def session_detail(conn: sqlite3.Connection, session_id: str, prices: dict[str, 
 def list_artifacts(conn: sqlite3.Connection, kinds: tuple[str, ...]) -> list[dict[str, Any]]:
     marks = ",".join("?" for _ in kinds)
     rows = conn.execute(
-        f"SELECT source_path, kind, ts, title, detail FROM artifacts WHERE kind IN ({marks}) "  # noqa: S608
+        f"SELECT key, source_path, kind, ts, title, detail FROM artifacts WHERE kind IN ({marks}) "  # noqa: S608
         "ORDER BY source_path, kind, key",
         kinds,
     ).fetchall()
@@ -1649,7 +1668,16 @@ def delegations_with_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     claimed: set[str] = set()  # session ids already taken (direct or assigned)
     candidates: list[tuple[float, int, sqlite3.Row]] = []  # (dist, item index, session)
-    for art in list_artifacts(conn, ("delegation",)):
+
+    def _ledger_order(art: dict[str, Any]) -> tuple[str, int]:
+        # Artifact keys end in the ledger line number; the SQL ORDER BY key is
+        # lexicographic, which puts row #10 before #9 — first-claim (which row
+        # carries a persistent worker's tokens) must follow NUMERIC ledger
+        # order, so re-sort here.
+        tail = str(art.get("key") or "").rsplit("#", 1)[-1]
+        return (art["source_path"], int(tail) if tail.isdigit() else 0)
+
+    for art in sorted(list_artifacts(conn, ("delegation",)), key=_ledger_order):
         detail = art["detail"] if isinstance(art["detail"], dict) else {}
         item = {
             "task_id": detail.get("task_id"), "role": detail.get("role"),
@@ -1876,16 +1904,22 @@ def loop_metrics(conn: sqlite3.Connection, root: Path, prices: dict[str, Any] | 
     for r in reviews:
         reviews_by_source.setdefault(r["source_path"], []).append(r)
     accepted_rows: list[dict[str, Any]] = []
-    seen_tasks: set[str] = set()
+    recs_by_task: dict[str, dict[str, Any]] = {}
     for rec in records:
         task = rec["title"]
-        if not task or task in seen_tasks:
+        if not task:
             continue
+        cur = recs_by_task.get(task)
+        # Archives win (the review-yield twin rule): the archived record is
+        # the shipped truth; a live twin stands in only when no archive
+        # exists — so a live approval never outranks an archived rejection.
+        if cur is None or (cur["detail"].get("live") and not rec["detail"].get("live")):
+            recs_by_task[task] = rec
+    for task, rec in sorted(recs_by_task.items()):
         verds = {str(r["detail"].get("verdict") or "unknown")
                  for r in reviews_by_source.get(rec["source_path"], [])}
         if not verds or verds != {"approve"}:
             continue
-        seen_tasks.add(task)
         agg: dict[str, Any] = {"task_id": task, "sessions": 0, "input_tokens": 0,
                                "output_tokens": 0, "cache_read_tokens": 0, "cost_usd": None}
         for d in deleg_rows:
