@@ -923,19 +923,31 @@ def _doc_count_mismatches(
     right TOTAL with a wrong addend slipped past the total-only lint twice.
     """
     mismatches: list[str] = []
+    # Plain counts are scanned on a whitespace-flattened view so a number and
+    # its "gate cases" phrase split across a hard-wrapped line are still one
+    # mention (the v6.5.0 round-5 review found a wrapped '249\noffline gate
+    # cases' the per-line scan missed). The "as of vX.Y" historical exemption
+    # is applied per match via a local window instead of per line.
+    flat = _ADDON_PATTERN.sub("", " ".join(text.split()))
+    for m in _COUNT_PATTERN.finditer(flat):
+        window = flat[max(0, m.start() - 80):m.end() + 20]
+        if _HISTORICAL_LINE.search(window):
+            continue
+        n = int(m.group(1))
+        if allow_trigger and n == 10:
+            continue
+        if n != canonical:
+            mismatches.append(f"{rel}: {m.group(0)!r} != {canonical}")
+    flat_addon = " ".join(text.split())
+    for m in _ADDON_PATTERN.finditer(flat_addon):
+        window = flat_addon[max(0, m.start() - 80):m.end() + 20]
+        if _HISTORICAL_LINE.search(window):
+            continue
+        if int(m.group(1)) != addon:
+            mismatches.append(f"{rel}: {m.group(0)!r} != {addon} (add-on)")
     for line in text.splitlines():
         if _HISTORICAL_LINE.search(line):
             continue  # "as of vX.Y" marks a historical count; exempt
-        for m in _ADDON_PATTERN.finditer(line):
-            if int(m.group(1)) != addon:
-                mismatches.append(f"{rel}: {m.group(0)!r} != {addon} (add-on)")
-        stripped = _ADDON_PATTERN.sub("", line)
-        for m in _COUNT_PATTERN.finditer(stripped):
-            n = int(m.group(1))
-            if allow_trigger and n == 10:
-                continue
-            if n != canonical:
-                mismatches.append(f"{rel}: {m.group(0)!r} != {canonical}")
         if _TOTAL_ROW.search(line):
             for m in _TABLE_CELL_PATTERN.finditer(line):
                 if int(m.group(1)) != canonical:
