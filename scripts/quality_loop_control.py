@@ -405,12 +405,14 @@ def transcript_dirs(root: Path, all_projects: bool = False) -> list[tuple[Path, 
     Hosts slug the project dir by session CWD, so work started from a repo
     SUBDIRECTORY lands under a longer slug (repo/sub -> '<slug>-sub'), and a
     session started in a linked git WORKTREE lands under that worktree's own
-    slug. Exact slug dirs are trusted (check root ``None``); prefix-matched
-    dirs are ambiguous — a sibling checkout named 'repo-sub' flattens to the
-    same slug — so their files only count after a per-file cwd check against
-    the root they were claimed for (the second tuple element). Prefix claims
-    go longest-slug-first so a worktree's own subdirectory sessions are
-    checked against the worktree, not the main root.
+    slug. Slug flattening is lossy — '/tmp/repo-wt' and an unrelated
+    '/tmp/repo/wt' share one slug — so EVERY directory's files count only
+    after the per-file cwd check against the root they were claimed for (the
+    second tuple element); a transcript that cannot prove its cwd stays
+    unattributed (fail closed). Prefix claims go longest-slug-first so a
+    worktree's own subdirectory sessions are checked against the worktree,
+    not the main root. ``all_projects`` deliberately skips the check (``None``)
+    — that mode is the whole-machine sweep.
     """
     base = claude_projects_root()
     if not base.is_dir():
@@ -424,7 +426,7 @@ def transcript_dirs(root: Path, all_projects: bool = False) -> list[tuple[Path, 
         exact = base / project_slug(r)
         if exact.is_dir() and str(exact) not in seen:
             seen.add(str(exact))
-            out.append((exact, None))
+            out.append((exact, r))
     for r in sorted(roots, key=lambda q: len(project_slug(q)), reverse=True):
         prefix = project_slug(r) + "-"
         for p in sorted(base.iterdir()):
@@ -928,16 +930,19 @@ def droid_wrapper_log() -> Path:
 
 
 def _under_root(cwd: str | None, root: Path) -> bool:
+    """Canonical containment only: resolve BOTH sides before comparing, so a
+    symlinked spelling still matches while `repo/../foreign` and escaping
+    symlinks never do. A cwd that cannot be canonicalized proves nothing —
+    fail closed."""
     if not cwd:
         return False
-    roots = [str(r) for r in repo_roots(root)]
-    resolved = _safe_resolve(Path(cwd))
-    for c in (cwd, str(resolved) if resolved is not None else ""):
-        if not c:
-            continue
-        for root_s in roots:
-            if c == root_s or c.startswith(root_s + os.sep):
-                return True
+    cand = _safe_resolve(Path(cwd))
+    if cand is None:
+        return False
+    for r in repo_roots(root):
+        rr = _safe_resolve(r)
+        if rr is not None and (cand == rr or cand.is_relative_to(rr)):
+            return True
     return False
 
 

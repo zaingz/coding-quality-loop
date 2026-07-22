@@ -51,11 +51,15 @@ def make_repo(tmp: Path, name: str = "repo") -> Path:
 
 
 def claude_dir(tmp: Path, repo: Path) -> Path:
-    """A fake CLAUDE_CONFIG_DIR with a projects dir for `repo`."""
+    """A fake CLAUDE_CONFIG_DIR with a projects dir for `repo`. Also points
+    the fixture default cwd at `repo` — since v6.5.0 EVERY transcript must
+    prove its cwd (exact slug dirs are no longer trusted), so lines built by
+    assistant_line default to the repo the case is indexing."""
     cdir = tmp / "claude-home"
     proj = cdir / "projects" / ctl.project_slug(repo)
     proj.mkdir(parents=True, exist_ok=True)
     os.environ["CLAUDE_CONFIG_DIR"] = str(cdir)
+    os.environ["CQL_EVAL_REPO"] = str(repo)
     return proj
 
 
@@ -63,13 +67,15 @@ def assistant_line(session: str, uuid: str, ts: str, model: str = "test-model-1"
                    inp: int = 100, out: int = 50, cache_read: int = 0,
                    cache_create: int = 0,
                    tools: list | None = None, sidechain: bool = False,
-                   agent: str | None = None, msg_id: str | None = None) -> str:
+                   agent: str | None = None, msg_id: str | None = None,
+                   cwd: str | None = None) -> str:
     content = [{"type": "text", "text": "ok"}]
     for tid, tname, tinput in tools or []:
         content.append({"type": "tool_use", "id": tid, "name": tname, "input": tinput})
     line = {
         "type": "assistant", "uuid": uuid, "sessionId": session, "timestamp": ts,
-        "cwd": "/tmp/x", "gitBranch": "main", "version": "9.9.9",
+        "cwd": cwd or os.environ.get("CQL_EVAL_REPO", "/tmp/x"),
+        "gitBranch": "main", "version": "9.9.9",
         "isSidechain": sidechain,
         "message": {
             # Real hosts write one line PER CONTENT BLOCK, all sharing one
@@ -96,6 +102,7 @@ def user_line(session: str, ts: str, text: str = "", results: list | None = None
                    for tid, err in results]
     return json.dumps({
         "type": "user", "sessionId": session, "timestamp": ts,
+        "cwd": os.environ.get("CQL_EVAL_REPO", "/tmp/x"),
         "message": {"role": "user", "content": content},
     })
 
@@ -312,8 +319,10 @@ def case_summary_title_overrides(tmp: Path) -> tuple[bool, str]:
     # s2: machine caveat first (must NOT become the title), then a
     # list-of-text-blocks prompt (the other real transcript shape).
     caveat = json.dumps({"type": "user", "sessionId": "s2", "timestamp": "2026-01-01T11:00:00Z",
+                         "cwd": str(repo),
                          "message": {"role": "user", "content": "Caveat: the messages below were generated..."}})
     blocks = json.dumps({"type": "user", "sessionId": "s2", "timestamp": "2026-01-01T11:00:01Z",
+                         "cwd": str(repo),
                          "message": {"role": "user",
                                      "content": [{"type": "text", "text": "block-form prompt"}]}})
     write_transcript(proj, "s2", [caveat, blocks])
@@ -912,8 +921,21 @@ def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
     wt_proj = base / ctl.project_slug(wt)
     wt_proj.mkdir(parents=True, exist_ok=True)
     write_transcript(wt_proj, "wtsess", [
-        assistant_line("wtsess", "w1", "2026-01-05T10:00:00Z", inp=30, out=10),
+        assistant_line("wtsess", "w1", "2026-01-05T10:00:00Z", inp=30, out=10,
+                       cwd=str(wt / "src")),
     ])
+    # Exact-slug dirs are fail-closed too (v6.5.0 security round): a foreign
+    # transcript sitting in THIS repo's own exact slug dir (slug collision,
+    # e.g. '/tmp/repo-wt' vs '/tmp/repo/wt') and a transcript that never
+    # proves a cwd must both stay unattributed.
+    proj_main = base / ctl.project_slug(repo)
+    write_transcript(proj_main, "foreignsess", [
+        assistant_line("foreignsess", "f1", "2026-01-05T10:00:00Z", inp=777, out=7,
+                       cwd=str(tmp / "elsewhere")),
+    ])
+    nocwd = json.loads(assistant_line("nocwdsess", "n1", "2026-01-05T10:00:00Z"))
+    del nocwd["cwd"]
+    write_transcript(proj_main, "nocwdsess", [json.dumps(nocwd)])
     # Decoy: an unrelated sibling checkout whose name flattens into the main
     # slug's prefix space; its first cwd-bearing line places it OUTSIDE every
     # repo root, so the per-file check must exclude it.
@@ -972,13 +994,19 @@ def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
                 os.environ.pop(var, None)
             else:
                 os.environ[var] = val
+    # Canonical containment probe: 'repo/../sibling' must never pass the
+    # membership check even though its raw string starts with the repo path.
+    escape_ok = not ctl._under_root(str(repo / ".." / (repo.name + "-evil")), repo)
     ok = ("wtsess" in hosts and hosts.get("wtsess") == "claude-code"
           and any("wtroll001" in sid for sid in hosts)
           and "droid:wt-run" in hosts
           and "decoysess" not in hosts
+          and "foreignsess" not in hosts and "nocwdsess" not in hosts
+          and escape_ok
           and not late_before and late_after)
     return ok, (f"sessions={sorted(hosts.items())}; "
-                f"late_before={late_before}; late_after={late_after}")
+                f"late_before={late_before}; late_after={late_after}; "
+                f"escape_ok={escape_ok}")
 
 
 def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:

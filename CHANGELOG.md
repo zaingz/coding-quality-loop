@@ -45,9 +45,13 @@ Suites: 19 static + 63 behavioral + 32 memory + 51 reality + 30 routing +
   git; `git_capture` grows an optional `timeout`), the codex adapter moves
   from exact-root matching to descendant containment, and a roots-change
   resets codex rollout offsets so a rollout consumed as foreign before its
-  worktree was linked is resurrected on the next pass. Prefix-slug decoys
-  keep failing the per-file cwd check. The mission topology's
-  isolated-worktree workers were previously invisible to the per-repo index.
+  worktree was linked is resurrected on the next pass. Security round:
+  membership is **canonical containment only** (`repo/../foreign` and
+  escaping symlinks never match; unresolvable cwds fail closed) and exact
+  slug dirs are no longer trusted — slug flattening is lossy
+  (`/tmp/repo-wt` vs `/tmp/repo/wt`), so every transcript must prove its
+  cwd or stay unattributed. The mission topology's isolated-worktree
+  workers were previously invisible to the per-repo index.
 - **Spend per accepted completion record.** `loop_metrics` (and the
   dashboard Metrics view) expose the routing doctrine metric — per accepted
   record (every review verdict approving), the delegation-linked session
