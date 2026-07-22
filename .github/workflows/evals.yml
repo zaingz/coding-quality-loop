@@ -17,6 +17,8 @@ jobs:
         run: python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py
       - name: Validate example orchestration config
         run: python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
+      - name: Validate dogfood orchestration config (routing + heterogeneity)
+        run: python3 scripts/quality_loop.py check-config quality-loop.config.json
       - name: Run static eval cases
         run: python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
       - name: Run behavioral eval harness

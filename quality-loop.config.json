@@ -1,11 +1,350 @@
 {
+  "$schema": "./quality-loop.config.schema.json",
   "version": "5.1.0",
-  "description": "CQL's own gate configuration (dogfood). Only the deliberate gate-config surface lives here — base / tests.path_markers / high_risk_paths, plus the protect_harness guard key — read best-effort by the diff-grounded gates and the PreToolUse guard; everything else about the gates is deliberately not configurable. This is not a full orchestration config (profiles/steps live in assets/quality-loop.config.example.json): check-config validates it via the gate-config-only path (types checked, orchestration checks skipped, exit 0). No $schema pointer on purpose — the shipped schema models the full orchestration shape, which this gate-only file deliberately is not. tests.path_markers teaches the gates that evals/cases/ IS this repo's pinned test-fixture suite, so case-pinned releases no longer need a bugfix_test_waiver. Deliberately NOT evals/ wholesale: the eval runners embed weakening-marker fixture strings (t.Skip, #[ignore]) to test the detector itself, and marking them as tests would make the weakening gate flag its own fixtures. protect_harness is false HERE ONLY because this repo IS the harness: its gate scripts are the workpiece under constant edit, so the guard's harness-file denies would make developing CQL impossible; the always-on destructive-command layer still applies, and consumer installs keep the default (on).",
+  "description": "CQL's own orchestration config (dogfood). Since v6.5.0 this is the full orchestration shape consumers run \u2014 profiles/steps stay host-neutral placeholders; concrete routing lives in model_routing (pasted from assets/routing/max-intelligence.json, applied via setup-models, enforced by check-config: cross-family review is the load-bearing leg). Gate-config keys kept from the pre-v6.5.0 gate-only file: tests.path_markers teaches the gates that evals/cases/ IS this repo's pinned test-fixture suite (deliberately NOT evals/ wholesale: the eval runners embed weakening-marker fixture strings to test the detector itself). protect_harness is false HERE ONLY because this repo IS the harness: its gate scripts are the workpiece under constant edit; the always-on destructive-command layer still applies, and consumer installs keep the default (on).",
   "tests": {
     "path_markers": [
       "evals/cases/"
     ]
   },
   "high_risk_paths": [],
-  "protect_harness": false
+  "protect_harness": false,
+  "profiles": {
+    "orchestrator": {
+      "role": "Mission: scope, classify, context, spec/validation contract, decompose, assign workers, collect findings, stop if unsafe",
+      "model": "<strong-reasoning-model>",
+      "tools": [
+        "read",
+        "search"
+      ]
+    },
+    "contract_agent": {
+      "role": "INTAKE: goal -> task contract",
+      "model": "<cheap-fast-model>",
+      "tools": [
+        "read"
+      ]
+    },
+    "repo_mapper": {
+      "role": "EXPLORE/CONTEXT MAP: smallest relevant code map; findings not dumps",
+      "model": "<cheap-fast-model>",
+      "tools": [
+        "read",
+        "search",
+        "grep"
+      ]
+    },
+    "planner": {
+      "role": "PLAN: design smallest correct change",
+      "model": "<strong-reasoning-model>",
+      "tools": [
+        "read",
+        "search"
+      ]
+    },
+    "minimality_reviewer": {
+      "role": "COMPLEXITY BRAKE: pick highest valid rung; simplicity review",
+      "model": "<strong-reasoning-model>",
+      "tools": [
+        "read"
+      ]
+    },
+    "implementer": {
+      "role": "IMPLEMENT_SLICE: write the diff",
+      "model": "<code-specialized-model>",
+      "tools": [
+        "read",
+        "edit",
+        "write",
+        "exec"
+      ]
+    },
+    "verification_runner": {
+      "role": "VERIFY: run checks, capture evidence",
+      "model": "<cheap-fast-model>",
+      "tools": [
+        "exec"
+      ]
+    },
+    "fresh_reviewer": {
+      "role": "INDEPENDENT REVIEW: validator; diff review vs validation contract",
+      "model": "<strong-reasoning-model>",
+      "tools": [
+        "read",
+        "search"
+      ],
+      "independent_session": true
+    },
+    "security_reviewer": {
+      "role": "Risk boundaries only: auth, secrets, payments, PII, migrations, upload/download, network, shell, dependencies",
+      "model": "<strong-reasoning-model>",
+      "tools": [
+        "read",
+        "search"
+      ],
+      "independent_session": true
+    },
+    "packager": {
+      "role": "SHIP/HANDOFF: assemble PR handoff + completion record",
+      "model": "<cheap-fast-model>",
+      "tools": [
+        "read"
+      ]
+    },
+    "retrospector": {
+      "role": "RETROSPECT: convert a repeated failure into a durable harness update (rule/test/hook/checklist)",
+      "model": "<strong-reasoning-model>",
+      "tools": [
+        "read",
+        "write"
+      ]
+    },
+    "policy_guard": {
+      "role": "Cross-cutting deterministic safety blocks",
+      "model": null,
+      "tools": [
+        "hook"
+      ],
+      "deterministic": true
+    }
+  },
+  "steps": [
+    {
+      "step": "INTAKE",
+      "profile": "contract_agent",
+      "model_class": "cheap_fast",
+      "tools": [
+        "read"
+      ],
+      "required_artifacts": [
+        "task_contract"
+      ],
+      "gates": [
+        "contract_has_goal",
+        "contract_has_acceptance_criteria",
+        "contract_has_risk_tier"
+      ]
+    },
+    {
+      "step": "EXPLORE",
+      "profile": "repo_mapper",
+      "model_class": "cheap_fast",
+      "tools": [
+        "read",
+        "search",
+        "grep"
+      ],
+      "required_artifacts": [
+        "repo_map"
+      ],
+      "gates": [
+        "likely_files_named"
+      ]
+    },
+    {
+      "step": "MINIMALITY_GATE",
+      "profile": "minimality_reviewer",
+      "model_class": "strong_reasoning",
+      "tools": [
+        "read"
+      ],
+      "required_artifacts": [
+        "minimality_decision"
+      ],
+      "gates": [
+        "rung_chosen",
+        "lower_rungs_rejected",
+        "safety_exceptions_checked"
+      ]
+    },
+    {
+      "step": "PLAN",
+      "profile": "planner",
+      "model_class": "strong_reasoning",
+      "tools": [
+        "read",
+        "search"
+      ],
+      "required_artifacts": [
+        "plan"
+      ],
+      "gates": [
+        "plan_names_files",
+        "plan_names_verification"
+      ]
+    },
+    {
+      "step": "IMPLEMENT_SLICE",
+      "profile": "implementer",
+      "model_class": "code_specialized",
+      "tools": [
+        "read",
+        "edit",
+        "write",
+        "exec"
+      ],
+      "required_artifacts": [
+        "diff"
+      ],
+      "gates": [
+        "diff_scoped_to_plan"
+      ]
+    },
+    {
+      "step": "VERIFY",
+      "profile": "verification_runner",
+      "model_class": "cheap_fast",
+      "tools": [
+        "exec"
+      ],
+      "required_artifacts": [
+        "command_evidence"
+      ],
+      "gates": [
+        "evidence_matches_risk_tier"
+      ]
+    },
+    {
+      "step": "REVIEW",
+      "profile": "fresh_reviewer",
+      "model_class": "strong_reasoning",
+      "tools": [
+        "read",
+        "search"
+      ],
+      "independent_session": true,
+      "required_artifacts": [
+        "review_verdict"
+      ],
+      "gates": [
+        "verdict_recorded",
+        "findings_recorded"
+      ]
+    },
+    {
+      "step": "PACKAGE",
+      "profile": "packager",
+      "model_class": "cheap_fast",
+      "tools": [
+        "read"
+      ],
+      "required_artifacts": [
+        "pr_handoff"
+      ],
+      "gates": [
+        "handoff_complete"
+      ]
+    },
+    {
+      "step": "RETROSPECT",
+      "profile": "retrospector",
+      "model_class": "strong_reasoning",
+      "tools": [
+        "read",
+        "write"
+      ],
+      "required_artifacts": [
+        "harness_update"
+      ],
+      "gates": [
+        "repeated_failure_converted_to_durable_harness_update"
+      ]
+    }
+  ],
+  "routing_defaults": {
+    "low": {
+      "agents": [
+        "implementer"
+      ],
+      "policy_guard": true,
+      "note": "One agent runs the whole loop."
+    },
+    "medium": {
+      "agents": [
+        "implementer",
+        "fresh_reviewer",
+        "verification_runner"
+      ],
+      "policy_guard": true,
+      "note": "Independent reviewer + real checks."
+    },
+    "high": {
+      "agents": [
+        "orchestrator",
+        "planner",
+        "minimality_reviewer",
+        "implementer",
+        "verification_runner",
+        "fresh_reviewer",
+        "security_reviewer"
+      ],
+      "policy_guard": true,
+      "human_approval": true,
+      "security_reviewer_at_boundaries": true,
+      "note": "Full split with enforced security/migration blocks; security_reviewer required at risk boundaries."
+    }
+  },
+  "policy_guard": {
+    "profile": "policy_guard",
+    "enforcement": "deterministic",
+    "applies_to": [
+      "all_steps"
+    ],
+    "block_or_escalate": [
+      "secrets_or_credentials_in_diff",
+      "destructive_migration_or_data_deletion",
+      "payment_billing_auth_infra_change",
+      "new_dependency_without_justification",
+      "diff_exceeds_review_budget"
+    ]
+  },
+  "model_routing": {
+    "as_of": "2026-07-12",
+    "host": "claude-code",
+    "host_models": {
+      "claude-code": {
+        "cheap_fast": {
+          "model": "claude-sonnet-5",
+          "family": "claude",
+          "thinking": "low"
+        },
+        "strong_reasoning": {
+          "model": "claude-fable-5",
+          "family": "claude",
+          "thinking": "high"
+        },
+        "code_specialized": {
+          "model": "claude-fable-5",
+          "family": "claude",
+          "thinking": "high"
+        }
+      },
+      "codex": {
+        "strong_reasoning": {
+          "model": "gpt-5.6-sol",
+          "family": "gpt",
+          "thinking": "high",
+          "note": "Reviewer leg. Reviews stay advisory beneath deterministic gates; verify findings locally."
+        }
+      }
+    },
+    "agents": {
+      "quality-loop-context-mapper": "cheap_fast",
+      "quality-loop-planner": "strong_reasoning",
+      "quality-loop-reviewer": {
+        "host": "codex",
+        "class": "strong_reasoning"
+      },
+      "quality-loop-security-reviewer": {
+        "host": "codex",
+        "class": "strong_reasoning"
+      }
+    },
+    "main_session": {
+      "host": "claude-code",
+      "class": "code_specialized",
+      "note": "Implementer runs in the Claude Code main session on Fable 5."
+    },
+    "allow_same_family": false
+  }
 }
