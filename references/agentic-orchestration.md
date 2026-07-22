@@ -68,6 +68,32 @@ knows it was a deliberate hand-off. The ledger is metadata only (never the brief
 lives under `.quality-loop/` so it is excluded from the review attestation hash, and a
 half-flushed line is skipped by the indexer rather than being fatal.
 
+### Persistent workers (fix rounds); fresh reviewers (always)
+
+Workers are stateless per **slice**, not per message. When review findings come back on a
+slice, send the fix brief to the **same implementer worker session** instead of briefing a
+fresh one: the brief, the diff it wrote, and the commands it ran are already in that session's
+prompt cache, so a follow-up round bills at cache-read rates (~0.1× input) instead of a cold
+re-brief, and the worker keeps the working state it built on round one. Hosts with persistent
+agent sessions support this natively (Claude Code agent teams / follow-up messages; Codex
+`resume`).
+
+Three edges keep the pattern honest:
+
+- **Reviewers never persist.** A reviewer session is consumed by its verdict; every review
+  round gets a fresh session — a persistent reviewer inherits its own prior verdict exactly
+  the way it must not inherit the implementer's confidence.
+- **One ledger row per round, same `session_id`.** Record each follow-up hand-off as its own
+  delegation row carrying the same worker `session_id`. Rows sharing a `session_id` are
+  follow-up rounds by convention; the control plane links them to the session and attributes
+  its tokens exactly once (see `docs/control-plane.md` §Delegation ledger).
+- **Escalation ends persistence.** A recorded failing check that triggers a model-tier
+  escalation (§Stock Routing) starts a fresh worker on the stronger model; never "continue"
+  a failing session onto a new tier.
+
+Persistence is a cost move, never a delegation of judgment: the orchestrator still judges
+every round's output.
+
 ## Step → profile → model class
 
 Route by *step*, not by vendor: each step has its own cost/capability profile. Deterministic

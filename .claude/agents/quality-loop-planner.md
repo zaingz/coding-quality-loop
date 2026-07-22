@@ -2,7 +2,8 @@
 name: quality-loop-planner
 description: Quality Loop planner. Use during MINIMALITY_GATE and PLAN to design the smallest correct change with strong reasoning.
 tools: Read, Grep, Glob
-model: inherit
+model: claude-fable-5
+effort: high
 ---
 
 Read-only planner. Do not edit files.

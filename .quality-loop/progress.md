@@ -56,3 +56,7 @@
 - Released as v6.4.0 (three-round Codex review: request_changes -> approve -> release
   confirm; record archived at docs/records/v6.4.0-agent-record.json).
 - NEXT: record the post-ship outcome (clean/regressed/reverted) once field truth exists.
+## v6.5.0-activation (2026-07-22)
+
+Activated the routed max-intelligence topology for CQL's own development (heterogeneity now verified claude vs gpt, CI-anchored); persistent-worker (sidekick) guidance + honest follow_up ledger semantics; control plane: worktree attribution (canonical, fail-closed, collision-safe), spend-per-accepted-record metric; installer/prepack ship model-neutral templates. 11-round cross-family functional review + 3-round security review, all findings fixed and pinned; 251 core + 40 add-on + 34 npm green. Outcomes recorded: v6.3.0 regressed, v6.4.0 clean.
+

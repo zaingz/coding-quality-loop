@@ -351,35 +351,100 @@ def claude_projects_root() -> Path:
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude")) / "projects"
 
 
-def transcript_dirs(root: Path, all_projects: bool = False) -> list[tuple[Path, bool]]:
-    """(directory, needs_cwd_check) pairs for this repo's transcripts.
+_WORKTREE_TTL_SEC = 60.0
+_worktree_cache: dict[str, tuple[float, list[Path]]] = {}
+
+
+def repo_roots(root: Path) -> list[Path]:
+    """``root`` plus its linked git worktrees, so sessions started in a
+    worktree of this repository attribute to this repo's index (the mission
+    topology runs concurrent workers in isolated worktrees). Best-effort: no
+    git, not a repo, or a slow call degrades to ``[root]`` — a broken
+    observability plane must degrade to "no data", never to an error. Cached
+    briefly because the server's debounced reindex calls this repeatedly.
+    """
+    key = str(root)
+    now = time.monotonic()
+    hit = _worktree_cache.get(key)
+    if hit is not None and now - hit[0] < _WORKTREE_TTL_SEC:
+        return hit[1]
+    roots = [root]
+    try:
+        code, out, _err = qlcore.git_capture(
+            ["-C", str(root), "worktree", "list", "--porcelain"], timeout=5)
+    except OSError:
+        code, out = 1, ""
+    if code == 0:
+        for line in out.splitlines():
+            if line.startswith("worktree "):
+                p = Path(line[len("worktree "):].strip())
+                if p != root and p not in roots:
+                    roots.append(p)
+    # Symlinked tmp/home dirs (macOS /var -> /private/var) mean git and the
+    # session cwd can name the same directory two ways; keep both forms so
+    # slug matching and exact-cwd matching hit either spelling.
+    expanded: list[Path] = []
+    for r in roots:
+        for cand in (r, _safe_resolve(r)):
+            if cand is not None and cand not in expanded:
+                expanded.append(cand)
+    _worktree_cache[key] = (now, expanded)
+    return expanded
+
+
+def _safe_resolve(path: Path) -> Path | None:
+    try:
+        return path.resolve()
+    except (OSError, ValueError, RuntimeError):
+        # ValueError: an embedded NUL in a hostile/corrupt cwd. RuntimeError:
+        # a symlink loop on Pythons that detect it that way (3.11); newer
+        # versions surface loops as OSError(ELOOP). A path we cannot
+        # canonicalize proves nothing, and must never abort indexing.
+        return None
+
+
+def transcript_dirs(root: Path, all_projects: bool = False) -> list[tuple[Path, list[Path] | None]]:
+    """(directory, candidate_cwd_roots) pairs for this repo's transcripts.
 
     Hosts slug the project dir by session CWD, so work started from a repo
-    SUBDIRECTORY lands under a longer slug (repo/sub -> '<slug>-sub'). Those
-    prefix-matched dirs are included, but slug flattening is ambiguous — a
-    sibling checkout named 'repo-sub' produces the same slug — so their files
-    only count after a per-file cwd check proves they belong to this root.
+    SUBDIRECTORY lands under a longer slug (repo/sub -> '<slug>-sub'), and a
+    session started in a linked git WORKTREE lands under that worktree's own
+    slug. Slug flattening is lossy — '/tmp/repo-wt' and '/tmp/repo/wt' share
+    one slug — so a directory can legitimately serve SEVERAL roots: each dir
+    carries the full candidate-root list (the second tuple element), and every
+    file counts only when its cwd proves membership in one of them; a
+    transcript that cannot prove its cwd stays unattributed (fail closed).
+    ``all_projects`` deliberately skips the check (``None``) — that mode is
+    the whole-machine sweep.
     """
     base = claude_projects_root()
     if not base.is_dir():
         return []
     if all_projects:
-        return sorted((p, False) for p in base.iterdir() if p.is_dir())
-    slug = project_slug(root)
-    out: list[tuple[Path, bool]] = []
-    exact = base / slug
-    if exact.is_dir():
-        out.append((exact, False))
-    prefix = slug + "-"
-    out.extend(sorted(
-        (p, True) for p in base.iterdir() if p.is_dir() and p.name.startswith(prefix)
-    ))
-    return out
+        return sorted((p, None) for p in base.iterdir() if p.is_dir())
+    by_dir: dict[str, tuple[Path, list[Path]]] = {}
+    for r in repo_roots(root):
+        slug = project_slug(r)
+        exact = base / slug
+        if exact.is_dir():
+            ent = by_dir.setdefault(str(exact), (exact, []))
+            if r not in ent[1]:
+                ent[1].append(r)
+        prefix = slug + "-"
+        for p in sorted(base.iterdir()):
+            if p.is_dir() and p.name.startswith(prefix):
+                ent = by_dir.setdefault(str(p), (p, []))
+                if r not in ent[1]:
+                    ent[1].append(r)
+    return [by_dir[k] for k in sorted(by_dir)]
 
 
-def _file_in_root(path: Path, root: Path) -> bool:
-    """True when the first cwd-bearing line places this transcript inside
-    ``root``. Files with no cwd in the first 64KB stay unattributed."""
+def _file_in_roots(path: Path, roots: list[Path]) -> bool:
+    """True when the first cwd-bearing line places this transcript inside ANY
+    candidate root — colliding slugs mean one dir can serve several legitimate
+    worktrees. Files with no cwd in the first 64KB stay unattributed, and a
+    cwd that cannot be canonicalized (embedded NUL, OS errors) proves nothing
+    — fail closed, never abort the indexing pass."""
     try:
         with path.open("rb") as fh:
             head = fh.read(65536)
@@ -392,10 +457,14 @@ def _file_in_root(path: Path, root: Path) -> bool:
             continue
         cwd = line.get("cwd") if isinstance(line, dict) else None
         if isinstance(cwd, str) and cwd:
-            try:
-                return Path(cwd).resolve().is_relative_to(root.resolve())
-            except OSError:
+            cand = _safe_resolve(Path(cwd))
+            if cand is None:
                 return False
+            for r in roots:
+                rr = _safe_resolve(r)
+                if rr is not None and (cand == rr or cand.is_relative_to(rr)):
+                    return True
+            return False
     return False
 
 
@@ -803,7 +872,7 @@ def _index_codex_file(
 
     meta = _codex_meta(first_line)
     cwd = str(meta["cwd"]) if isinstance(meta, dict) and meta.get("cwd") is not None else None
-    if not all_projects and cwd != str(root):
+    if not all_projects and not _under_root(cwd, root):
         # Foreign project (or unreadable head): consume to the tail so the stat
         # check short-circuits future passes without re-reading the file.
         _remember_file_state(conn, path, new_offset, mtime)
@@ -871,10 +940,20 @@ def droid_wrapper_log() -> Path:
 
 
 def _under_root(cwd: str | None, root: Path) -> bool:
+    """Canonical containment only: resolve BOTH sides before comparing, so a
+    symlinked spelling still matches while `repo/../foreign` and escaping
+    symlinks never do. A cwd that cannot be canonicalized proves nothing —
+    fail closed."""
     if not cwd:
         return False
-    root_s = str(root)
-    return cwd == root_s or cwd.startswith(root_s + os.sep)
+    cand = _safe_resolve(Path(cwd))
+    if cand is None:
+        return False
+    for r in repo_roots(root):
+        rr = _safe_resolve(r)
+        if rr is not None and (cand == rr or cand.is_relative_to(rr)):
+            return True
+    return False
 
 
 def _index_droid_wrapper(conn: sqlite3.Connection, root: Path, all_projects: bool) -> dict[str, int]:
@@ -1210,9 +1289,28 @@ def index_all(root: Path, all_projects: bool = False) -> dict[str, Any]:
         started = time.time()
         totals = {"files": 0, "lines": 0, "skipped": 0, "model_calls": 0, "tool_calls": 0,
                   "zero_usage": 0, "droid_runs": 0}
-        for tdir, needs_cwd_check in transcript_dirs(root, all_projects):
+        # Scope decisions must not outlive the worktree topology they were made
+        # under: refresh the roots for this pass, and when the set CHANGED,
+        # forget codex rollout offsets — a rollout consumed as "foreign" before
+        # a worktree was linked would otherwise stay skipped forever (its
+        # offset sits at the tail). Claude/droid adapters re-check scope per
+        # pass/record, so only the codex consume-on-foreign path needs this.
+        _worktree_cache.pop(str(root), None)
+        roots_now = json.dumps(sorted(str(r) for r in repo_roots(root)))
+        prev_roots = conn.execute(
+            "SELECT value FROM meta WHERE key='repo_roots'").fetchone()
+        if prev_roots is None or prev_roots["value"] != roots_now:
+            # A missing row means the cache predates roots tracking (a v6.4
+            # schema-8 DB): its foreign-consume decisions are untrusted too,
+            # so reset codex offsets exactly as on a roots change. On a fresh
+            # DB file_state is empty and this deletes nothing.
+            conn.execute("DELETE FROM file_state WHERE path LIKE '%rollout-%.jsonl'")
+        conn.execute(
+            "INSERT INTO meta(key, value) VALUES('repo_roots', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (roots_now,))
+        for tdir, cwd_check_roots in transcript_dirs(root, all_projects):
             for path in sorted(tdir.glob("*.jsonl")):
-                if needs_cwd_check and not _file_in_root(path, root):
+                if cwd_check_roots is not None and not _file_in_roots(path, cwd_check_roots):
                     continue
                 totals["files"] += 1
                 fstats = _index_transcript_file(conn, path)
@@ -1490,7 +1588,7 @@ def session_detail(conn: sqlite3.Connection, session_id: str, prices: dict[str, 
 def list_artifacts(conn: sqlite3.Connection, kinds: tuple[str, ...]) -> list[dict[str, Any]]:
     marks = ",".join("?" for _ in kinds)
     rows = conn.execute(
-        f"SELECT source_path, kind, ts, title, detail FROM artifacts WHERE kind IN ({marks}) "  # noqa: S608
+        f"SELECT key, source_path, kind, ts, title, detail FROM artifacts WHERE kind IN ({marks}) "  # noqa: S608
         "ORDER BY source_path, kind, key",
         kinds,
     ).fetchall()
@@ -1576,15 +1674,29 @@ def delegations_with_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     ``unjoinable`` (never a distance-0 match against everything), and the
     join is ONE-TO-ONE — each session is claimed by at most one delegation
     (globally nearest pair first; the next-nearest goes unmatched instead of
-    double-counting the session's tokens). One-to-one holds for explicit ids
-    too: when two ledger rows carry the SAME session_id, the first (ledger
-    order) claims the session and every later duplicate is flagged
-    ``duplicate_session_id`` and left unmatched instead of double-counting.
+    double-counting the session's tokens). Token attribution is one-to-one for
+    explicit ids too, but linking is not: when later ledger rows carry the
+    SAME session_id as an earlier row, they are follow-up rounds to a
+    persistent worker by convention (fix rounds; see
+    references/agentic-orchestration.md §Persistent workers). Each follow-up
+    row is flagged ``follow_up`` and linked to the session WITHOUT its token
+    totals — the session's tokens ride only the first row, so sums over rows
+    never double-count. The heuristic never claims a session an explicit id
+    already took.
     """
     items: list[dict[str, Any]] = []
     claimed: set[str] = set()  # session ids already taken (direct or assigned)
     candidates: list[tuple[float, int, sqlite3.Row]] = []  # (dist, item index, session)
-    for art in list_artifacts(conn, ("delegation",)):
+
+    def _ledger_order(art: dict[str, Any]) -> tuple[str, int]:
+        # Artifact keys end in the ledger line number; the SQL ORDER BY key is
+        # lexicographic, which puts row #10 before #9 — first-claim (which row
+        # carries a persistent worker's tokens) must follow NUMERIC ledger
+        # order, so re-sort here.
+        tail = str(art.get("key") or "").rsplit("#", 1)[-1]
+        return (art["source_path"], int(tail) if tail.isdigit() else 0)
+
+    for art in sorted(list_artifacts(conn, ("delegation",)), key=_ledger_order):
         detail = art["detail"] if isinstance(art["detail"], dict) else {}
         item = {
             "task_id": detail.get("task_id"), "role": detail.get("role"),
@@ -1594,17 +1706,22 @@ def delegations_with_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             "session_id": detail.get("session_id"),
             "ts": detail.get("ts") or art["ts"], "title": art["title"],
             "session": None, "unmatched": True, "unjoinable": False,
-            "duplicate_session_id": False,
+            "follow_up": False,
         }
         items.append(item)
         sid = detail.get("session_id")
         if isinstance(sid, str) and sid:
             if sid in claimed:
-                # A session already claimed by an earlier ledger row must not
-                # attach again — direct joins are one-to-one like the
-                # heuristic, or two rows naming one session double-count its
-                # tokens. Flagged, never guessed against by the heuristic.
-                item["duplicate_session_id"] = True
+                # Follow-up round: a later row naming an already-claimed
+                # session is another hand-off to the same persistent worker.
+                # Link the session for the audit trail, but its token totals
+                # ride only the first row — attach no tokens here, so sums
+                # over delegation rows never double-count a session.
+                row = conn.execute(_SESSION_JOIN_COLS + " WHERE id=?", (sid,)).fetchone()
+                if row is not None:
+                    item["session"] = dict(row)
+                    item["unmatched"] = False
+                item["follow_up"] = True
                 continue
             row = conn.execute(_SESSION_JOIN_COLS + " WHERE id=?", (sid,)).fetchone()
             if row is not None:
@@ -1691,7 +1808,15 @@ def task_timeline(conn: sqlite3.Connection, task_id: str, prices: dict[str, Any]
                        "title": d["title"], "detail": d})
     events.sort(key=lambda e: (str(e["ts"] or ""), e["kind"]))
     # Linked sessions: the matched sessions behind this task's delegations.
-    sessions = [d["session"] for d in delegations if d.get("session")]
+    # A persistent worker appears behind several rows (follow-up rounds) but
+    # is one session — list it once; only the first row carries its tokens.
+    sessions = []
+    seen_session_ids: set[str] = set()
+    for d in delegations:
+        sess = d.get("session")
+        if sess and sess["id"] not in seen_session_ids:
+            seen_session_ids.add(sess["id"])
+            sessions.append(sess)
     spend_totals = {"calls": 0, "input_tokens": 0, "output_tokens": 0,
                     "cache_read_tokens": 0, "cache_creation_tokens": 0}
     for sess in sessions:
@@ -1785,6 +1910,53 @@ def loop_metrics(conn: sqlite3.Connection, root: Path, prices: dict[str, Any] | 
         durations.append({"id": s["id"], "title": s["title"], "host": s["host"],
                           "agent_name": s["agent_name"], "duration_sec": secs})
 
+    # Spend per accepted completion record — the routing doctrine metric
+    # ("steer by cost per accepted completion record, never by price per
+    # token", assets/routing/README.md). Accepted = every review verdict on
+    # the record's source file is an approval and at least one exists. Spend
+    # = the task's delegation-linked sessions priced via spend(conn,
+    # "session"); follow-up rows carry no tokens, and live/archive record
+    # twins count once (dedup by task title — the review-yield lesson).
+    session_spend = {row["key"]: row for row in spend(conn, "session", prices)}
+    deleg_rows = delegations_with_sessions(conn)
+    reviews_by_source: dict[str, list[dict[str, Any]]] = {}
+    for r in reviews:
+        reviews_by_source.setdefault(r["source_path"], []).append(r)
+    accepted_rows: list[dict[str, Any]] = []
+    recs_by_task: dict[str, dict[str, Any]] = {}
+    for rec in records:
+        task = rec["title"]
+        if not task:
+            continue
+        cur = recs_by_task.get(task)
+        # Archives win (the review-yield twin rule): the archived record is
+        # the shipped truth; a live twin stands in only when no archive
+        # exists — so a live approval never outranks an archived rejection.
+        if cur is None or (cur["detail"].get("live") and not rec["detail"].get("live")):
+            recs_by_task[task] = rec
+    for task, rec in sorted(recs_by_task.items()):
+        verds = {str(r["detail"].get("verdict") or "unknown")
+                 for r in reviews_by_source.get(rec["source_path"], [])}
+        if not verds or verds != {"approve"}:
+            continue
+        agg: dict[str, Any] = {"task_id": task, "sessions": 0, "input_tokens": 0,
+                               "output_tokens": 0, "cache_read_tokens": 0,
+                               "cache_creation_tokens": 0, "cost_usd": None}
+        for d in deleg_rows:
+            sess = d.get("session")
+            if d.get("task_id") != task or not isinstance(sess, dict) or "tokens" not in sess:
+                continue
+            srow = session_spend.get(sess["id"])
+            if not srow:
+                continue
+            agg["sessions"] += 1
+            for k in ("input_tokens", "output_tokens", "cache_read_tokens",
+                      "cache_creation_tokens"):
+                agg[k] += srow.get(k) or 0
+            if srow.get("cost_usd") is not None:
+                agg["cost_usd"] = round((agg["cost_usd"] or 0.0) + srow["cost_usd"], 6)
+        accepted_rows.append(agg)
+
     return {
         "verdict_distribution": verdicts,
         "findings_by_severity": by_severity,
@@ -1794,6 +1966,7 @@ def loop_metrics(conn: sqlite3.Connection, root: Path, prices: dict[str, Any] | 
         "evidence_rate": {"records": len(records), "with_evidence": with_evidence,
                           "rate_pct": evidence_rate},
         "spend_by_role": sorted(by_role.values(), key=lambda r: -r["output_tokens"]),
+        "spend_per_accepted_record": accepted_rows,
         "session_durations": durations,
     }
 
@@ -1960,8 +2133,8 @@ class _Handler(BaseHTTPRequestHandler):
                 rows = delegations_with_sessions(conn)
                 self._json(200, {"delegations": rows,
                                  "unjoinable": sum(1 for r in rows if r.get("unjoinable")),
-                                 "duplicate_session_id": sum(
-                                     1 for r in rows if r.get("duplicate_session_id"))})
+                                 "follow_up": sum(
+                                     1 for r in rows if r.get("follow_up"))})
             elif path == "/api/task":
                 task_id = query.get("task_id", "")
                 if not task_id:

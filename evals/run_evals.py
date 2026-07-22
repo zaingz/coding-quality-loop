@@ -898,6 +898,11 @@ _HISTORICAL_LINE = re.compile(r"\bas of v\d", re.IGNORECASE)
 # Only lint table cells inside the canonical "Total core gate cases" row —
 # per-suite rows carry their own (varying) counts that are not the total.
 _TOTAL_ROW = re.compile(r"total\s+core\s+gate\s+cases", re.IGNORECASE)
+# The add-on suite's own table row ("| Control plane add-on … | 37 | …") — the
+# v6.5.0 review found the phrase-only add-on lint let a stale table cell
+# through; any table row naming the control-plane add-on must carry the
+# derived add-on count in its numeric cell.
+_ADDON_ROW = re.compile(r"control[- ]plane\s+add-on", re.IGNORECASE)
 # Per-suite breakdown addends, e.g. "20 static", "54/54 hook". A right TOTAL
 # with a wrong per-suite addend (a 53 that should be 54) slipped past the
 # total-only lint twice; this catches the arithmetic itself (v6.2 review).
@@ -918,23 +923,76 @@ def _doc_count_mismatches(
     right TOTAL with a wrong addend slipped past the total-only lint twice.
     """
     mismatches: list[str] = []
+    # Plain counts are scanned on a whitespace-flattened view so a number and
+    # its "gate cases" phrase split across a hard-wrapped line are still one
+    # mention (the v6.5.0 round-5 review found a wrapped '249\noffline gate
+    # cases' the per-line scan missed). The "as of vX.Y" historical exemption
+    # is scoped to the match's own sentence CLAUSE — a fixed window let a
+    # historical clause mask a stale current count right next to it (round 6).
+    def _clause(flat_text: str, start: int, end: int) -> str:
+        # Clause boundaries: sentence end, semicolon, em-dash. NOT colon or
+        # comma — those glue the legit historical form ("as of v3.0: 116
+        # cases") to its own marker.
+        bounds = [b.end() for b in re.finditer(r"[.;]\s|—", flat_text)]
+        cs = 0
+        for b in bounds:
+            if b <= start:
+                cs = b
+            else:
+                break
+        ce = len(flat_text)
+        for b in bounds:
+            if b >= end:
+                ce = b
+                break
+        return flat_text[cs:ce]
+
+    flat = _ADDON_PATTERN.sub("", " ".join(text.split()))
+    for m in _COUNT_PATTERN.finditer(flat):
+        if _HISTORICAL_LINE.search(_clause(flat, m.start(), m.end())):
+            continue
+        n = int(m.group(1))
+        if allow_trigger and n == 10:
+            continue
+        if n != canonical:
+            mismatches.append(f"{rel}: {m.group(0)!r} != {canonical}")
+    flat_addon = " ".join(text.split())
+    for m in _ADDON_PATTERN.finditer(flat_addon):
+        if _HISTORICAL_LINE.search(_clause(flat_addon, m.start(), m.end())):
+            continue
+        if int(m.group(1)) != addon:
+            mismatches.append(f"{rel}: {m.group(0)!r} != {addon} (add-on)")
     for line in text.splitlines():
         if _HISTORICAL_LINE.search(line):
             continue  # "as of vX.Y" marks a historical count; exempt
-        for m in _ADDON_PATTERN.finditer(line):
-            if int(m.group(1)) != addon:
-                mismatches.append(f"{rel}: {m.group(0)!r} != {addon} (add-on)")
-        stripped = _ADDON_PATTERN.sub("", line)
-        for m in _COUNT_PATTERN.finditer(stripped):
-            n = int(m.group(1))
-            if allow_trigger and n == 10:
-                continue
-            if n != canonical:
-                mismatches.append(f"{rel}: {m.group(0)!r} != {canonical}")
         if _TOTAL_ROW.search(line):
             for m in _TABLE_CELL_PATTERN.finditer(line):
                 if int(m.group(1)) != canonical:
                     mismatches.append(f"{rel}: total-row cell {m.group(0)!r} != {canonical}")
+        elif _ADDON_ROW.search(line) or "run_control_evals.py" in line:
+            for m in _TABLE_CELL_PATTERN.finditer(line):
+                if int(m.group(1)) != addon:
+                    mismatches.append(f"{rel}: add-on row cell {m.group(0)!r} != {addon}")
+        elif suite_counts and line.lstrip().startswith("|"):
+            # A table row naming a suite's own runner must carry that suite's
+            # derived count in its numeric cell (round 6: the Behavioral row's
+            # parenthetical dodged a rename-style fix and the lint was blind
+            # to per-suite rows).
+            runner_map = {
+                "run_evals.py": "behavioral", "run_memory_evals.py": "memory",
+                "run_reality_evals.py": "reality", "run_routing_evals.py": "routing",
+                "run_hook_evals.py": "hook", "eval-cases evals/cases": "static",
+            }
+            for needle, suite in runner_map.items():
+                if needle in line and not any(
+                        other in line for other in runner_map if
+                        other != needle and needle in other):
+                    real = suite_counts.get(suite)
+                    for m in _TABLE_CELL_PATTERN.finditer(line):
+                        if real is not None and int(m.group(1)) != real:
+                            mismatches.append(
+                                f"{rel}: {suite} suite row cell {m.group(0)!r} != {real}")
+                    break  # one runner per row; first unambiguous match wins
         if suite_counts:
             addends = _BREAKDOWN_ADDEND.findall(line)
             # Every addend is checked against its real suite count wherever it
@@ -951,6 +1009,26 @@ def _doc_count_mismatches(
                 if total != canonical:
                     mismatches.append(f"{rel}: breakdown sums to {total}, not {canonical}")
     return mismatches
+
+
+def case_release_version_parity(tmp: Path) -> tuple[bool, str]:
+    """Release surfaces share ONE version: npm package.json, SKILL.md
+    frontmatter, the README version badge, and the shipped GitHub example's
+    action ref. Version drift is a repeated field mistake (the schema-version
+    pin drifted before v6.1.0; the README badge and GitHub example shipped
+    stale into the v6.5.0 review) — so parity is a gate, not a checklist."""
+    pkg = json.loads((ROOT / "packages" / "npm" / "package.json").read_text(encoding="utf-8"))["version"]
+    skill_m = re.search(r'^\s*version:\s*"([^"]+)"',
+                        (ROOT / "SKILL.md").read_text(encoding="utf-8"), re.MULTILINE)
+    badge_m = re.search(r"badge/version-([0-9.]+)-",
+                        (ROOT / "README.md").read_text(encoding="utf-8"))
+    gh_m = re.search(r"coding-quality-loop@v([0-9.]+)",
+                     (ROOT / "hosts" / "github" / "quality-loop-example.yml").read_text(encoding="utf-8"))
+    vals = {"npm": pkg, "skill": skill_m.group(1) if skill_m else None,
+            "readme_badge": badge_m.group(1) if badge_m else None,
+            "gh_example": gh_m.group(1) if gh_m else None}
+    ok = all(v == pkg for v in vals.values())
+    return ok, f"versions={vals}"
 
 
 def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
@@ -1006,6 +1084,24 @@ def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
         _doc_count_mismatches(
             top_entry, "CHANGELOG.md (top entry)", True, canonical, addon, suite_counts)
     )
+    # Historical entries are never rewritten to current counts — but their
+    # arithmetic must stay internally consistent: when an old entry states a
+    # complete six-suite breakdown with its own total, the addends must sum
+    # to THAT total. (The v6.5.0 round-3 review caught a global sed silently
+    # corrupting v6.4.0's historical breakdown; wrapped lines are joined so
+    # multi-line "Suites:" breakdowns are checked too.)
+    for i, entry in enumerate(re.split(r"\n## ", changelog)[2:], start=2):
+        flat = " ".join(entry.split())
+        for span in re.finditer(
+                r"\b\d+\s+static\b[^=]{0,200}?=\s*\*\*(\d+)(?:\s+core)?\s+gate\s+cases\*\*",
+                flat):
+            addends = _BREAKDOWN_ADDEND.findall(span.group(0))
+            if {n.lower() for _, n in addends} >= set(suite_counts):
+                total = sum(int(num) for num, _ in addends)
+                if total != int(span.group(1)):
+                    mismatches.append(
+                        f"CHANGELOG.md (historical entry #{i}): breakdown sums to "
+                        f"{total}, not its own stated {span.group(1)}")
 
     ok = not mismatches
     detail = f"canonical={canonical}; addon={addon}"
@@ -1602,17 +1698,30 @@ def case_check_config_always_prints_heterogeneity(tmp: Path) -> tuple[bool, str]
 def case_check_config_gate_config_only(tmp: Path) -> tuple[bool, str]:
     """v6.3: a quality-loop.config.json with NO orchestration sections
     (profiles/steps) but the gate-config surface (base / tests / high_risk_paths
-    / protect_harness) validates the gate keys and exits 0 — this repo dogfoods
-    exactly that. Malformed gate keys still fail; a full config keeps the full
-    validation path (heterogeneity line, not the gate-config note)."""
-    # (a) This repo's own gate-config passes and takes the gate-config path.
+    / protect_harness) validates the gate keys and exits 0. Malformed gate keys
+    still fail; a full config keeps the full validation path (heterogeneity
+    line, not the gate-config note). Since v6.5.0 this repo's own config is the
+    FULL orchestration shape with activated model_routing — it must take the
+    full path and report cross-family review as verified."""
+    # (a) A gate-config-only fixture passes and takes the gate-config path;
+    #     this repo's own config (full shape since v6.5.0) takes the full path
+    #     with heterogeneity verified.
+    gate_only = {"version": quality_loop.CONFIG_SCHEMA_VERSION,
+                 "tests": {"path_markers": ["evals/cases/"]},
+                 "high_risk_paths": [], "protect_harness": False}
+    gate_path = tmp / "gate-only.json"
+    gate_path.write_text(json.dumps(gate_only), encoding="utf-8")
+    code_g, out_g, _ = run_cli("check-config", str(gate_path))
     repo_cfg = ROOT / "quality-loop.config.json"
     code_r, out_r, _ = run_cli("check-config", str(repo_cfg))
     repo_ok = (
-        code_r == 0
-        and "gate-config (no orchestration sections)" in out_r
+        code_g == 0
+        and "gate-config (no orchestration sections)" in out_g
+        and "config ok" in out_g
+        and "reviewer heterogeneity" not in out_g  # orchestration checks skipped
+        and code_r == 0
         and "config ok" in out_r
-        and "reviewer heterogeneity" not in out_r  # orchestration checks skipped
+        and "reviewer heterogeneity: verified" in out_r  # dogfood routing active
     )
     # (b) A gate-config with a bad type fails loudly (not silently accepted).
     bad = {"version": quality_loop.CONFIG_SCHEMA_VERSION,
@@ -1882,11 +1991,40 @@ def case_derived_count_lint_catches_wrong_number(tmp: Path) -> tuple[bool, str]:
     bd_clean = _doc_count_mismatches(good_bd, "synthetic.md", False, canonical, addon, sc) == []
     bd_caught = len(_doc_count_mismatches(bad_bd, "synthetic.md", False, canonical, addon, sc)) >= 1
 
-    ok = derived_ok and catches and bd_clean and bd_caught
+    # v6.5.0 round-5/6 regressions: (a) a count split from its phrase by a
+    # hard wrap is still one mention; (b) a historical clause must not mask a
+    # stale CURRENT count in the next clause (and the historical one stays
+    # exempt: exactly one mismatch); (c) a suite's own table row must carry
+    # its derived count.
+    wrapped = _doc_count_mismatches(
+        f"reject drift. {canonical - 2}\noffline gate cases keep it honest.",
+        "synthetic.md", False, canonical, addon)
+    masked = _doc_count_mismatches(
+        f"as of v6.4 it shipped {canonical - 2} gate cases. "
+        f"Current release: {canonical - 1} gate cases.",
+        "synthetic.md", False, canonical, addon)
+    masked_semi = _doc_count_mismatches(
+        f"as of v6.4, {canonical - 2} gate cases; current: {canonical - 1} gate cases.",
+        "synthetic.md", False, canonical, addon)
+    masked_dash = _doc_count_mismatches(
+        f"as of v6.4 shipped {canonical - 2} gate cases — now {canonical - 1} gate cases.",
+        "synthetic.md", False, canonical, addon)
+    row_bad = _doc_count_mismatches(
+        f"| Hook (host shims) | {sc['hook'] + 1} | `evals/run_hook_evals.py` |",
+        "synthetic.md", False, canonical, addon, sc)
+    row_good = _doc_count_mismatches(
+        f"| Hook (host shims) | {sc['hook']} | `evals/run_hook_evals.py` |",
+        "synthetic.md", False, canonical, addon, sc)
+    hardened = (len(wrapped) == 1 and len(masked) == 1
+                and len(masked_semi) == 1 and len(masked_dash) == 1
+                and len(row_bad) == 1 and row_good == [])
+
+    ok = derived_ok and catches and bd_clean and bd_caught and hardened
     return ok, (
         f"canonical={canonical} (static={static} + behavioral={len(CASES)} + {suites}); "
         f"addon={addon}; derived_ok={derived_ok}; wrong_flagged={len(wrong)}; "
-        f"bd_clean={bd_clean}; bd_caught={bd_caught}"
+        f"bd_clean={bd_clean}; bd_caught={bd_caught}; "
+        f"wrapped={len(wrapped)}; masked={len(masked)}; row_bad={len(row_bad)}; row_good={len(row_good)}"
     )
 
 
@@ -1947,6 +2085,7 @@ CASES = [
     ("check-config prints heterogeneity_status even without model_routing (SKIPPED)", case_check_config_always_prints_heterogeneity),
     ("check-config accepts a gate-config-only shape (no profiles/steps); bad types still fail", case_check_config_gate_config_only),
     ("config schema version is pinned three ways (engine == schema const == example)", case_config_schema_version_pinned),
+    ("release surfaces share one version (npm == SKILL == README badge == gh example)", case_release_version_parity),
     ("record set-status/add-evidence/add-ac round-trip; mutated record passes check-record", case_record_mutation_roundtrip),
     ("malformed record-mutation input errors cleanly (no traceback, no write)", case_record_mutation_malformed_errors),
     ("record mutation refuses to write a newly-invalid record", case_record_mutation_refuses_invalid_result),

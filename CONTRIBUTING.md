@@ -37,9 +37,9 @@ the repo stays trustable.
       python3 evals/run_control_evals.py    # control-plane add-on suite (in-repo checkout)
       ```
 
-      The six core gate suites total **249 offline gate cases** (19 static + 62 behavioral +
-      32 memory + 51 reality + 30 routing + 55 hook). The opt-in control plane adds
-      **37 add-on cases** (`run_control_evals.py`), counted separately because the
+      The six core gate suites total **251 offline gate cases** (19 static + 63 behavioral +
+      32 memory + 51 reality + 30 routing + 56 hook). The opt-in control plane adds
+      **40 add-on cases** (`run_control_evals.py`), counted separately because the
       add-on is not installed by default. The canonical numbers are DERIVED at
       runtime from the suites (`canonical_gate_cases()` / `control_addon_cases()` in
       `evals/run_evals.py`) — nothing to bump when a count changes; a lint fails if

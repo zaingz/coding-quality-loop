@@ -310,5 +310,10 @@
   ],
   "next_action": "package: commit, PR, CI, merge, release v6.3.0, archive record",
   "status": "done",
-  "bugfix_test_waiver": "The repaired defects are gate/measurement behaviors pinned by executable eval cases inside the suite runners (review-yield dedupe case in run_control_evals.py; archived-records check-record lint and count lint in run_evals.py; gate-config + heterogeneity cases), not by files under evals/cases/ that the tests.path_markers lexicon can see in the diff. The proving runs are recorded passing: python3 evals/run_evals.py and python3 evals/run_control_evals.py and python3 evals/run_reality_evals.py all pass at the new counts (250 core + 37 add-on)."
+  "bugfix_test_waiver": "The repaired defects are gate/measurement behaviors pinned by executable eval cases inside the suite runners (review-yield dedupe case in run_control_evals.py; archived-records check-record lint and count lint in run_evals.py; gate-config + heterogeneity cases), not by files under evals/cases/ that the tests.path_markers lexicon can see in the diff. The proving runs are recorded passing: python3 evals/run_evals.py and python3 evals/run_control_evals.py and python3 evals/run_reality_evals.py all pass at the new counts (250 core + 37 add-on).",
+  "outcome": {
+    "verdict": "regressed",
+    "note": "Post-ship escape in the release's own gate behavior: the first post-teardown Stop fired the missing-record block against the teardown state SKILL.md mandates (root cause of records being left live). Caught in field use ~1h after ship; fixed by v6.3.1 (PR #21). No revert.",
+    "recorded_at": "2026-07-22T11:00:14+00:00"
+  }
 }

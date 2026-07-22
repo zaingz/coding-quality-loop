@@ -1,0 +1,424 @@
+{
+  "task_id": "v6.5.0-activation",
+  "goal": "Activate the routed model topology for CQL's own development (max-intelligence variant, enforced cross-family review), add persistent-worker (sidekick) guidance with honest delegation-ledger semantics, and make the control plane truthful for persistent workers (many-rounds-to-one-session joins), worktree sessions, and the cost-per-accepted-record doctrine metric",
+  "acceptance_criteria": [
+    {
+      "criterion": "Hybrid dogfood config validates with reviewer heterogeneity verified cross-family (claude vs gpt), no drift",
+      "proving_command": "python3 scripts/quality_loop.py check-config quality-loop.config.json"
+    },
+    {
+      "criterion": "Follow-up delegation rounds to one worker session are linked as rounds with tokens attributed exactly once (no double-count, no unmatched flag)",
+      "proving_command": "python3 evals/run_control_evals.py"
+    },
+    {
+      "criterion": "Sessions started in git worktrees of this repo attribute to this repo's control-plane index in all three adapters",
+      "proving_command": "python3 evals/run_control_evals.py"
+    },
+    {
+      "criterion": "Loop metrics expose spend per accepted completion record (query, never a gate)",
+      "proving_command": "python3 evals/run_control_evals.py"
+    },
+    {
+      "criterion": "Core gate battery green",
+      "proving_command": "python3 evals/run_evals.py"
+    },
+    {
+      "criterion": "Hook suite green (stop gate, guard, sessionstart)",
+      "proving_command": "python3 evals/run_hook_evals.py"
+    },
+    {
+      "criterion": "Routing suite green (variant pins hold with activated dogfood config)",
+      "proving_command": "python3 evals/run_routing_evals.py"
+    },
+    {
+      "criterion": "Reality + memory suites green",
+      "proving_command": "python3 evals/run_reality_evals.py"
+    }
+  ],
+  "constraints": [
+    "Shipped consumer templates stay model-neutral: if root .claude/agents/*.md are what the installer/npm package ships, concrete model pins must not leak to consumers (verify manifest before committing frontmatter)",
+    "Control plane stays a query, never a gate; local-only; stdlib-only; no new dependencies",
+    "No token double-counting: a session's tokens are attributed at most once across delegation rows",
+    "Minimal diff; existing conventions; evals move with behavior (new control-plane behavior gets pinned cases)",
+    "Doc-count lint and derived eval counts stay consistent (canonical_gate_cases)"
+  ],
+  "non_goals": [
+    "Changing the user's default main-session model (stays Fable 5; balanced variant documented as the alternative)",
+    "Enabling control_plane in the committed dogfood config (stays opt-in per doctrine)",
+    "Executor-delegation topology change (implementer stays the main session; bench-first follow-up)",
+    "Re-adding any advisor pattern; tmux orchestration bridge; dashboard redesign",
+    "Running the bench PROTOCOL (follow-up work)"
+  ],
+  "assumptions": [
+    "Codex CLI is available for the cross-family review leg; if the pinned model id is unavailable the CLI's default model is used and recorded honestly",
+    "max-intelligence variant (as_of 2026-07-12, <90d) reflects the operator's real topology: Fable 5 main session, Sonnet 5 mapper, GPT-5.6 Sol review"
+  ],
+  "risk_tier": "medium",
+  "task_class": "medium",
+  "implementer": "claude-code:claude-fable-5 (main session)",
+  "security_sensitive": true,
+  "verification_plan": [
+    "re-execute all recorded pass commands via the verify umbrella (QUALITY_LOOP_TIMEOUT=300)",
+    "fresh-context independent review + cross-family Codex review + security review at the shell/network boundary",
+    "CI: validate + evals + npm-smoke on the PR branch"
+  ],
+  "validation_contract": {
+    "goal": "The routed topology is active and enforced for CQL's own development; persistent-worker and worktree workflows are honestly accounted in the control plane; the doctrine cost metric is queryable.",
+    "evidence": [
+      "check-config: config ok + reviewer heterogeneity verified (claude vs gpt)",
+      "seven eval suites green (251 core + 40 control add-on) incl. new/updated pinned cases and the release-version parity gate",
+      "npm package tests 34/34 from repo root (incl. packed-artifact neutrality)",
+      "installer copy is model-neutral (hook case: source pinned, installed copy inherit)"
+    ]
+  },
+  "independent_review": {
+    "reviewer": "codex:gpt-5.6-sol",
+    "fresh_context": true,
+    "ran_checks": true,
+    "verdict": "approve",
+    "rounds": 11,
+    "notes": "Cross-family review via codex exec -s read-only. Rounds 1-2 request_changes (8 blocking + 1 advisory applied; 1 preamble claim rebutted with evidence); rounds 5-10 surfaced 7 further blocking count/edge findings, each fixed and pinned; rounds 4 and 11 approve with no findings.",
+    "diff_sha256": "dc94d131e1a59b6dbe352127a83ffd91673dda6fb899d719895552c831f1d12e",
+    "attested_at": "2026-07-22T14:09:42"
+  },
+  "security_review": {
+    "reviewer": "codex:gpt-5.6-sol",
+    "fresh_context": true,
+    "ran_checks": true,
+    "verdict": "approve",
+    "rounds": 3,
+    "notes": "Boundary: git subprocess in the indexer, localhost API surface, installer rewrite. Rounds 1-2 found canonical-containment bypass, trusted exact-slug attribution, NUL ValueError abort \u2014 all fixed fail-closed and pinned; round 3 approve with no findings.",
+    "diff_sha256": "dc94d131e1a59b6dbe352127a83ffd91673dda6fb899d719895552c831f1d12e",
+    "attested_at": "2026-07-22T14:09:42"
+  },
+  "completion_record": {
+    "goal": "Activate the routed model topology for CQL's own development (max-intelligence variant, enforced cross-family review), add persistent-worker (sidekick) guidance with honest delegation-ledger semantics, and make the control plane truthful for persistent workers (many-rounds-to-one-session joins), worktree sessions, and the cost-per-accepted-record doctrine metric",
+    "done_when": [
+      "Hybrid dogfood config validates with reviewer heterogeneity verified cross-family (claude vs gpt), no drift",
+      "Follow-up delegation rounds to one worker session are linked as rounds with tokens attributed exactly once (no double-count, no unmatched flag)",
+      "Sessions started in git worktrees of this repo attribute to this repo's control-plane index in all three adapters",
+      "Loop metrics expose spend per accepted completion record (query, never a gate)",
+      "Core gate battery green",
+      "Hook suite green (stop gate, guard, sessionstart)",
+      "Routing suite green (variant pins hold with activated dogfood config)",
+      "Reality + memory suites green"
+    ],
+    "evidence": [
+      "python3 scripts/quality_loop.py check-config quality-loop.config.json -> pass (config ok; reviewer heterogeneity: verified (claude vs gpt))",
+      "python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py -> pass (byte-compile clean)",
+      "python3 evals/run_evals.py -> pass (63/63 eval cases passed; derived counts 251 core + 40 add-on consistent)",
+      "python3 evals/run_control_evals.py -> pass (40/40 incl. follow-up rounds, worktree attribution, spend-per-accepted-record)",
+      "python3 evals/run_hook_evals.py -> pass (56/56 incl. installer neutralizes agent model pins)",
+      "python3 evals/run_routing_evals.py -> pass (30/30 routing cases; variant pins hold)",
+      "python3 evals/run_reality_evals.py -> pass (51/51 reality cases)",
+      "python3 evals/run_memory_evals.py -> pass (32/32 memory cases)",
+      "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json -> pass (19/19 static cases)",
+      "node --test packages/npm/test/*.test.mjs -> pass (34 pass, 0 fail (incl. prepack ships model-neutral templates))"
+    ],
+    "files_changed": [
+      ".claude/agents/quality-loop-context-mapper.md",
+      ".claude/agents/quality-loop-planner.md",
+      ".github/workflows/evals.yml",
+      ".quality-loop/agent-record.json",
+      ".quality-loop/allowed-commands",
+      ".quality-loop/delegations.jsonl",
+      ".quality-loop/outcomes.jsonl",
+      "CHANGELOG.md",
+      "CONTRIBUTING.md",
+      "README.md",
+      "SKILL.md",
+      "assets/control-plane/dashboard.html",
+      "docs/comparison.md",
+      "docs/control-plane.md",
+      "docs/launch-kit.md",
+      "docs/records/v6.3.0-agent-record.json",
+      "docs/records/v6.4.0-agent-record.json",
+      "evals/README.md",
+      "evals/run_control_evals.py",
+      "evals/run_evals.py",
+      "evals/run_hook_evals.py",
+      "hosts/github/quality-loop-example.yml",
+      "packages/npm/package.json",
+      "packages/npm/scripts/prepack.mjs",
+      "packages/npm/test/cli.integration.test.mjs",
+      "quality-loop.config.json",
+      "references/agentic-orchestration.md",
+      "scripts/install.py",
+      "scripts/quality_loop_control.py",
+      "scripts/quality_loop_core.py"
+    ],
+    "right_size": "minimal_new_code (control-plane component); routing activation is reuse of shipped assets; docs-only guidance",
+    "risks": [
+      "review-driven behavior change: every transcript must now prove its cwd \u2014 legitimately cwd-less transcripts (none observed in real hosts) would stop attributing",
+      "codex adapter widened from exact-root to descendant containment: subdir codex sessions now index (intended, disclosed in CHANGELOG)",
+      "declared main_session model matches the operator's real setup today; brief warns if the menu goes stale (>90d as_of)"
+    ],
+    "rollback": "revert the release PR (single squash commit on main); npm: publish previous tag or deprecate 6.5.0; setup-models re-run restores agent frontmatter from any config state",
+    "follow_ups": [
+      "existence lint for the config $schema pointer (advisory from review round 1)",
+      "per-round token slicing for persistent-worker sessions (ts-window split) if field use demands it",
+      "bench cell: executor-delegation topology (implementer as persistent Sonnet worker) per bench/PROTOCOL before any default change",
+      "bench cell: effort ceiling high vs xhigh for the REVIEW leg (repo doctrine vs recorded v6.0.1 xhigh yield)"
+    ]
+  },
+  "repair_attempts": 0,
+  "repeated_failure": true,
+  "harness_update": "Two durable gates from this task's repeated mistakes: case_release_version_parity (npm == SKILL == README badge == gh example \u2014 version pins drifted twice) and the CHANGELOG historical-arithmetic check (global seds rewrote history twice this session; the lint now verifies old entries against their own stated totals).",
+  "repo_map": {
+    "entry_points": [
+      "scripts/quality_loop.py (CLI: check-config, setup-models, brief, control-report)",
+      "scripts/quality_loop_control.py (adapters, delegations_with_sessions, loop_metrics, serve)",
+      "scripts/quality_loop_routing.py (resolve_routing, drift check, setup-models impl)"
+    ],
+    "likely_files": [
+      "quality-loop.config.json",
+      ".claude/agents/quality-loop-context-mapper.md",
+      ".claude/agents/quality-loop-planner.md",
+      "scripts/quality_loop_control.py",
+      "assets/control-plane/dashboard.html",
+      "references/agentic-orchestration.md",
+      "SKILL.md",
+      "docs/control-plane.md",
+      "evals/run_control_evals.py",
+      "CHANGELOG.md",
+      "packages/npm/package.json",
+      ".github/workflows/evals.yml",
+      "CONTRIBUTING.md",
+      "README.md",
+      "docs/records/v6.3.0-agent-record.json",
+      "docs/records/v6.4.0-agent-record.json",
+      "docs/comparison.md",
+      "docs/launch-kit.md",
+      "evals/README.md",
+      "evals/run_evals.py",
+      "evals/run_hook_evals.py",
+      "scripts/install.py",
+      "scripts/quality_loop_core.py",
+      "assets/routing/README.md",
+      "hosts/github/quality-loop-example.yml",
+      "packages/npm/scripts/prepack.mjs",
+      "packages/npm/test/cli.integration.test.mjs"
+    ],
+    "callers_checked": [
+      "delegations_with_sessions consumers: /api/delegations handler, task_timeline (per-task spend), dashboard Delegations view",
+      "_file_in_root callers: transcript indexing loop (quality_loop_control.py:1213-1215); codex adapter cwd gate (:805-806); droid _under_root (:873-877)",
+      "drift check reads agent-file frontmatter vs config (quality_loop_routing.py:1162-1189) \u2014 config and frontmatter must move together",
+      "count lint: evals/run_evals.py canonical_gate_cases()/control_addon_cases() checks doc count lines"
+    ],
+    "tests": [
+      "evals/run_control_evals.py (37 add-on cases; case_delegation_direct_session_id pins current duplicate flag; case conventions: case_* -> (bool, msg) in tmp dirs)",
+      "evals/run_evals.py + run_hook_evals.py + run_memory_evals.py + run_reality_evals.py + run_routing_evals.py (249 core)",
+      "packages/npm tests via npm-smoke CI"
+    ],
+    "patterns_to_follow": [
+      "query-time joins, nothing stored (control plane doctrine)",
+      "graceful degradation on missing git (hooklib lesson from v6.4.0)",
+      "additive API fields; dashboard stays single-file self-contained (eval-pinned)",
+      "atomic frontmatter rewrite via setup-models, never hand-edited"
+    ]
+  },
+  "minimality_decision": {
+    "rung": "minimal_new_code",
+    "reason": "Routing activation is pure reuse of shipped assets (rung 3: paste assets/routing/max-intelligence.json, run existing setup-models) and the sidekick guidance is docs-only; the rung-8 component is the control plane, where no lower rung suffices: no-change leaves the index misreporting exactly the workflows this release enables (follow-up rounds flagged duplicate_session_id/unmatched; worktree sessions invisible; doctrine KPI unqueryable); nothing exists to delete or reuse that expresses many-rounds-to-one-session or worktree membership; stdlib-only is preserved (subprocess git + sqlite, no new dependency); not expressible as a one-liner because the membership semantics span three adapters plus the join and must each stay behavior-identical for non-worktree paths."
+  },
+  "plan": [
+    "S1 activate routing: model_routing (max-intelligence) into quality-loop.config.json; setup-models rewrites mapper/planner frontmatter (committed \u2014 the repo's own truth); install.py neutralizes agent frontmatter to model: inherit (effort dropped) at its single copy choke point (install.py:230 loop) so consumers keep host-neutral templates + eval case pins it; codex leg stays print-only (reviewer model passed per-invocation via codex exec -m, never written to the user's global config); check-config + brief prove heterogeneity verified and no drift",
+    "S2 sidekick guidance: references/agentic-orchestration.md persistent-worker subsection (implementer may persist across fix rounds; reviewers never persist; ledger: one row per round, same session_id); docs/control-plane.md ledger semantics; one clause in SKILL.md Orchestrator Layer",
+    "S3 control plane: (a) delegations_with_sessions: later rows naming a claimed session become linked follow_up rounds, session attached without tokens (single-count preserved); (b) worktree-aware repo membership: git worktree list --porcelain roots (cached, graceful without git), applied to claude transcript_dirs/_file_in_root, codex exact-match, droid prefix-match, each preserving its current semantics per root; (c) loop_metrics: spend per accepted completion record (records with approving independent review joined to their task's linked sessions) + dashboard Metrics table",
+    "S4 evals: update case_delegation_direct_session_id; add follow-up-rounds case, worktree-scoping case, accepted-record-cost case; let count lint drive doc count updates",
+    "S5 release: CHANGELOG 6.5.0, SKILL.md + npm version bumps, verify umbrella, fresh + cross-family (codex) + security review, attest, PR, merge, tag+release, npm publish via CI, archive record, teardown"
+  ],
+  "commands_run": [
+    {
+      "cmd": "python3 scripts/quality_loop.py check-config quality-loop.config.json",
+      "class": "lint",
+      "result": "pass",
+      "evidence": "config ok; reviewer heterogeneity: verified (claude vs gpt)"
+    },
+    {
+      "cmd": "python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py",
+      "class": "build",
+      "result": "pass",
+      "evidence": "byte-compile clean"
+    },
+    {
+      "cmd": "python3 evals/run_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "63/63 eval cases passed; derived counts 251 core + 40 add-on consistent"
+    },
+    {
+      "cmd": "python3 evals/run_control_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "40/40 incl. follow-up rounds, worktree attribution, spend-per-accepted-record"
+    },
+    {
+      "cmd": "python3 evals/run_hook_evals.py",
+      "class": "integration",
+      "result": "pass",
+      "evidence": "56/56 incl. installer neutralizes agent model pins"
+    },
+    {
+      "cmd": "python3 evals/run_routing_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "30/30 routing cases; variant pins hold"
+    },
+    {
+      "cmd": "python3 evals/run_reality_evals.py",
+      "class": "integration",
+      "result": "pass",
+      "evidence": "51/51 reality cases"
+    },
+    {
+      "cmd": "python3 evals/run_memory_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "32/32 memory cases"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "19/19 static cases"
+    },
+    {
+      "cmd": "node --test packages/npm/test/*.test.mjs",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "34 pass, 0 fail (incl. prepack ships model-neutral templates)"
+    }
+  ],
+  "open_risks": [],
+  "review_findings": [
+    {
+      "severity": "blocking",
+      "text": "prepack copies .claude verbatim so the tarball ships pinned agent files despite install-time neutralization",
+      "resolution": "prepack.mjs neutralizeAgentPins strips model:/effort: in dist copies; npm test pins the packed artifact (packages/npm/test/cli.integration.test.mjs)"
+    },
+    {
+      "severity": "blocking",
+      "text": "delegation rows ordered lexicographically by artifact key: row #10 precedes #9, first-claim lands on the wrong round",
+      "resolution": "delegations_with_sessions re-sorts by (source_path, numeric key tail); follow-up-rounds case extended to 11 rounds asserting round 1 carries tokens"
+    },
+    {
+      "severity": "blocking",
+      "text": "spend-per-accepted-record let a live approval outrank an archived rejection (twin rule not applied)",
+      "resolution": "records canonicalized per task with archives winning both directions before verdict evaluation; disagreeing-twin cases pinned in both directions"
+    },
+    {
+      "severity": "blocking",
+      "text": "codex worktree attribution exact-root only (subdir cwds excluded) and a stale 60s roots cache could consume a new worktree's rollout permanently (offset at tail)",
+      "resolution": "codex adapter uses descendant containment via _under_root (raw + resolved cwd); repo_roots refreshed each index pass; roots-change deletes codex rollout file_state so consumed rollouts resurrect; pinned by late-worktree recovery scenario"
+    },
+    {
+      "severity": "blocking",
+      "text": "evals/README add-on table row still said 37; count lint only recognized the 'N add-on cases' phrase",
+      "resolution": "row updated to 40; lint gains _ADDON_ROW table-cell check"
+    },
+    {
+      "severity": "advisory",
+      "text": "$schema pointed at ./quality-loop.config.schema.json which does not exist at repo root",
+      "resolution": "pointer fixed to assets/quality-loop.config.schema.json; existence lint noted as follow-up"
+    },
+    {
+      "severity": "advisory",
+      "text": "reviewer preamble claimed a non-dict model_routing takes the gate-only path silently",
+      "resolution": "rebutted with evidence: probe config with model_routing:'garbage' exits 1 with full-validation errors (orchestration-present keys include model_routing regardless of type)"
+    },
+    {
+      "severity": "blocking",
+      "text": "round 2: README badge and shipped GitHub example still pinned v6.4.0 while SKILL/npm declare 6.5.0",
+      "resolution": "both bumped; case_release_version_parity added (npm == SKILL == README badge == gh example) \u2014 version drift is a repeated mistake, now a gate"
+    },
+    {
+      "severity": "blocking",
+      "text": "round 2: spend-per-accepted-record priced cache_creation tokens but did not display them (tokens summed 60, cost charged 100)",
+      "resolution": "cache_creation_tokens added to the metric, dashboard column, and the priced eval assertion with nonzero cache fields"
+    },
+    {
+      "severity": "blocking",
+      "text": "round 2: recorded npm evidence said 33 tests after the suite grew to 34",
+      "resolution": "evidence and validation contract updated to 34/34; suite re-run"
+    },
+    {
+      "severity": "blocking",
+      "text": "round 3: global seds corrupted historical CHANGELOG suite counts (v6.4.0 breakdown no longer summed to its stated total)",
+      "resolution": "history restored from origin/main; 6.5.0 section re-inserted; count lint now checks each historical entry's addends sum to its own stated total (RED probe replaying the sed is caught)"
+    },
+    {
+      "severity": "blocking",
+      "text": "security: _under_root raw-string prefix accepted repo/../foreign (canonicalization bypass exposing foreign session titles to the local API)",
+      "resolution": "canonical containment only \u2014 both sides resolved, is_relative_to, fail closed on unresolvable cwds; escape probe pinned"
+    },
+    {
+      "severity": "blocking",
+      "text": "security: exact slug dirs trusted without cwd proof; lossy slug flattening lets a colliding foreign project's transcripts ingest",
+      "resolution": "exact dirs now claim their root and every transcript passes the per-file cwd check or stays unattributed; foreign-cwd and cwd-less fixtures pinned"
+    },
+    {
+      "severity": "blocking",
+      "text": "security round 2: a JSON cwd containing an embedded NUL reached Path.resolve() and raised uncaught ValueError, aborting control-index (availability; API 500 instead of fail-closed)",
+      "resolution": "_safe_resolve and _file_in_root catch (OSError, ValueError); NUL probe + NUL-cwd transcript fixture pinned"
+    },
+    {
+      "severity": "blocking",
+      "text": "round 5: a hard-wrapped '249 / offline gate cases' pair in launch-kit escaped the per-line count lint, and recorded run_evals evidence went stale (62/62, 250) after the parity case landed",
+      "resolution": "doc fixed to 251; plain-count lint scans a whitespace-flattened view with a windowed historical exemption; evidence refreshed to 63/63, 251 and the suite re-run"
+    },
+    {
+      "severity": "blocking",
+      "text": "round 6: Behavioral suite table row still 62 (parenthetical dodged the sed; lint blind to per-suite rows) and the fixed 80-char historical window could mask an adjacent stale current count",
+      "resolution": "row fixed to 63; lint validates every runner-anchored suite row and scopes the historical exemption to the sentence clause; four self-test regressions added"
+    },
+    {
+      "severity": "blocking",
+      "text": "round 7: _clause split only on period-space; semicolon/em-dash boundaries still let a historical clause mask an adjacent stale count",
+      "resolution": "boundary set extended to [.;]\\s|em-dash (colon/comma stay glue for the legit historical form); both probes self-tested"
+    },
+    {
+      "severity": "blocking",
+      "text": "round 8: legacy v6.4 schema-8 caches (consumed-foreign rollout offsets, no meta.repo_roots row) never reset, permanently omitting pre-upgrade worktree codex sessions",
+      "resolution": "absence of the meta row triggers the same codex offset reset as a roots change (no-op on fresh DBs); legacy-cache upgrade regression pinned"
+    },
+    {
+      "severity": "blocking",
+      "text": "round 9: per-dir single-winner root claims excluded one of two legitimate worktrees whose paths flatten to the same slug",
+      "resolution": "each dir carries its full candidate-root list; every transcript attributes by its own cwd against any candidate; two-worktree collision regression pinned"
+    },
+    {
+      "severity": "blocking",
+      "text": "round 10: symlink-loop cwds raised uncaught RuntimeError on Python 3.11 resolve(), aborting indexing",
+      "resolution": "_safe_resolve catches RuntimeError; symlink-loop probe pinned (foreign loops fail closed on every supported Python)"
+    }
+  ],
+  "next_action": "Complete intake and acceptance criteria.",
+  "status": "done",
+  "models_used": [
+    {
+      "role": "orchestrator+implementer",
+      "host": "claude-code",
+      "model": "claude-fable-5",
+      "attempts": 1
+    },
+    {
+      "role": "context_mapper",
+      "host": "claude-code",
+      "model": "claude-haiku-4-5",
+      "attempts": 1
+    },
+    {
+      "role": "fresh_reviewer",
+      "host": "codex",
+      "model": "gpt-5.6-sol",
+      "attempts": 11
+    },
+    {
+      "role": "security_reviewer",
+      "host": "codex",
+      "model": "gpt-5.6-sol",
+      "attempts": 3
+    }
+  ]
+}

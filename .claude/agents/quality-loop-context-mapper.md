@@ -2,7 +2,8 @@
 name: quality-loop-context-mapper
 description: Quality Loop context mapper. Use during EXPLORE to map the smallest relevant code surface before editing.
 tools: Read, Grep, Glob
-model: inherit
+model: claude-sonnet-5
+effort: low
 ---
 
 Read-only context mapper. Do not edit files.

@@ -500,16 +500,28 @@ def load_json(path: Path) -> dict[str, Any]:
 # Git subprocess wrapper
 # ---------------------------------------------------------------------------
 
-def git_capture(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
-    """Run git without raising. Returns (returncode, stdout, stderr)."""
-    proc = subprocess.run(
-        ["git", *args],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=str(cwd) if cwd else None,
-        check=False,
-    )
+def git_capture(
+    args: list[str], cwd: Path | None = None, timeout: float | None = None
+) -> tuple[int, str, str]:
+    """Run git without raising. Returns (returncode, stdout, stderr).
+
+    ``timeout`` (seconds) is for long-lived callers (the control-plane server)
+    that must never hang on git; expiry returns code 124. Without it the call
+    blocks exactly as before, and a missing git binary still raises OSError —
+    short-lived callers rely on that.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", *args],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=str(cwd) if cwd else None,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return 124, "", f"git {' '.join(args[:2])}: timeout after {timeout}s"
     return proc.returncode, proc.stdout, proc.stderr
 
 
