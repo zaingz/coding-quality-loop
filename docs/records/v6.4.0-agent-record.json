@@ -1,6 +1,6 @@
 {
   "task_id": "cleanup-subtraction-pass-001",
-  "goal": "Repo-wide subtraction cleanup: remove dead surface, deduplicate repeated concepts, simplify overcomplicated spots, and align drifted docs — net-negative lines, no behavior change except deletions of truly dead code",
+  "goal": "Repo-wide subtraction cleanup: remove dead surface, deduplicate repeated concepts, simplify overcomplicated spots, and align drifted docs \u2014 net-negative lines, no behavior change except deletions of truly dead code",
   "acceptance_criteria": [
     {
       "criterion": "All Python sources still byte-compile cleanly after the cleanup",
@@ -91,13 +91,13 @@
     "patched": false,
     "ran_checks": true,
     "findings": [],
-    "notes": "Round 1: request_changes (2 blocking, 1 minor, 1 informational) — resolutions in review_findings[]. Round 2 on the amended diff: approve, zero findings. Round 3 (release confirmation): approve on the v6.4.0 release diff — confirmed the only delta since round 2 is version mechanics at the four sites plus the CHANGELOG heading.",
+    "notes": "Round 1: request_changes (2 blocking, 1 minor, 1 informational) \u2014 resolutions in review_findings[]. Round 2 on the amended diff: approve, zero findings. Round 3 (release confirmation): approve on the v6.4.0 release diff \u2014 confirmed the only delta since round 2 is version mechanics at the four sites plus the CHANGELOG heading.",
     "diff_sha256": "24bfd88a2912fb348709489045fb68a79aa4569fdfd665bdbb2d88fadbaeaa2f",
     "attested_at": "2026-07-21T17:16:39"
   },
   "security_review": null,
   "completion_record": {
-    "goal": "Repo-wide subtraction cleanup: remove dead surface, deduplicate repeated concepts, simplify overcomplicated spots, and align drifted docs — net-negative lines, no behavior change except deletions of truly dead code",
+    "goal": "Repo-wide subtraction cleanup: remove dead surface, deduplicate repeated concepts, simplify overcomplicated spots, and align drifted docs \u2014 net-negative lines, no behavior change except deletions of truly dead code",
     "acceptance_criteria": [
       "All Python sources still byte-compile cleanly after the cleanup",
       "Behavioral gate suite (incl. the doc-count lint that pins every public gate-case count) is green",
@@ -167,12 +167,12 @@
     ],
     "rollback": "git revert the branch commits (each themed commit reverts independently); no data or schema migration involved",
     "follow_ups": [
-      "cli.mjs reimplements install.py's next-steps footer with drifted wording — unify by enriching install.py's --json footer or consuming payload.footer (installer-UX decision)",
+      "cli.mjs reimplements install.py's next-steps footer with drifted wording \u2014 unify by enriching install.py's --json footer or consuming payload.footer (installer-UX decision)",
       "an eval pinning schema<->check-config agreement for gate-config-only files (reviewer suggestion)",
       "quality_loop_memory.py hand-rolls two git subprocess calls its own qlcore import could serve once git_capture grows timeout+OSError safety (deliberately not done here: shared gate primitive)",
-      "date-parser near-duplicate (memory [:10]-tolerant vs routing strict) and reality.py's two naive-local timestamps — behavior-adjacent, left for a contract that authorizes them"
+      "date-parser near-duplicate (memory [:10]-tolerant vs routing strict) and reality.py's two naive-local timestamps \u2014 behavior-adjacent, left for a contract that authorizes them"
     ],
-    "release": "v6.4.0 — the subtraction pass: version bumped at the four sites (SKILL.md frontmatter, packages/npm/package.json, README badge, hosts/github/quality-loop-example.yml pin) and the CHANGELOG Unreleased entry renamed 6.4.0"
+    "release": "v6.4.0 \u2014 the subtraction pass: version bumped at the four sites (SKILL.md frontmatter, packages/npm/package.json, README badge, hosts/github/quality-loop-example.yml pin) and the CHANGELOG Unreleased entry renamed 6.4.0"
   },
   "repair_attempts": 0,
   "repeated_failure": false,
@@ -248,7 +248,7 @@
     ],
     "patterns_to_follow": [
       "One truth per thing: canonical source plus pointers, never a second copy",
-      "Every guard comment cites the incident or eval that motivated it — preserve those when moving code"
+      "Every guard comment cites the incident or eval that motivated it \u2014 preserve those when moving code"
     ]
   },
   "minimality_decision": {
@@ -258,7 +258,7 @@
   "plan": [
     "Theme 1 (dead code): remove the .quality-loop/runs journal reader (_latest_run_summary and the brief Last-run section) whose writer was archived in v3.0, the unreachable ORCHESTRATE entry in STRONG_REASONING_STEPS, the redundant inline git_capture import in record_outcome, and any census-confirmed dead helpers in scripts/ and evals/",
     "Theme 2 (dedup): stop_gate.py and sessionstart_context.py adopt hooklib.json_input/project_root instead of their verbatim private copies; census-confirmed duplicate helpers collapse into quality_loop_core",
-    "Theme 3 (docs drift): fix doc statements the code contradicts — docs/architecture.md protect-harness sentence and fictional record example, docs/control-plane.md stale 35-case count (reword to the lintable '37 add-on cases' phrasing and add the file to the doc-count lint list in run_evals.py as the durable harness change), references/tool-contracts.md lint omission and guard-key note, references/agentic-orchestration.md canonical-pointer contradiction, examples/claude-code/CLAUDE.md legacy config path; replace docs/architecture.md's restated role table with a pointer; delete the orphaned examples/claude-code/memory-hooks.md and the never-displayed docs/images/terminal-demo-poster.png plus its generator lines in docs/images/src/terminal_demo.py; add the missing case-20 row to evals/README.md; drop the retired advisor block from assets/quality-loop.config.example.json and mark it legacy in assets/quality-loop.config.schema.json while adding the real protect_harness and enforcement root keys the schema omits",
+    "Theme 3 (docs drift): fix doc statements the code contradicts \u2014 docs/architecture.md protect-harness sentence and fictional record example, docs/control-plane.md stale 35-case count (reword to the lintable '37 add-on cases' phrasing and add the file to the doc-count lint list in run_evals.py as the durable harness change), references/tool-contracts.md lint omission and guard-key note, references/agentic-orchestration.md canonical-pointer contradiction, examples/claude-code/CLAUDE.md legacy config path; replace docs/architecture.md's restated role table with a pointer; delete the orphaned examples/claude-code/memory-hooks.md and the never-displayed docs/images/terminal-demo-poster.png plus its generator lines in docs/images/src/terminal_demo.py; add the missing case-20 row to evals/README.md; drop the retired advisor block from assets/quality-loop.config.example.json and mark it legacy in assets/quality-loop.config.schema.json while adding the real protect_harness and enforcement root keys the schema omits",
     "Theme 4 (structure nits): install.py dead condition on args.host, one-caller wrappers inlined where they read better",
     "Each theme is its own commit; full battery (run_evals, run_memory_evals, run_reality_evals, run_hook_evals, run_routing_evals, run_control_evals, eval-cases, check-config, npm node --test, bench fixture) after each"
   ],
@@ -379,5 +379,10 @@
       "model": "gpt-5.6-sol",
       "attempts": 2
     }
-  ]
+  ],
+  "outcome": {
+    "verdict": "clean",
+    "note": "24h field window: main CI green (evals + npm-smoke), npm registry serves 6.4.0, no escapes or reverts observed.",
+    "recorded_at": "2026-07-22T11:00:14+00:00"
+  }
 }
