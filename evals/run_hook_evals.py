@@ -958,6 +958,28 @@ def case_sessionstart_brief(tmp: Path) -> tuple[bool, str]:
     return code == 0 and "briefing" in ctx and "Add more tests" in ctx, f"exit={code}; ctx={ctx[:200]!r}; err={err.strip()!r}"
 
 
+def case_installer_neutralizes_agent_models(tmp: Path) -> tuple[bool, str]:
+    """v6.5: the repo's own agent files carry the operator's activated routing
+    (concrete model: + effort: pins from setup-models), but shipped templates
+    stay host-neutral at rest — the installer resets model: to inherit and
+    drops the thinking key on copy, touching only the frontmatter block."""
+    src = ROOT / ".claude" / "agents" / "quality-loop-context-mapper.md"
+    src_text = src.read_text(encoding="utf-8")
+    source_pinned = "model: inherit" not in src_text  # the dogfood activation
+    target = tmp / "target"
+    target.mkdir()
+    code, out, err = run_cli(str(INSTALL), "--target", str(target), "--host", "claude-code", cwd=ROOT)
+    installed = target / ".claude" / "agents" / "quality-loop-context-mapper.md"
+    text = installed.read_text(encoding="utf-8") if installed.is_file() else ""
+    head, _, body = text.partition("\n---")
+    neutral = ("model: inherit" in head
+               and "effort:" not in head and "reasoningEffort:" not in head)
+    body_intact = "Read-only context mapper" in text
+    ok = code == 0 and source_pinned and neutral and body_intact
+    return ok, (f"exit={code}; source_pinned={source_pinned}; neutral={neutral}; "
+                f"body_intact={body_intact}; head={head[:120]!r}; err={err.strip()[:120]!r}")
+
+
 def case_installer_idempotent_claude_codex(tmp: Path) -> tuple[bool, str]:
     target = tmp / "target"
     target.mkdir()
@@ -1079,6 +1101,7 @@ CASES = [
     ("SessionStart emits memory and record context", case_sessionstart_context),
     ("SessionStart includes brief output when scripts present", case_sessionstart_brief),
     ("installer is idempotent for Claude/Codex wiring", case_installer_idempotent_claude_codex),
+    ("installer neutralizes agent model/effort pins on copy (ship-neutral)", case_installer_neutralizes_agent_models),
     ("uninstall skips manifest paths that traverse a symlink outside the target", case_uninstall_skips_symlink_traversal),
     ("default install ships prompts+routing; render-prompt works; all skips cursor/pi", case_installer_ships_prompts_and_routing_default),
 ]

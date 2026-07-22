@@ -127,6 +127,40 @@ def copy_file(src: Path, dest: Path, dry_run: bool) -> bool:
     return True
 
 
+_AGENT_MODEL_LINE = re.compile(r"^model:.*$", flags=re.MULTILINE)
+_AGENT_THINKING_LINE = re.compile(r"^(?:effort|reasoningEffort):.*\n", flags=re.MULTILINE)
+
+
+def copy_agent_neutral(src: Path, dest: Path, dry_run: bool) -> bool:
+    """Copy a role-subagent file with any routing pins neutralized.
+
+    The source repo's agent files may carry an operator's activated routing
+    (``model:`` / ``effort:`` frontmatter written by ``setup-models``), but
+    shipped templates stay host-neutral at rest — consumers wire models via
+    their own ``model_routing`` + ``setup-models``. Only the leading
+    frontmatter block is touched: ``model:`` resets to ``inherit`` and the
+    thinking key is dropped.
+    """
+    body = src.read_text(encoding="utf-8")
+    if body.startswith("---\n"):
+        end = body.find("\n---", 4)
+        if end != -1:
+            head = _AGENT_MODEL_LINE.sub("model: inherit", body[: end + 4])
+            head = _AGENT_THINKING_LINE.sub("", head)
+            body = head + body[end + 4:]
+    _record_file(dest)
+    if dest.exists() and dest.read_text(encoding="utf-8") == body:
+        _note_preexisting(dest)
+        return False
+    if dry_run:
+        _say(f"would copy (model-neutral) {src} -> {dest}")
+        return True
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _backup_before_overwrite(dest)
+    dest.write_text(body, encoding="utf-8")
+    return True
+
+
 def _write_text(path: Path, body: str, dry_run: bool) -> None:
     """Write text with the same backup discipline as copy_file/write_json."""
     if dry_run:
@@ -228,7 +262,7 @@ def install_claude(target: Path, dry_run: bool) -> list[str]:
     for event in (incoming.get("hooks") or {}):
         _record_hook_group(".claude/settings.json", event)
     for src in (ROOT / ".claude" / "agents").glob("*.md"):
-        copy_file(src, target / ".claude" / "agents" / src.name, dry_run)
+        copy_agent_neutral(src, target / ".claude" / "agents" / src.name, dry_run)
     return report
 
 
