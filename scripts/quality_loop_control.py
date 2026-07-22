@@ -1293,7 +1293,11 @@ def index_all(root: Path, all_projects: bool = False) -> dict[str, Any]:
         roots_now = json.dumps(sorted(str(r) for r in repo_roots(root)))
         prev_roots = conn.execute(
             "SELECT value FROM meta WHERE key='repo_roots'").fetchone()
-        if prev_roots is not None and prev_roots["value"] != roots_now:
+        if prev_roots is None or prev_roots["value"] != roots_now:
+            # A missing row means the cache predates roots tracking (a v6.4
+            # schema-8 DB): its foreign-consume decisions are untrusted too,
+            # so reset codex offsets exactly as on a roots change. On a fresh
+            # DB file_state is empty and this deletes nothing.
             conn.execute("DELETE FROM file_state WHERE path LIKE '%rollout-%.jsonl'")
         conn.execute(
             "INSERT INTO meta(key, value) VALUES('repo_roots', ?) "

@@ -991,6 +991,23 @@ def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
         hosts2 = {r["id"]: r["host"] for r in
                   conn.execute("SELECT id, host FROM sessions").fetchall()}
         late_after = any("lateroll01" in sid for sid in hosts2)
+        # Legacy-cache upgrade (a v6.4 schema-8 DB has consumed-foreign
+        # offsets and NO meta.repo_roots row): absence of the row must reset
+        # codex offsets exactly like a roots change.
+        legacy_wt = tmp / "repo-legacy"
+        (day / "rollout-2026-01-05T12-00-00-legacyrol1.jsonl").write_text(
+            json.dumps({"type": "session_meta",
+                        "payload": {"cwd": str(legacy_wt), "timestamp": "2026-01-05T12:00:00Z"}}) + "\n",
+            encoding="utf-8")
+        ctl.index_all(repo)  # consumed as foreign (legacy_wt not a worktree yet)
+        conn.execute("DELETE FROM meta WHERE key='repo_roots'")  # simulate v6.4 DB
+        conn.commit()
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(legacy_wt)],
+                       check=True)
+        ctl.index_all(repo)
+        legacy_after = any(
+            "legacyrol1" in r["id"] for r in
+            conn.execute("SELECT id FROM sessions").fetchall())
         conn.close()
     finally:
         for var, val in (("CODEX_SESSIONS_DIR", saved_codex), ("DROID_WRAPPER_LOG", saved_droid)):
@@ -1014,10 +1031,10 @@ def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
           and "foreignsess" not in hosts and "nocwdsess" not in hosts
           and "nulsess" not in hosts
           and escape_ok and nul_ok
-          and not late_before and late_after)
+          and not late_before and late_after and legacy_after)
     return ok, (f"sessions={sorted(hosts.items())}; "
                 f"late_before={late_before}; late_after={late_after}; "
-                f"escape_ok={escape_ok}; nul_ok={nul_ok}")
+                f"legacy_after={legacy_after}; escape_ok={escape_ok}; nul_ok={nul_ok}")
 
 
 def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:
