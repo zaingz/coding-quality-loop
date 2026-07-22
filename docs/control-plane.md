@@ -65,7 +65,7 @@ python3 scripts/quality_loop.py control-serve    # open http://127.0.0.1:4477/
 
 | Source | Becomes | Host coverage |
 |---|---|---|
-| `~/.claude/projects/<repo-slug>*/*.jsonl` (subdirectory slugs included after a per-file cwd check — sessions started from `repo/sub` land under a longer slug) | sessions, model calls (exact `usage` tokens, deduped per API response), tool calls with ok/error status, subagent attribution | Claude Code (transcript adapter) |
+| `~/.claude/projects/<repo-slug>*/*.jsonl` (subdirectory slugs included after a per-file cwd check — sessions started from `repo/sub` land under a longer slug; sessions started in a **linked git worktree** of this repo land under the worktree's own slug and are indexed too, in all three adapters) | sessions, model calls (exact `usage` tokens, deduped per API response), tool calls with ok/error status, subagent attribution | Claude Code (transcript adapter) |
 | `~/.codex/sessions/*/*/*/rollout-*.jsonl` (scoped per file by `session_meta.cwd`) | sessions (host `codex`), model calls (per-call `last_token_usage` deltas, model from `turn_context`), tool calls, sub-agent lineage | Codex CLI (rollout adapter) |
 | `~/.factory/monitoring/droid-wrapper.jsonl` (the `droid-glm-exec` wrapper log; scoped by `cwd`) | sessions (host `droid`) + one `droid_run` **event** and one tool call per exec run — Droid reports no token usage, so no model-call rows are fabricated and call/token totals stay honest | Factory Droid / GLM (wrapper adapter) |
 | `.quality-loop/agent-record.json` + `docs/records/*.json` | record / review / **finding** / decision / plan / escalation / models_used artifacts | any host running the loop |
@@ -95,6 +95,15 @@ producer-side convention (v6): **record it**. A row that carries it joins
 directly by id at query time and the heuristic below is skipped entirely; an
 explicit id that is not (yet) indexed stays unmatched rather than being
 guessed against.
+
+**Persistent workers (fix rounds):** record each follow-up hand-off to the
+same worker as its own row carrying the **same** `session_id` (one row per
+round). Later rows sharing an earlier row's session id are follow-up rounds
+by convention: each is flagged `follow_up`, linked to the session for the
+audit trail, and carries **no token figures** — the session's tokens ride
+only the first row, so sums over delegation rows never double-count a
+session. (`references/agentic-orchestration.md` §Persistent workers has the
+producer-side rules; reviewers never persist.)
 
 Legacy rows without `session_id` fall back to the fuzzy window match:
 `sessions.agent_name` equal to `expected_agent_name`, started within
@@ -153,8 +162,8 @@ transcript format may have changed") whenever it is nonzero.
 `/api/overview` (ditto), `/api/sessions?limit=`, `/api/session?id=`,
 `/api/spend?by=model|day|session|agent`, `/api/records`, `/api/memory`,
 `/api/events?limit=`, `/api/routing`, and (v5.1.0, additive)
-`/api/delegations` (each row carries `unmatched`/`unjoinable` flags plus an
-`unjoinable` count), `/api/task?task_id=` (404 on unknown, 400 without an
+`/api/delegations` (each row carries `unmatched`/`unjoinable`/`follow_up`
+flags plus `unjoinable` and `follow_up` counts), `/api/task?task_id=` (404 on unknown, 400 without an
 id), and `/api/metrics` (loop KPIs; a zeroed 200 on an empty DB). The dashboard at
 `/` is a single self-contained HTML file (no external requests, light/dark,
 keyboard navigable, with Overview / Sessions / Delegations / Tasks / Metrics /
@@ -229,7 +238,7 @@ the per-file offset cache means an unchanged source file is never re-read.
 
 ## Eval coverage
 
-The **37 add-on cases** in `evals/run_control_evals.py` pin: exact token math,
+The **40 add-on cases** in `evals/run_control_evals.py` pin: exact token math,
 incremental/rescan dedupe, malformed-line resilience, subagent attribution,
 artifact ingestion, price arithmetic, every API endpoint, the 127.0.0.1
 bind, GET-only enforcement, dashboard self-containment, ingest no-op when

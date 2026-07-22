@@ -800,8 +800,9 @@ def case_delegation_direct_session_id(tmp: Path) -> tuple[bool, str]:
     """v6: a ledger row carrying session_id joins directly by id — the fuzzy
     heuristic is skipped even when agent_name and window disagree — and an
     explicit id that is not indexed stays unmatched, never guessed against.
-    Direct joins are one-to-one too: a second row carrying the SAME session_id
-    is flagged duplicate_session_id and left unmatched (no double-counting)."""
+    Token attribution stays one-to-one: a second row carrying the SAME
+    session_id is a follow-up round (v6.5) — linked to the session for the
+    audit trail, flagged follow_up, and carrying NO token figures."""
     repo = make_repo(tmp)
     proj = claude_dir(tmp, repo)
     write_transcript(proj, "workersess", [
@@ -816,8 +817,8 @@ def case_delegation_direct_session_id(tmp: Path) -> tuple[bool, str]:
     # (unindexed) id must not be second-guessed by the heuristic.
     ghost = json.loads(_deleg_line("t-d", "reviewer", "impl-agent", "2026-01-05T10:00:00Z"))
     ghost["session_id"] = "ghost-session"
-    # Duplicate row: the SAME explicit session_id as the direct row. Only the
-    # first (ledger order) may attach; this one is flagged, not double-counted.
+    # Follow-up row: the SAME explicit session_id as the direct row. It links
+    # to the session (audit trail) but only the first row carries its tokens.
     dup = json.loads(_deleg_line("t-d", "validator", "totally-other-agent", "2020-01-02T00:00:00Z"))
     dup["session_id"] = "workersess"
     (qdir / "delegations.jsonl").write_text(
@@ -831,16 +832,165 @@ def case_delegation_direct_session_id(tmp: Path) -> tuple[bool, str]:
     d_ghost = next(d for d in joined if d["role"] == "reviewer")
     d_dup = next(d for d in joined if d["role"] == "validator")
     attached = sum(1 for d in joined if d["session"] is not None)
+    tokened = sum(1 for d in joined if d["session"] is not None and "tokens" in d["session"])
     ok = (not d_direct["unmatched"] and d_direct["session"]["id"] == "workersess"
           and d_direct["session"]["tokens"]["input_tokens"] == 100
           and d_ghost["unmatched"] and d_ghost["session"] is None
           and not d_ghost["unjoinable"]
-          and d_dup["unmatched"] and d_dup["session"] is None
-          and d_dup["duplicate_session_id"] and not d_direct["duplicate_session_id"]
-          and attached == 1)
+          and not d_dup["unmatched"] and d_dup["session"] is not None
+          and d_dup["session"]["id"] == "workersess" and "tokens" not in d_dup["session"]
+          and d_dup["follow_up"] and not d_direct["follow_up"]
+          and attached == 2 and tokened == 1)
     return ok, (f"direct={d_direct['session']['id'] if d_direct['session'] else None}; "
                 f"ghost_unmatched={d_ghost['unmatched']}; ghost_session={d_ghost['session']}; "
-                f"dup_flagged={d_dup['duplicate_session_id']}; attached={attached}")
+                f"follow_up={d_dup['follow_up']}; attached={attached}; tokened={tokened}")
+
+
+def case_delegation_follow_up_rounds(tmp: Path) -> tuple[bool, str]:
+    """v6.5: a persistent worker (fix rounds) is many ledger rows -> ONE
+    session. Every follow-up row links the session for the audit trail with no
+    token figures, task_timeline lists the session once, and the task's spend
+    equals the session's tokens exactly once."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    write_transcript(proj, "sidekick", [
+        assistant_line("sidekick", "u1", "2026-01-05T10:05:00Z", inp=200, out=80, agent="impl-agent"),
+    ])
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    rows = []
+    for i, ts in enumerate(("2026-01-05T10:00:00Z", "2026-01-05T10:20:00Z", "2026-01-05T10:40:00Z")):
+        r = json.loads(_deleg_line("t-fix", "implementer", "impl-agent", ts, brief=f"round {i + 1}"))
+        r["session_id"] = "sidekick"
+        rows.append(json.dumps(r))
+    (qdir / "delegations.jsonl").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    joined = [d for d in ctl.delegations_with_sessions(conn) if d["task_id"] == "t-fix"]
+    tl = ctl.task_timeline(conn, "t-fix")
+    conn.close()
+    followups = [d for d in joined if d["follow_up"]]
+    linked = [d for d in joined if d["session"] is not None]
+    tokened = [d for d in joined if d["session"] is not None and "tokens" in d["session"]]
+    total_in = sum(d["session"]["tokens"]["input_tokens"] for d in tokened)
+    ok = (len(joined) == 3 and len(followups) == 2 and len(linked) == 3
+          and len(tokened) == 1 and not any(d["unmatched"] for d in joined)
+          and total_in == 200
+          and tl is not None and len(tl["sessions"]) == 1
+          and tl["spend"]["input_tokens"] == 200 and tl["spend"]["output_tokens"] == 80)
+    return ok, (f"rows={len(joined)} followups={len(followups)} linked={len(linked)} "
+                f"tokened={len(tokened)} in={total_in} "
+                f"tl_sessions={len(tl['sessions']) if tl else '-'}")
+
+
+def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
+    """v6.5: sessions started in a linked git worktree of the repo attribute
+    to the repo's index in all three adapters (claude transcript under the
+    worktree's own slug; codex rollout with session_meta.cwd = the worktree;
+    droid wrapper run with cwd = the worktree) — while an unrelated sibling
+    checkout whose name flattens to a prefix-matching slug stays excluded."""
+    repo = make_repo(tmp)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=cql-eval",
+                    "-c", "user.email=cql@eval", "commit", "--allow-empty",
+                    "-q", "-m", "seed"], check=True)
+    wt = tmp / "repo-wt"
+    subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(wt)], check=True)
+    claude_dir(tmp, repo)
+    base = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects"
+    # Derive the worktree root exactly as the adapter will see it (git may
+    # print a symlink-resolved spelling, e.g. /private/var vs /var on macOS).
+    wt_root = next(r for r in ctl.repo_roots(repo) if r.name == "repo-wt")
+    wt = wt_root
+    # Claude adapter: a session under the WORKTREE's own exact slug dir.
+    wt_proj = base / ctl.project_slug(wt)
+    wt_proj.mkdir(parents=True, exist_ok=True)
+    write_transcript(wt_proj, "wtsess", [
+        assistant_line("wtsess", "w1", "2026-01-05T10:00:00Z", inp=30, out=10),
+    ])
+    # Decoy: an unrelated sibling checkout whose name flattens into the main
+    # slug's prefix space; its first cwd-bearing line places it OUTSIDE every
+    # repo root, so the per-file check must exclude it.
+    decoy_proj = base / (ctl.project_slug(repo) + "-decoy")
+    decoy_proj.mkdir(parents=True, exist_ok=True)
+    write_transcript(decoy_proj, "decoysess", [
+        json.dumps({"type": "user", "cwd": str(tmp / "repo-decoy")}),
+        assistant_line("decoysess", "d1", "2026-01-05T10:00:00Z", inp=999, out=999),
+    ])
+    # Codex adapter: a rollout whose session_meta.cwd is the worktree.
+    codex_base = tmp / "codex-sessions"
+    day = codex_base / "2026" / "01" / "05"
+    day.mkdir(parents=True)
+    (day / "rollout-2026-01-05T10-00-00-wtroll001.jsonl").write_text(
+        json.dumps({"type": "session_meta",
+                    "payload": {"cwd": str(wt), "timestamp": "2026-01-05T10:00:00Z"}}) + "\n",
+        encoding="utf-8")
+    # Droid adapter: a wrapper run whose cwd is the worktree.
+    droid_log = tmp / "droid-wt.jsonl"
+    droid_log.write_text(json.dumps({
+        "event": "wrapper_end", "ts": "2026-01-05T10:00:00Z", "cwd": str(wt),
+        "session_id": "wt-run", "model": "glm-5", "mode": "exec",
+        "exit_code": 0, "ok": True, "prompt_file": "slice.md"}) + "\n", encoding="utf-8")
+    saved_codex = os.environ.get("CODEX_SESSIONS_DIR")
+    saved_droid = os.environ.get("DROID_WRAPPER_LOG")
+    os.environ["CODEX_SESSIONS_DIR"] = str(codex_base)
+    os.environ["DROID_WRAPPER_LOG"] = str(droid_log)
+    try:
+        ctl.index_all(repo)
+        conn = ctl.open_db(repo)
+        hosts = {r["id"]: r["host"] for r in
+                 conn.execute("SELECT id, host FROM sessions").fetchall()}
+        conn.close()
+    finally:
+        for var, val in (("CODEX_SESSIONS_DIR", saved_codex), ("DROID_WRAPPER_LOG", saved_droid)):
+            if val is None:
+                os.environ.pop(var, None)
+            else:
+                os.environ[var] = val
+    ok = ("wtsess" in hosts and hosts.get("wtsess") == "claude-code"
+          and any(h == "codex" for h in hosts.values())
+          and "droid:wt-run" in hosts
+          and "decoysess" not in hosts)
+    return ok, f"sessions={sorted(hosts.items())}"
+
+
+def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:
+    """v6.5: loop_metrics exposes spend per accepted completion record — the
+    routing doctrine metric. Accepted = every review verdict approves; spend =
+    the task's delegation-linked session tokens (priced when prices exist);
+    rejected records are excluded and a live/archive twin counts once."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    write_transcript(proj, "wsess", [
+        assistant_line("wsess", "u1", "2026-01-05T10:05:00Z", inp=500, out=100, agent="impl-agent"),
+    ])
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    rec = _fixture_record()
+    rec["task_id"] = "task-acc"
+    (qdir / "agent-record.json").write_text(json.dumps(rec), encoding="utf-8")
+    docs = repo / "docs" / "records"
+    docs.mkdir(parents=True)
+    (docs / "task-acc.json").write_text(json.dumps(rec), encoding="utf-8")  # archive twin
+    rej = _fixture_record()
+    rej["task_id"] = "task-rej"
+    rej["independent_review"]["verdict"] = "reject"
+    (docs / "task-rej.json").write_text(json.dumps(rej), encoding="utf-8")
+    d = json.loads(_deleg_line("task-acc", "implementer", "impl-agent", "2026-01-05T10:00:00Z"))
+    d["session_id"] = "wsess"
+    (qdir / "delegations.jsonl").write_text(json.dumps(d) + "\n", encoding="utf-8")
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    m = ctl.loop_metrics(conn, repo)
+    priced = ctl.loop_metrics(conn, repo, prices={
+        "test-model": {"input_per_mtok": 10.0, "output_per_mtok": 50.0}})
+    conn.close()
+    rows = m.get("spend_per_accepted_record") or []
+    prow = (priced.get("spend_per_accepted_record") or [{}])[0]
+    ok = (len(rows) == 1 and rows[0]["task_id"] == "task-acc"
+          and rows[0]["sessions"] == 1 and rows[0]["input_tokens"] == 500
+          and rows[0]["output_tokens"] == 100 and rows[0]["cost_usd"] is None
+          and prow.get("cost_usd") == round(500 / 1e6 * 10.0 + 100 / 1e6 * 50.0, 6))
+    return ok, f"rows={rows}; priced={prow.get('cost_usd')}"
 
 
 def case_delegation_unjoinable_ts(tmp: Path) -> tuple[bool, str]:
@@ -1468,7 +1618,10 @@ CASES = [
     ("loop metrics compute exact KPIs; empty DB serves 200 zeros", case_loop_metrics),
     ("control-report emits markdown + json; unknown task exits 2", case_control_report_cli),
     ("tool-call targets redact secrets before storage; benign intact", case_tool_target_redaction),
-    ("delegation with session_id joins directly; unindexed never guessed; duplicate id flagged", case_delegation_direct_session_id),
+    ("delegation with session_id joins directly; unindexed never guessed; same-id rows are follow-up rounds", case_delegation_direct_session_id),
+    ("persistent-worker fix rounds: many rows, one session, tokens counted once", case_delegation_follow_up_rounds),
+    ("worktree sessions attribute to the repo in all three adapters; decoy sibling excluded", case_worktree_sessions_attributed),
+    ("loop metrics expose spend per accepted record; rejected excluded; twin counted once", case_metrics_spend_per_accepted_record),
     ("unparseable delegation ts is counted unjoinable, never a dist-0 match", case_delegation_unjoinable_ts),
     ("fallback delegation join is one-to-one; nearest wins, no double count", case_delegation_one_to_one),
     ("droid wrapper runs become droid_run events, not 0-token model calls", case_droid_runs_are_events),

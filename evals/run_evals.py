@@ -1602,17 +1602,30 @@ def case_check_config_always_prints_heterogeneity(tmp: Path) -> tuple[bool, str]
 def case_check_config_gate_config_only(tmp: Path) -> tuple[bool, str]:
     """v6.3: a quality-loop.config.json with NO orchestration sections
     (profiles/steps) but the gate-config surface (base / tests / high_risk_paths
-    / protect_harness) validates the gate keys and exits 0 — this repo dogfoods
-    exactly that. Malformed gate keys still fail; a full config keeps the full
-    validation path (heterogeneity line, not the gate-config note)."""
-    # (a) This repo's own gate-config passes and takes the gate-config path.
+    / protect_harness) validates the gate keys and exits 0. Malformed gate keys
+    still fail; a full config keeps the full validation path (heterogeneity
+    line, not the gate-config note). Since v6.5.0 this repo's own config is the
+    FULL orchestration shape with activated model_routing — it must take the
+    full path and report cross-family review as verified."""
+    # (a) A gate-config-only fixture passes and takes the gate-config path;
+    #     this repo's own config (full shape since v6.5.0) takes the full path
+    #     with heterogeneity verified.
+    gate_only = {"version": quality_loop.CONFIG_SCHEMA_VERSION,
+                 "tests": {"path_markers": ["evals/cases/"]},
+                 "high_risk_paths": [], "protect_harness": False}
+    gate_path = tmp / "gate-only.json"
+    gate_path.write_text(json.dumps(gate_only), encoding="utf-8")
+    code_g, out_g, _ = run_cli("check-config", str(gate_path))
     repo_cfg = ROOT / "quality-loop.config.json"
     code_r, out_r, _ = run_cli("check-config", str(repo_cfg))
     repo_ok = (
-        code_r == 0
-        and "gate-config (no orchestration sections)" in out_r
+        code_g == 0
+        and "gate-config (no orchestration sections)" in out_g
+        and "config ok" in out_g
+        and "reviewer heterogeneity" not in out_g  # orchestration checks skipped
+        and code_r == 0
         and "config ok" in out_r
-        and "reviewer heterogeneity" not in out_r  # orchestration checks skipped
+        and "reviewer heterogeneity: verified" in out_r  # dogfood routing active
     )
     # (b) A gate-config with a bad type fails loudly (not silently accepted).
     bad = {"version": quality_loop.CONFIG_SCHEMA_VERSION,

@@ -655,6 +655,8 @@ async function metrics(stale) {
   if (stale && stale()) return;
   const ev = m.evidence_rate || {records: 0, with_evidence: 0, rate_pct: 0};
   const byRole = m.spend_by_role || [];
+  const accepted = m.spend_per_accepted_record || [];
+  const acceptedCost = accepted.some(r => r.cost_usd != null);
   const durs = (m.session_durations || []).filter(d => d.duration_sec != null)
     .sort((a, b) => (b.duration_sec || 0) - (a.duration_sec || 0));
   const hasCost = byRole.some(r => r.cost_usd != null);
@@ -678,6 +680,16 @@ async function metrics(stale) {
         <td class="num" title="${fmt(r.cache_read_tokens)}">${compact(r.cache_read_tokens)}</td>
         ${hasCost ? `<td class="num">${usd(r.cost_usd)}</td>` : ""}</tr>`).join("")}</tbody></table></div>`
       : '<div class="card"><div class="empty">no model calls indexed yet</div></div>'}
+    <h2>Spend per accepted record</h2>
+    <div class="sub">the routing doctrine metric: steer by cost per accepted completion record, never by price per token</div>
+    ${accepted.length ? `<div class="tablewrap"><table>
+      <thead><tr><th>task</th><th class="num">sessions</th><th class="num">in</th><th class="num">out</th><th class="num">cache read</th>${acceptedCost ? '<th class="num">est. usd</th>' : ""}</tr></thead>
+      <tbody>${accepted.map(r => `<tr>
+        <td class="ell" title="${esc(r.task_id)}">${esc(r.task_id)}</td>
+        <td class="num">${fmt(r.sessions)}</td>${tokensCell(r)}
+        <td class="num" title="${fmt(r.cache_read_tokens)}">${compact(r.cache_read_tokens)}</td>
+        ${acceptedCost ? `<td class="num">${usd(r.cost_usd)}</td>` : ""}</tr>`).join("")}</tbody></table></div>`
+      : '<div class="card"><div class="empty">no records with an all-approving review yet</div></div>'}
     <h2>Session durations</h2>
     ${durs.length ? `<div class="tablewrap"><table class="fixed">
       <colgroup><col style="width:100px"><col style="width:130px"><col><col style="width:100px"></colgroup>
