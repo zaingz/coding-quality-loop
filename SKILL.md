@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "6.4.0"
+  version: "6.5.0"
 ---
 
 # Coding Quality Loop
@@ -18,7 +18,7 @@ The main session is the **orchestrator**. It thinks hard and makes every decisio
 
 - Orchestrator owns: task class, context map, contract, right-size rung, plan, model routing, verdict on findings, stop-if-unsafe.
 - Workers (implementer, reviewer) receive a **brief, not context**: goal, contract slice, files, commands, done-check. One screen max. No skill text, no references, no repository tour.
-- Delegate only to frontier models on Claude Code or Codex (see Routing). Droid is a supported install target outside the routed kernel; delegation to Droid is allowed only when an explicit harness routes it. The reviewer must be fresh context and cannot be the implementer. Different-family review is the portable default; an explicit higher-level harness may pin the same model across separate hosts/sessions when deterministic gates and supervisor verification retain final truth.
+- Delegate only to frontier models on Claude Code or Codex (see Routing). Droid is a supported install target outside the routed kernel; delegation to Droid is allowed only when an explicit harness routes it. The reviewer must be fresh context and cannot be the implementer. An implementer worker may persist across fix rounds of one slice (follow-ups return to its cached session; one ledger row per round, same session id); reviewers never persist. Different-family review is the portable default; an explicit higher-level harness may pin the same model across separate hosts/sessions when deterministic gates and supervisor verification retain final truth.
 
 ## Task Class (pick the smallest safe)
 
