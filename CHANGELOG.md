@@ -1,5 +1,52 @@
 # Changelog
 
+## 6.5.0
+
+The activation release: the routed topology the repo has shipped since v5.0.0
+is now switched on for its own development, the persistent-worker (sidekick)
+pattern gets first-class guidance and honest ledger semantics, and the
+control plane stops misreporting the two workflows that pattern creates.
+Suites: 19 static + 62 behavioral + 32 memory + 51 reality + 30 routing +
+56 hook = **250 core gate cases** (+40 control add-on).
+
+- **Dogfood routing activated.** `quality-loop.config.json` graduates from
+  the gate-config-only shape to the full orchestration config consumers run,
+  carrying the `max-intelligence` variant (`assets/routing/`): Sonnet 5
+  context mapper (`effort: low`), Fable 5 planner (`effort: high`), Fable 5
+  main-session implementer (declared), GPT-5.6 Sol cross-family review via
+  Codex — `check-config` now enforces reviewer heterogeneity on this repo
+  (`verified (claude vs gpt)`), and CI validates the dogfood config alongside
+  the example. The two file-host agent frontmatters are committed with their
+  pins; the installer **neutralizes agent `model:`/`effort:` pins on copy**
+  (`copy_agent_neutral`), so shipped templates stay host-neutral at rest —
+  pinned by a hook case that requires the source pinned and the installed
+  copy neutral.
+- **Persistent workers (sidekicks), honestly accounted.** SKILL.md
+  §Orchestrator Layer and `references/agentic-orchestration.md` §Persistent
+  workers: an implementer worker may persist across fix rounds of one slice
+  (follow-ups return to its cached session at cache-read rates); reviewers
+  never persist; escalation ends persistence; one ledger row per round with
+  the same `session_id`. The control plane's delegation join now treats
+  later rows naming a claimed session as `follow_up` rounds — linked for the
+  audit trail, carrying no token figures, so a session's tokens are
+  attributed exactly once (replaces the `duplicate_session_id` unmatched
+  flag; `task_timeline` lists a persistent worker's session once).
+- **Worktree sessions attribute to the repo.** All three adapters (claude
+  transcript, codex rollout, droid wrapper) now accept sessions whose cwd is
+  a linked git worktree of the repo — `repo_roots()` resolves
+  `git worktree list --porcelain` (cached, symlink-tolerant, degrades to
+  `[root]` without git; `git_capture` grows an optional `timeout`), while
+  prefix-slug decoys keep failing the per-file cwd check. The mission
+  topology's isolated-worktree workers were previously invisible to the
+  per-repo index.
+- **Spend per accepted completion record.** `loop_metrics` (and the
+  dashboard Metrics view) expose the routing doctrine metric — per accepted
+  record (every review verdict approving), the delegation-linked session
+  tokens and priced spend; rejected records excluded, live/archive twins
+  counted once, follow-up rows never double-counted. A query, never a gate.
+- **Post-ship outcomes recorded** for v6.3.0 (`regressed` — the teardown
+  Stop-gate escape v6.3.1 fixed) and v6.4.0 (`clean` — 24h field window).
+
 ## 6.4.0
 
 Subtraction pass: net-negative cleanup — dead surface deleted, duplicate
