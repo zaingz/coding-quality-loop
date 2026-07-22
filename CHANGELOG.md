@@ -6,8 +6,8 @@ The activation release: the routed topology the repo has shipped since v5.0.0
 is now switched on for its own development, the persistent-worker (sidekick)
 pattern gets first-class guidance and honest ledger semantics, and the
 control plane stops misreporting the two workflows that pattern creates.
-Suites: 19 static + 62 behavioral + 32 memory + 51 reality + 30 routing +
-56 hook = **250 core gate cases** (+40 control add-on).
+Suites: 19 static + 63 behavioral + 32 memory + 51 reality + 30 routing +
+56 hook = **251 core gate cases** (+40 control add-on).
 
 - **Dogfood routing activated.** `quality-loop.config.json` graduates from
   the gate-config-only shape to the full orchestration config consumers run,
@@ -63,7 +63,7 @@ Suites: 19 static + 62 behavioral + 32 memory + 51 reality + 30 routing +
 
 Subtraction pass: net-negative cleanup — dead surface deleted, duplicate
 implementations collapsed, docs realigned with the code. No behavior change
-except the deletions themselves. Suites: 19 static + 62 behavioral +
+except the deletions themselves. Suites: 19 static + 63 behavioral +
 32 memory + 51 reality + 30 routing + 55 hook = **249 core gate cases**
 (+37 control add-on).
 
@@ -118,7 +118,7 @@ The measured release. Three versions in a row shipped measurement
 pre-registered benchmark numbers in the repo's history — plus the integrity
 fixes an outside auditor found in a day of poking, so the numbers the repo
 already publishes are self-consistent. Suites: 20 static + 63 behavioral +
-32 memory + 51 reality + 30 routing + 54 hook = **250 core gate cases**
+32 memory + 51 reality + 30 routing + 54 hook = **251 core gate cases**
 (+37 control add-on).
 
 ### The first live §6.2 numbers (and the outcome honestly not claimed)

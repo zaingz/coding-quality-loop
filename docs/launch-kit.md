@@ -24,7 +24,7 @@ Use the [hero art](images/art/hero-art.png), [evidence dashboard](images/evidenc
 >
 > - Drops into Claude Code, Codex, and Droid via copy-to-folder (advisory rules for Cursor and Pi).
 > - Zero runtime dependencies; the gate CLI is a handful of stdlib-only Python modules you can read.
-> - 250 offline gate cases across 6 core suites pin the gates so they don't drift (plus 40 add-on cases for the opt-in control plane).
+> - 251 offline gate cases across 6 core suites pin the gates so they don't drift (plus 40 add-on cases for the opt-in control plane).
 > - Reality layer reads the actual `git diff` and catches phantom completions, stale
 >   review hashes, missing bugfix tests, and self-downgraded risk tiers.
 > - Optional project memory (files backend) so the agent stops relearning the
@@ -95,7 +95,7 @@ around auth, payments, migrations, or PII.
 
 **5/**
 Drops into Claude Code, Codex, and Droid via copy-to-folder. Zero runtime
-dependencies. 250 offline gate cases across 6 core suites, re-run on every push.
+dependencies. 251 offline gate cases across 6 core suites, re-run on every push.
 
 **6/**
 Optional project memory: distilled lessons, budget-capped recall, secrets redacted at

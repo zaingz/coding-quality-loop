@@ -61,6 +61,7 @@ def claude_dir(tmp: Path, repo: Path) -> Path:
 
 def assistant_line(session: str, uuid: str, ts: str, model: str = "test-model-1",
                    inp: int = 100, out: int = 50, cache_read: int = 0,
+                   cache_create: int = 0,
                    tools: list | None = None, sidechain: bool = False,
                    agent: str | None = None, msg_id: str | None = None) -> str:
     content = [{"type": "text", "text": "ok"}]
@@ -78,7 +79,7 @@ def assistant_line(session: str, uuid: str, ts: str, model: str = "test-model-1"
             "role": "assistant", "model": model, "content": content,
             "usage": {"input_tokens": inp, "output_tokens": out,
                       "cache_read_input_tokens": cache_read,
-                      "cache_creation_input_tokens": 0},
+                      "cache_creation_input_tokens": cache_create},
         },
     }
     if agent:
@@ -989,7 +990,8 @@ def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:
     repo = make_repo(tmp)
     proj = claude_dir(tmp, repo)
     write_transcript(proj, "wsess", [
-        assistant_line("wsess", "u1", "2026-01-05T10:05:00Z", inp=500, out=100, agent="impl-agent"),
+        assistant_line("wsess", "u1", "2026-01-05T10:05:00Z", inp=500, out=100,
+                       cache_read=40, cache_create=60, agent="impl-agent"),
     ])
     qdir = repo / ".quality-loop"
     qdir.mkdir()
@@ -1016,7 +1018,8 @@ def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:
     conn = ctl.open_db(repo)
     m = ctl.loop_metrics(conn, repo)
     priced = ctl.loop_metrics(conn, repo, prices={
-        "test-model": {"input_per_mtok": 10.0, "output_per_mtok": 50.0}})
+        "test-model": {"input_per_mtok": 10.0, "output_per_mtok": 50.0,
+                       "cache_read_per_mtok": 1.0, "cache_creation_per_mtok": 12.5}})
     # Reverse-direction twin: overwrite the live record with an approval while
     # the archive for task-rej stays rejecting — still excluded.
     rej_live = _fixture_record()
@@ -1028,12 +1031,18 @@ def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:
     rows = m.get("spend_per_accepted_record") or []
     prow = (priced.get("spend_per_accepted_record") or [{}])[0]
     tasks2 = [r["task_id"] for r in (m2.get("spend_per_accepted_record") or [])]
+    want_cost = round(500 / 1e6 * 10.0 + 100 / 1e6 * 50.0
+                      + 40 / 1e6 * 1.0 + 60 / 1e6 * 12.5, 6)
     ok = (len(rows) == 1 and rows[0]["task_id"] == "task-acc"
           and rows[0]["sessions"] == 1 and rows[0]["input_tokens"] == 500
-          and rows[0]["output_tokens"] == 100 and rows[0]["cost_usd"] is None
-          and prow.get("cost_usd") == round(500 / 1e6 * 10.0 + 100 / 1e6 * 50.0, 6)
+          and rows[0]["output_tokens"] == 100
+          and rows[0]["cache_read_tokens"] == 40
+          and rows[0]["cache_creation_tokens"] == 60  # displayed tokens must
+          and rows[0]["cost_usd"] is None             # cover everything priced
+          and prow.get("cost_usd") == want_cost
           and "task-rej" not in tasks2)
-    return ok, f"rows={rows}; priced={prow.get('cost_usd')}; after_reverse_twin={tasks2}"
+    return ok, (f"rows={rows}; priced={prow.get('cost_usd')} want={want_cost}; "
+                f"after_reverse_twin={tasks2}")
 
 
 def case_delegation_unjoinable_ts(tmp: Path) -> tuple[bool, str]:

@@ -962,6 +962,26 @@ def _doc_count_mismatches(
     return mismatches
 
 
+def case_release_version_parity(tmp: Path) -> tuple[bool, str]:
+    """Release surfaces share ONE version: npm package.json, SKILL.md
+    frontmatter, the README version badge, and the shipped GitHub example's
+    action ref. Version drift is a repeated field mistake (the schema-version
+    pin drifted before v6.1.0; the README badge and GitHub example shipped
+    stale into the v6.5.0 review) — so parity is a gate, not a checklist."""
+    pkg = json.loads((ROOT / "packages" / "npm" / "package.json").read_text(encoding="utf-8"))["version"]
+    skill_m = re.search(r'^\s*version:\s*"([^"]+)"',
+                        (ROOT / "SKILL.md").read_text(encoding="utf-8"), re.MULTILINE)
+    badge_m = re.search(r"badge/version-([0-9.]+)-",
+                        (ROOT / "README.md").read_text(encoding="utf-8"))
+    gh_m = re.search(r"coding-quality-loop@v([0-9.]+)",
+                     (ROOT / "hosts" / "github" / "quality-loop-example.yml").read_text(encoding="utf-8"))
+    vals = {"npm": pkg, "skill": skill_m.group(1) if skill_m else None,
+            "readme_badge": badge_m.group(1) if badge_m else None,
+            "gh_example": gh_m.group(1) if gh_m else None}
+    ok = all(v == pkg for v in vals.values())
+    return ok, f"versions={vals}"
+
+
 def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
     # Numbers-consistency lint (critical review R2 + improvement plan 2.5): every
     # public doc that states an offline gate-case count must state the DERIVED
@@ -1969,6 +1989,7 @@ CASES = [
     ("check-config prints heterogeneity_status even without model_routing (SKIPPED)", case_check_config_always_prints_heterogeneity),
     ("check-config accepts a gate-config-only shape (no profiles/steps); bad types still fail", case_check_config_gate_config_only),
     ("config schema version is pinned three ways (engine == schema const == example)", case_config_schema_version_pinned),
+    ("release surfaces share one version (npm == SKILL == README badge == gh example)", case_release_version_parity),
     ("record set-status/add-evidence/add-ac round-trip; mutated record passes check-record", case_record_mutation_roundtrip),
     ("malformed record-mutation input errors cleanly (no traceback, no write)", case_record_mutation_malformed_errors),
     ("record mutation refuses to write a newly-invalid record", case_record_mutation_refuses_invalid_result),

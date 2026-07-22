@@ -683,11 +683,12 @@ async function metrics(stale) {
     <h2>Spend per accepted record</h2>
     <div class="sub">the routing doctrine metric: steer by cost per accepted completion record, never by price per token</div>
     ${accepted.length ? `<div class="tablewrap"><table>
-      <thead><tr><th>task</th><th class="num">sessions</th><th class="num">in</th><th class="num">out</th><th class="num">cache read</th>${acceptedCost ? '<th class="num">est. usd</th>' : ""}</tr></thead>
+      <thead><tr><th>task</th><th class="num">sessions</th><th class="num">in</th><th class="num">out</th><th class="num">cache read</th><th class="num">cache write</th>${acceptedCost ? '<th class="num">est. usd</th>' : ""}</tr></thead>
       <tbody>${accepted.map(r => `<tr>
         <td class="ell" title="${esc(r.task_id)}">${esc(r.task_id)}</td>
         <td class="num">${fmt(r.sessions)}</td>${tokensCell(r)}
         <td class="num" title="${fmt(r.cache_read_tokens)}">${compact(r.cache_read_tokens)}</td>
+        <td class="num" title="${fmt(r.cache_creation_tokens)}">${compact(r.cache_creation_tokens)}</td>
         ${acceptedCost ? `<td class="num">${usd(r.cost_usd)}</td>` : ""}</tr>`).join("")}</tbody></table></div>`
       : '<div class="card"><div class="empty">no records with an all-approving review yet</div></div>'}
     <h2>Session durations</h2>

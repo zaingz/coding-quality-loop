@@ -1921,7 +1921,8 @@ def loop_metrics(conn: sqlite3.Connection, root: Path, prices: dict[str, Any] | 
         if not verds or verds != {"approve"}:
             continue
         agg: dict[str, Any] = {"task_id": task, "sessions": 0, "input_tokens": 0,
-                               "output_tokens": 0, "cache_read_tokens": 0, "cost_usd": None}
+                               "output_tokens": 0, "cache_read_tokens": 0,
+                               "cache_creation_tokens": 0, "cost_usd": None}
         for d in deleg_rows:
             sess = d.get("session")
             if d.get("task_id") != task or not isinstance(sess, dict) or "tokens" not in sess:
@@ -1930,7 +1931,8 @@ def loop_metrics(conn: sqlite3.Connection, root: Path, prices: dict[str, Any] | 
             if not srow:
                 continue
             agg["sessions"] += 1
-            for k in ("input_tokens", "output_tokens", "cache_read_tokens"):
+            for k in ("input_tokens", "output_tokens", "cache_read_tokens",
+                      "cache_creation_tokens"):
                 agg[k] += srow.get(k) or 0
             if srow.get("cost_usd") is not None:
                 agg["cost_usd"] = round((agg["cost_usd"] or 0.0) + srow["cost_usd"], 6)
