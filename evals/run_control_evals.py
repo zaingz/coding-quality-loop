@@ -1008,6 +1008,27 @@ def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
         legacy_after = any(
             "legacyrol1" in r["id"] for r in
             conn.execute("SELECT id FROM sessions").fetchall())
+        # Colliding-slug worktrees: /…/repo-x-y and /…/repo-x/y flatten to ONE
+        # slug dir, and BOTH are legitimate linked worktrees — every file in
+        # the shared dir must attribute by its own cwd, not a single winner.
+        wt2a = tmp / "repo-x-y"
+        (tmp / "repo-x").mkdir()
+        wt2b = tmp / "repo-x" / "y"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(wt2a)], check=True)
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(wt2b)], check=True)
+        ctl._worktree_cache.clear()  # the 60s TTL would serve pre-add roots
+        shared = base / ctl.project_slug(
+            next(r for r in ctl.repo_roots(repo) if r.name == "repo-x-y"))
+        shared.mkdir(parents=True, exist_ok=True)
+        wt2b_root = next(r for r in ctl.repo_roots(repo)
+                         if r.name == "y" and r.parent.name == "repo-x")
+        write_transcript(shared, "collA", [
+            assistant_line("collA", "ca", "2026-01-05T13:00:00Z", cwd=str(wt2a))])
+        write_transcript(shared, "collB", [
+            assistant_line("collB", "cb", "2026-01-05T13:00:00Z", cwd=str(wt2b_root))])
+        ctl.index_all(repo)
+        coll_ids = {r["id"] for r in conn.execute("SELECT id FROM sessions").fetchall()}
+        collision_ok = "collA" in coll_ids and "collB" in coll_ids
         conn.close()
     finally:
         for var, val in (("CODEX_SESSIONS_DIR", saved_codex), ("DROID_WRAPPER_LOG", saved_droid)):
@@ -1031,10 +1052,11 @@ def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
           and "foreignsess" not in hosts and "nocwdsess" not in hosts
           and "nulsess" not in hosts
           and escape_ok and nul_ok
-          and not late_before and late_after and legacy_after)
+          and not late_before and late_after and legacy_after and collision_ok)
     return ok, (f"sessions={sorted(hosts.items())}; "
                 f"late_before={late_before}; late_after={late_after}; "
-                f"legacy_after={legacy_after}; escape_ok={escape_ok}; nul_ok={nul_ok}")
+                f"legacy_after={legacy_after}; collision_ok={collision_ok}; "
+                f"escape_ok={escape_ok}; nul_ok={nul_ok}")
 
 
 def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:

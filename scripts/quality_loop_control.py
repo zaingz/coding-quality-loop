@@ -401,46 +401,48 @@ def _safe_resolve(path: Path) -> Path | None:
         return None
 
 
-def transcript_dirs(root: Path, all_projects: bool = False) -> list[tuple[Path, Path | None]]:
-    """(directory, cwd_check_root) pairs for this repo's transcripts.
+def transcript_dirs(root: Path, all_projects: bool = False) -> list[tuple[Path, list[Path] | None]]:
+    """(directory, candidate_cwd_roots) pairs for this repo's transcripts.
 
     Hosts slug the project dir by session CWD, so work started from a repo
     SUBDIRECTORY lands under a longer slug (repo/sub -> '<slug>-sub'), and a
     session started in a linked git WORKTREE lands under that worktree's own
-    slug. Slug flattening is lossy — '/tmp/repo-wt' and an unrelated
-    '/tmp/repo/wt' share one slug — so EVERY directory's files count only
-    after the per-file cwd check against the root they were claimed for (the
-    second tuple element); a transcript that cannot prove its cwd stays
-    unattributed (fail closed). Prefix claims go longest-slug-first so a
-    worktree's own subdirectory sessions are checked against the worktree,
-    not the main root. ``all_projects`` deliberately skips the check (``None``)
-    — that mode is the whole-machine sweep.
+    slug. Slug flattening is lossy — '/tmp/repo-wt' and '/tmp/repo/wt' share
+    one slug — so a directory can legitimately serve SEVERAL roots: each dir
+    carries the full candidate-root list (the second tuple element), and every
+    file counts only when its cwd proves membership in one of them; a
+    transcript that cannot prove its cwd stays unattributed (fail closed).
+    ``all_projects`` deliberately skips the check (``None``) — that mode is
+    the whole-machine sweep.
     """
     base = claude_projects_root()
     if not base.is_dir():
         return []
     if all_projects:
         return sorted((p, None) for p in base.iterdir() if p.is_dir())
-    roots = repo_roots(root)
-    out: list[tuple[Path, Path | None]] = []
-    seen: set[str] = set()
-    for r in roots:
-        exact = base / project_slug(r)
-        if exact.is_dir() and str(exact) not in seen:
-            seen.add(str(exact))
-            out.append((exact, r))
-    for r in sorted(roots, key=lambda q: len(project_slug(q)), reverse=True):
-        prefix = project_slug(r) + "-"
+    by_dir: dict[str, tuple[Path, list[Path]]] = {}
+    for r in repo_roots(root):
+        slug = project_slug(r)
+        exact = base / slug
+        if exact.is_dir():
+            ent = by_dir.setdefault(str(exact), (exact, []))
+            if r not in ent[1]:
+                ent[1].append(r)
+        prefix = slug + "-"
         for p in sorted(base.iterdir()):
-            if p.is_dir() and p.name.startswith(prefix) and str(p) not in seen:
-                seen.add(str(p))
-                out.append((p, r))
-    return out
+            if p.is_dir() and p.name.startswith(prefix):
+                ent = by_dir.setdefault(str(p), (p, []))
+                if r not in ent[1]:
+                    ent[1].append(r)
+    return [by_dir[k] for k in sorted(by_dir)]
 
 
-def _file_in_root(path: Path, root: Path) -> bool:
-    """True when the first cwd-bearing line places this transcript inside
-    ``root``. Files with no cwd in the first 64KB stay unattributed."""
+def _file_in_roots(path: Path, roots: list[Path]) -> bool:
+    """True when the first cwd-bearing line places this transcript inside ANY
+    candidate root — colliding slugs mean one dir can serve several legitimate
+    worktrees. Files with no cwd in the first 64KB stay unattributed, and a
+    cwd that cannot be canonicalized (embedded NUL, OS errors) proves nothing
+    — fail closed, never abort the indexing pass."""
     try:
         with path.open("rb") as fh:
             head = fh.read(65536)
@@ -453,12 +455,14 @@ def _file_in_root(path: Path, root: Path) -> bool:
             continue
         cwd = line.get("cwd") if isinstance(line, dict) else None
         if isinstance(cwd, str) and cwd:
-            try:
-                return Path(cwd).resolve().is_relative_to(root.resolve())
-            except (OSError, ValueError):
-                # ValueError: embedded NUL in a hostile cwd — fail closed,
-                # never abort the indexing pass.
+            cand = _safe_resolve(Path(cwd))
+            if cand is None:
                 return False
+            for r in roots:
+                rr = _safe_resolve(r)
+                if rr is not None and (cand == rr or cand.is_relative_to(rr)):
+                    return True
+            return False
     return False
 
 
@@ -1302,9 +1306,9 @@ def index_all(root: Path, all_projects: bool = False) -> dict[str, Any]:
         conn.execute(
             "INSERT INTO meta(key, value) VALUES('repo_roots', ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (roots_now,))
-        for tdir, cwd_check_root in transcript_dirs(root, all_projects):
+        for tdir, cwd_check_roots in transcript_dirs(root, all_projects):
             for path in sorted(tdir.glob("*.jsonl")):
-                if cwd_check_root is not None and not _file_in_root(path, cwd_check_root):
+                if cwd_check_roots is not None and not _file_in_roots(path, cwd_check_roots):
                     continue
                 totals["files"] += 1
                 fstats = _index_transcript_file(conn, path)
