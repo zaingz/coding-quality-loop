@@ -930,10 +930,21 @@ def _doc_count_mismatches(
     # is scoped to the match's own sentence CLAUSE — a fixed window let a
     # historical clause mask a stale current count right next to it (round 6).
     def _clause(flat_text: str, start: int, end: int) -> str:
-        cs = flat_text.rfind(". ", 0, start)
-        cs = 0 if cs == -1 else cs + 2
-        ce = flat_text.find(". ", end)
-        ce = len(flat_text) if ce == -1 else ce + 1
+        # Clause boundaries: sentence end, semicolon, em-dash. NOT colon or
+        # comma — those glue the legit historical form ("as of v3.0: 116
+        # cases") to its own marker.
+        bounds = [b.end() for b in re.finditer(r"[.;]\s|—", flat_text)]
+        cs = 0
+        for b in bounds:
+            if b <= start:
+                cs = b
+            else:
+                break
+        ce = len(flat_text)
+        for b in bounds:
+            if b >= end:
+                ce = b
+                break
         return flat_text[cs:ce]
 
     flat = _ADDON_PATTERN.sub("", " ".join(text.split()))
@@ -1992,6 +2003,12 @@ def case_derived_count_lint_catches_wrong_number(tmp: Path) -> tuple[bool, str]:
         f"as of v6.4 it shipped {canonical - 2} gate cases. "
         f"Current release: {canonical - 1} gate cases.",
         "synthetic.md", False, canonical, addon)
+    masked_semi = _doc_count_mismatches(
+        f"as of v6.4, {canonical - 2} gate cases; current: {canonical - 1} gate cases.",
+        "synthetic.md", False, canonical, addon)
+    masked_dash = _doc_count_mismatches(
+        f"as of v6.4 shipped {canonical - 2} gate cases — now {canonical - 1} gate cases.",
+        "synthetic.md", False, canonical, addon)
     row_bad = _doc_count_mismatches(
         f"| Hook (host shims) | {sc['hook'] + 1} | `evals/run_hook_evals.py` |",
         "synthetic.md", False, canonical, addon, sc)
@@ -1999,6 +2016,7 @@ def case_derived_count_lint_catches_wrong_number(tmp: Path) -> tuple[bool, str]:
         f"| Hook (host shims) | {sc['hook']} | `evals/run_hook_evals.py` |",
         "synthetic.md", False, canonical, addon, sc)
     hardened = (len(wrapped) == 1 and len(masked) == 1
+                and len(masked_semi) == 1 and len(masked_dash) == 1
                 and len(row_bad) == 1 and row_good == [])
 
     ok = derived_ok and catches and bd_clean and bd_caught and hardened
