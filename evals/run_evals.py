@@ -1035,6 +1035,24 @@ def case_doc_counts_match_canonical(tmp: Path) -> tuple[bool, str]:
         _doc_count_mismatches(
             top_entry, "CHANGELOG.md (top entry)", True, canonical, addon, suite_counts)
     )
+    # Historical entries are never rewritten to current counts — but their
+    # arithmetic must stay internally consistent: when an old entry states a
+    # complete six-suite breakdown with its own total, the addends must sum
+    # to THAT total. (The v6.5.0 round-3 review caught a global sed silently
+    # corrupting v6.4.0's historical breakdown; wrapped lines are joined so
+    # multi-line "Suites:" breakdowns are checked too.)
+    for i, entry in enumerate(re.split(r"\n## ", changelog)[2:], start=2):
+        flat = " ".join(entry.split())
+        for span in re.finditer(
+                r"\b\d+\s+static\b[^=]{0,200}?=\s*\*\*(\d+)(?:\s+core)?\s+gate\s+cases\*\*",
+                flat):
+            addends = _BREAKDOWN_ADDEND.findall(span.group(0))
+            if {n.lower() for _, n in addends} >= set(suite_counts):
+                total = sum(int(num) for num, _ in addends)
+                if total != int(span.group(1)):
+                    mismatches.append(
+                        f"CHANGELOG.md (historical entry #{i}): breakdown sums to "
+                        f"{total}, not its own stated {span.group(1)}")
 
     ok = not mismatches
     detail = f"canonical={canonical}; addon={addon}"

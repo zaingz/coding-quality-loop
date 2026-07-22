@@ -18,12 +18,12 @@ Suites: 19 static + 63 behavioral + 32 memory + 51 reality + 30 routing +
   (`verified (claude vs gpt)`), and CI validates the dogfood config alongside
   the example. The two file-host agent frontmatters are committed with their
   pins; the installer **neutralizes agent `model:`/`effort:` pins on copy**
-  (`copy_agent_neutral`), so shipped templates stay host-neutral at rest —
-  pinned by a hook case that requires the source pinned and the installed
-  copy neutral — and `prepack` neutralizes the vendored tarball copies the
-  same way (npm test pins the packed artifact), so the pins never exist at
-  rest anywhere consumers receive them. The dogfood `$schema` pointer
-  resolves from the repo root.
+  (`copy_agent_neutral`) and `prepack` neutralizes the vendored tarball
+  copies the same way (npm test pins the packed artifact), so the pins never
+  exist at rest anywhere consumers receive them. New behavioral gate:
+  release surfaces share one version (npm == SKILL == README badge ==
+  shipped GitHub example ref) — version drift is a repeated mistake, now a
+  gate. The dogfood `$schema` pointer resolves from the repo root.
 - **Persistent workers (sidekicks), honestly accounted.** SKILL.md
   §Orchestrator Layer and `references/agentic-orchestration.md` §Persistent
   workers: an implementer worker may persist across fix rounds of one slice
@@ -34,9 +34,9 @@ Suites: 19 static + 63 behavioral + 32 memory + 51 reality + 30 routing +
   audit trail, carrying no token figures, so a session's tokens are
   attributed exactly once (replaces the `duplicate_session_id` unmatched
   flag; `task_timeline` lists a persistent worker's session once). Rounds
-  follow **numeric** ledger order — the lexicographic artifact-key order put
-  row #10 before #9, handing the token-carrying first claim to the wrong
-  round (pinned at eleven rounds).
+  follow **numeric** ledger order — lexicographic artifact-key order put row
+  #10 before #9, handing the token-carrying first claim to the wrong round
+  (pinned at eleven rounds).
 - **Worktree sessions attribute to the repo.** All three adapters (claude
   transcript, codex rollout, droid wrapper) now accept sessions whose cwd is
   a linked git worktree of the repo **or any subdirectory of one** —
@@ -51,11 +51,13 @@ Suites: 19 static + 63 behavioral + 32 memory + 51 reality + 30 routing +
 - **Spend per accepted completion record.** `loop_metrics` (and the
   dashboard Metrics view) expose the routing doctrine metric — per accepted
   record (every review verdict approving), the delegation-linked session
-  tokens and priced spend; rejected records excluded, live/archive twins
-  canonicalized with **archives winning in both directions** (the
-  review-yield twin rule), follow-up rows never double-counted. A query,
-  never a gate. The count lint additionally checks the add-on suite's own
-  table row, not just the "N add-on cases" phrase.
+  tokens (input/output/cache read/cache write) and priced spend; rejected
+  records excluded, live/archive twins canonicalized with **archives winning
+  in both directions** (the review-yield twin rule), follow-up rows never
+  double-counted. A query, never a gate. The count lint additionally checks
+  the add-on suite's own table row, and historical CHANGELOG entries are now
+  checked for internal arithmetic consistency (their addends must sum to
+  their own stated total) — history is verified, never rewritten.
 - **Post-ship outcomes recorded** for v6.3.0 (`regressed` — the teardown
   Stop-gate escape v6.3.1 fixed) and v6.4.0 (`clean` — 24h field window).
 
@@ -63,7 +65,7 @@ Suites: 19 static + 63 behavioral + 32 memory + 51 reality + 30 routing +
 
 Subtraction pass: net-negative cleanup — dead surface deleted, duplicate
 implementations collapsed, docs realigned with the code. No behavior change
-except the deletions themselves. Suites: 19 static + 63 behavioral +
+except the deletions themselves. Suites: 19 static + 62 behavioral +
 32 memory + 51 reality + 30 routing + 55 hook = **249 core gate cases**
 (+37 control add-on).
 
@@ -118,7 +120,7 @@ The measured release. Three versions in a row shipped measurement
 pre-registered benchmark numbers in the repo's history — plus the integrity
 fixes an outside auditor found in a day of poking, so the numbers the repo
 already publishes are self-consistent. Suites: 20 static + 63 behavioral +
-32 memory + 51 reality + 30 routing + 54 hook = **251 core gate cases**
+32 memory + 51 reality + 30 routing + 54 hook = **250 core gate cases**
 (+37 control add-on).
 
 ### The first live §6.2 numbers (and the outcome honestly not claimed)
