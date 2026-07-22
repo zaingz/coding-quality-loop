@@ -395,7 +395,9 @@ def repo_roots(root: Path) -> list[Path]:
 def _safe_resolve(path: Path) -> Path | None:
     try:
         return path.resolve()
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError: an embedded NUL in a hostile/corrupt cwd — a path we
+        # cannot canonicalize proves nothing, and must never abort indexing.
         return None
 
 
@@ -453,7 +455,9 @@ def _file_in_root(path: Path, root: Path) -> bool:
         if isinstance(cwd, str) and cwd:
             try:
                 return Path(cwd).resolve().is_relative_to(root.resolve())
-            except OSError:
+            except (OSError, ValueError):
+                # ValueError: embedded NUL in a hostile cwd — fail closed,
+                # never abort the indexing pass.
                 return False
     return False
 

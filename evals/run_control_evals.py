@@ -936,6 +936,10 @@ def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
     nocwd = json.loads(assistant_line("nocwdsess", "n1", "2026-01-05T10:00:00Z"))
     del nocwd["cwd"]
     write_transcript(proj_main, "nocwdsess", [json.dumps(nocwd)])
+    write_transcript(proj_main, "nulsess", [
+        assistant_line("nulsess", "z1", "2026-01-05T10:00:00Z",
+                       cwd=str(repo) + "\x00"),
+    ])
     # Decoy: an unrelated sibling checkout whose name flattens into the main
     # slug's prefix space; its first cwd-bearing line places it OUTSIDE every
     # repo root, so the per-file check must exclude it.
@@ -995,18 +999,25 @@ def case_worktree_sessions_attributed(tmp: Path) -> tuple[bool, str]:
             else:
                 os.environ[var] = val
     # Canonical containment probe: 'repo/../sibling' must never pass the
-    # membership check even though its raw string starts with the repo path.
+    # membership check even though its raw string starts with the repo path —
+    # and a NUL-bearing cwd must fail closed without raising (a hostile
+    # transcript must never abort the indexing pass).
     escape_ok = not ctl._under_root(str(repo / ".." / (repo.name + "-evil")), repo)
+    try:
+        nul_ok = not ctl._under_root(str(repo) + "\x00evil", repo)
+    except ValueError:
+        nul_ok = False
     ok = ("wtsess" in hosts and hosts.get("wtsess") == "claude-code"
           and any("wtroll001" in sid for sid in hosts)
           and "droid:wt-run" in hosts
           and "decoysess" not in hosts
           and "foreignsess" not in hosts and "nocwdsess" not in hosts
-          and escape_ok
+          and "nulsess" not in hosts
+          and escape_ok and nul_ok
           and not late_before and late_after)
     return ok, (f"sessions={sorted(hosts.items())}; "
                 f"late_before={late_before}; late_after={late_after}; "
-                f"escape_ok={escape_ok}")
+                f"escape_ok={escape_ok}; nul_ok={nul_ok}")
 
 
 def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:
