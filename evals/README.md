@@ -12,7 +12,7 @@ control plane:
 | Suite | Cases | Runner |
 |---|---:|---|
 | Static (intake classifier) | 19 | `quality_loop.py eval-cases evals/cases` |
-| Behavioral (record gates) | 62 | `evals/run_evals.py` |
+| Behavioral (record gates) | 63 | `evals/run_evals.py` |
 | Memory | 32 | `evals/run_memory_evals.py` |
 | Reality (record ↔ diff) | 51 | `evals/run_reality_evals.py` |
 | Routing | 30 | `evals/run_routing_evals.py` |

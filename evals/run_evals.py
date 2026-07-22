@@ -927,11 +927,18 @@ def _doc_count_mismatches(
     # its "gate cases" phrase split across a hard-wrapped line are still one
     # mention (the v6.5.0 round-5 review found a wrapped '249\noffline gate
     # cases' the per-line scan missed). The "as of vX.Y" historical exemption
-    # is applied per match via a local window instead of per line.
+    # is scoped to the match's own sentence CLAUSE — a fixed window let a
+    # historical clause mask a stale current count right next to it (round 6).
+    def _clause(flat_text: str, start: int, end: int) -> str:
+        cs = flat_text.rfind(". ", 0, start)
+        cs = 0 if cs == -1 else cs + 2
+        ce = flat_text.find(". ", end)
+        ce = len(flat_text) if ce == -1 else ce + 1
+        return flat_text[cs:ce]
+
     flat = _ADDON_PATTERN.sub("", " ".join(text.split()))
     for m in _COUNT_PATTERN.finditer(flat):
-        window = flat[max(0, m.start() - 80):m.end() + 20]
-        if _HISTORICAL_LINE.search(window):
+        if _HISTORICAL_LINE.search(_clause(flat, m.start(), m.end())):
             continue
         n = int(m.group(1))
         if allow_trigger and n == 10:
@@ -940,8 +947,7 @@ def _doc_count_mismatches(
             mismatches.append(f"{rel}: {m.group(0)!r} != {canonical}")
     flat_addon = " ".join(text.split())
     for m in _ADDON_PATTERN.finditer(flat_addon):
-        window = flat_addon[max(0, m.start() - 80):m.end() + 20]
-        if _HISTORICAL_LINE.search(window):
+        if _HISTORICAL_LINE.search(_clause(flat_addon, m.start(), m.end())):
             continue
         if int(m.group(1)) != addon:
             mismatches.append(f"{rel}: {m.group(0)!r} != {addon} (add-on)")
@@ -952,10 +958,30 @@ def _doc_count_mismatches(
             for m in _TABLE_CELL_PATTERN.finditer(line):
                 if int(m.group(1)) != canonical:
                     mismatches.append(f"{rel}: total-row cell {m.group(0)!r} != {canonical}")
-        elif _ADDON_ROW.search(line):
+        elif _ADDON_ROW.search(line) or "run_control_evals.py" in line:
             for m in _TABLE_CELL_PATTERN.finditer(line):
                 if int(m.group(1)) != addon:
                     mismatches.append(f"{rel}: add-on row cell {m.group(0)!r} != {addon}")
+        elif suite_counts and line.lstrip().startswith("|"):
+            # A table row naming a suite's own runner must carry that suite's
+            # derived count in its numeric cell (round 6: the Behavioral row's
+            # parenthetical dodged a rename-style fix and the lint was blind
+            # to per-suite rows).
+            runner_map = {
+                "run_evals.py": "behavioral", "run_memory_evals.py": "memory",
+                "run_reality_evals.py": "reality", "run_routing_evals.py": "routing",
+                "run_hook_evals.py": "hook", "eval-cases evals/cases": "static",
+            }
+            for needle, suite in runner_map.items():
+                if needle in line and not any(
+                        other in line for other in runner_map if
+                        other != needle and needle in other):
+                    real = suite_counts.get(suite)
+                    for m in _TABLE_CELL_PATTERN.finditer(line):
+                        if real is not None and int(m.group(1)) != real:
+                            mismatches.append(
+                                f"{rel}: {suite} suite row cell {m.group(0)!r} != {real}")
+                    break  # one runner per row; first unambiguous match wins
         if suite_counts:
             addends = _BREAKDOWN_ADDEND.findall(line)
             # Every addend is checked against its real suite count wherever it
@@ -1954,11 +1980,33 @@ def case_derived_count_lint_catches_wrong_number(tmp: Path) -> tuple[bool, str]:
     bd_clean = _doc_count_mismatches(good_bd, "synthetic.md", False, canonical, addon, sc) == []
     bd_caught = len(_doc_count_mismatches(bad_bd, "synthetic.md", False, canonical, addon, sc)) >= 1
 
-    ok = derived_ok and catches and bd_clean and bd_caught
+    # v6.5.0 round-5/6 regressions: (a) a count split from its phrase by a
+    # hard wrap is still one mention; (b) a historical clause must not mask a
+    # stale CURRENT count in the next clause (and the historical one stays
+    # exempt: exactly one mismatch); (c) a suite's own table row must carry
+    # its derived count.
+    wrapped = _doc_count_mismatches(
+        f"reject drift. {canonical - 2}\noffline gate cases keep it honest.",
+        "synthetic.md", False, canonical, addon)
+    masked = _doc_count_mismatches(
+        f"as of v6.4 it shipped {canonical - 2} gate cases. "
+        f"Current release: {canonical - 1} gate cases.",
+        "synthetic.md", False, canonical, addon)
+    row_bad = _doc_count_mismatches(
+        f"| Hook (host shims) | {sc['hook'] + 1} | `evals/run_hook_evals.py` |",
+        "synthetic.md", False, canonical, addon, sc)
+    row_good = _doc_count_mismatches(
+        f"| Hook (host shims) | {sc['hook']} | `evals/run_hook_evals.py` |",
+        "synthetic.md", False, canonical, addon, sc)
+    hardened = (len(wrapped) == 1 and len(masked) == 1
+                and len(row_bad) == 1 and row_good == [])
+
+    ok = derived_ok and catches and bd_clean and bd_caught and hardened
     return ok, (
         f"canonical={canonical} (static={static} + behavioral={len(CASES)} + {suites}); "
         f"addon={addon}; derived_ok={derived_ok}; wrong_flagged={len(wrong)}; "
-        f"bd_clean={bd_clean}; bd_caught={bd_caught}"
+        f"bd_clean={bd_clean}; bd_caught={bd_caught}; "
+        f"wrapped={len(wrapped)}; masked={len(masked)}; row_bad={len(row_bad)}; row_good={len(row_good)}"
     )
 
 
