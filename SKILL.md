@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Portable Markdown skill with optional Python helper scripts. Requires git for diff checks; Python 3.10+ for bundled validation utilities."
 metadata:
   author: zaingz
-  version: "6.5.0"
+  version: "6.6.0"
 ---
 
 # Coding Quality Loop
@@ -27,7 +27,7 @@ The main session is the **orchestrator**. It thinks hard and makes every decisio
 - **medium** — multi-file, feature, migration, auth/payment/data risk. Contract, plan, right-size gate, independent review, completion record.
 - **mission** — multi-day, multi-repo. Orchestrator + workers + validators, shared artifacts in `.quality-loop/`.
 
-Risk trumps size: any change touching a risk boundary (auth, payments, secrets, PII, migrations, upload/download, network, shell, dependencies) is medium+ regardless of diff size. This is the canonical risk-boundary list; every other surface points here.
+Risk trumps size: any change touching a risk boundary (auth, payments, secrets, PII, migrations, upload/download, network, shell, dependencies) is medium+ regardless of diff size, and the deterministic floor forces the risk *tier* to high. Payments includes money-math — rounding, totals, tax — even without a payment-processor surface. This is the canonical risk-boundary list; every other surface points here.
 
 ## Lifecycle
 

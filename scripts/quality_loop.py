@@ -60,6 +60,7 @@ from quality_loop_core import (  # noqa: E402
     atomic_write_text,
     git_capture,
     has_evidence,
+    load_gate_config,
     load_json,
     redact,
     run_git,
@@ -165,9 +166,21 @@ BOUNDARY_KEYWORDS = {
         "tls", "ssl", "certificate", "encrypt", "encryption", "decrypt", "decryption",
         "bcrypt", "scrypt", "argon2", "csrf", "cors", "saml", "xss",
     ),
+    # Doctrine (validated 2026-07-23): money-math counts as the payments
+    # boundary even without a payment-processor surface — the live bench seeds
+    # tiered the same billing micro-bugfix low/medium because its natural
+    # wording ("rounds money", "half-cent tax") tripped nothing here. "invoice"
+    # is deliberately deferred: eval case 17 and the walkthrough demo use it in
+    # benign copy, and rewording those is a separate slice.
+    # Compound money-math terms (security review round 1, 2026-07-23): bare
+    # "money"/"tax" alone missed "Fix half-cent rounding in invoice totals".
+    # Residual, disclosed: bare "invoice totals" wording still passes — adding
+    # "invoice total" would re-tier the canonical walkthrough demo to high,
+    # which is staged as an operator decision, not taken here.
     "payments": (
         "payment", "billing", "charge", "refund", "stripe", "checkout",
-        "payout", "subscription", "chargeback", "pci",
+        "payout", "subscription", "chargeback", "pci", "money", "tax",
+        "half-cent", "half cent", "monetary", "currency rounding",
     ),
     "data_migration": (
         "migration", "migrate", "schema change", "alter table", "drop table", "backfill",
@@ -395,7 +408,45 @@ def init_record(args: argparse.Namespace) -> int:
             print(f"scaffolded {allowlist} — add your verification commands to it")
         except OSError:
             pass
+    _print_intake_preview(args.goal, args.risk_tier, base.parent)
     return 0
+
+
+def _print_intake_preview(goal: str, declared_tier: str, root: Path) -> None:
+    """Surface at INTAKE what the gates will do at verify: the deterministic
+    text floor the goal already trips, and any recalled lessons. Validation
+    (2026-07-23, 35-trial fleet) showed advisory *recommendations* get argued
+    with while the floor binds regardless — so this prints facts about the
+    gates, never advice. Silent when nothing fires; never blocks init.
+
+    ``root`` is the repository the record is being created in (derived from
+    --output, like the allowlist scaffold above), NOT the process cwd — config
+    and lessons must come from the repo the task targets (review round 1).
+    Lessons rank against the tier the floor will actually bind, not the
+    declared one."""
+    _, markers = detect_risk_floor({"goal": goal})
+    if markers:
+        note = "" if declared_tier == "high" else (
+            f" — declared risk_tier '{declared_tier}' will fail gates unless raised,"
+            " the boundary wording is removed because it is genuinely out of scope,"
+            " or the demands are met (security evidence may be a blocked row with a reason)"
+        )
+        print(
+            "floor preview: goal text trips boundary markers "
+            f"[{', '.join(markers)}]; verify will force risk tier high{note}"
+        )
+    try:
+        import quality_loop_memory as qlm  # noqa: PLC0415
+
+        config = load_gate_config(root)
+        location = str((config.get("memory") or {}).get("location", "checked_in"))
+        lessons = qlm.load_lessons(qlm.resolve_memory_dir(location, cwd=root))
+        effective_tier = "high" if markers else declared_tier
+        recalled = qlm.recall(lessons, goal, [], effective_tier, 400)
+        for lesson in recalled[:3]:
+            print("lesson: " + qlm.render_line(lesson).lstrip("- "))
+    except Exception:  # noqa: BLE001 — the preview must never break init-record
+        pass
 
 
 def _utc_now_iso() -> str:
@@ -1156,7 +1207,18 @@ def _tier_check_fails(
         # medium's original `elif`: only meaningful once status is review-ready.
         return status_ok and len(record.get("review_findings", [])) == 0
     if name == "needs_security":
-        return "security" not in command_classes
+        # Satisfied by a passing security-class command OR a blocked one that
+        # carries a non-empty reason — the finding message has always promised
+        # "or blocked rationale"; validation (2026-07-23) showed the code never
+        # honored it, forcing unsatisfiable demands on e.g. docs-only diffs
+        # whose wording trips the text floor.
+        blocked_reasoned = {
+            cmd.get("class")
+            for cmd in commands
+            if cmd.get("result") == "blocked"
+            and str(cmd.get("reason") or cmd.get("rationale") or "").strip()
+        }
+        return "security" not in command_classes and "security" not in blocked_reasoned
     if name == "needs_risk_doc":
         return not record.get("open_risks") and len(record.get("review_findings", [])) == 0
     return False
@@ -1765,6 +1827,68 @@ def _outcomes_tally(cwd: Path) -> str | None:
     )
 
 
+def _unrecorded_outcomes(cwd: Path) -> str | None:
+    """One advisory line naming archived records with no post-ship outcome.
+
+    Outcome truth per record is its own ``outcome`` field, else a ledger row
+    (.quality-loop/outcomes.jsonl) matching its task_id — the archives-win twin
+    rule. Returns None when there is nothing to report (no docs/records/, or
+    every archived record has an outcome). Validation (2026-07-23): 6 of 9
+    archived records lacked outcomes, starving every history-based signal —
+    this line is the data unlock, advisory only.
+    """
+    records_dir = cwd / "docs" / "records"
+    if not records_dir.is_dir():
+        return None
+    ledger: set[str] = set()
+    ledger_path = cwd / ".quality-loop" / "outcomes.jsonl"
+    if ledger_path.is_file():
+        try:
+            for line in ledger_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(row, dict) and row.get("task_id"):
+                    ledger.add(str(row["task_id"]))
+        except OSError:
+            pass
+    missing: list[str] = []
+    for path in sorted(records_dir.glob("*.json")):
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(rec, dict):
+            continue
+        outcome = rec.get("outcome")
+        if isinstance(outcome, dict) and str(outcome.get("verdict", "")).strip():
+            continue
+        if str(rec.get("task_id", "")) in ledger:
+            continue
+        missing.append(path.name)
+    if not missing:
+        return None
+    # Recency is defined as semantic-version order on vX.Y.Z names (newest
+    # release first) with non-version names after, alphabetically. Filesystem
+    # mtimes are useless here (git checkouts stamp them arbitrarily) and plain
+    # lexicographic sort ranks v6.9.0 above v6.10.0 (review round 1).
+    def _version_key(name: str) -> tuple:
+        m = re.match(r"^v(\d+)\.(\d+)\.(\d+)", name)
+        if m:
+            return (0, -int(m.group(1)), -int(m.group(2)), -int(m.group(3)), name)
+        return (1, 0, 0, 0, name)
+
+    missing.sort(key=_version_key)
+    newest = ", ".join(missing[:3])
+    extra = f" (+{len(missing) - 3} more)" if len(missing) > 3 else ""
+    return (
+        f"{len(missing)} archived record(s) missing a post-ship outcome: {newest}{extra} — "
+        "record with: python3 scripts/quality_loop.py record outcome docs/records/<file> "
+        "<clean|regressed|reverted>"
+    )
+
+
 def _progress_tail(cwd: Path, max_lines: int = 15) -> str:
     for path in (cwd / ".quality-loop" / "progress.md", cwd / "progress.md"):
         if path.is_file():
@@ -1809,7 +1933,7 @@ def cmd_brief(args: argparse.Namespace) -> int:
     progress = _progress_tail(cwd)
 
     budget = max(100, getattr(args, "budget", 800))
-    mem_dir = qlmem.resolve_memory_dir(args.location, cwd=cwd)
+    mem_dir = qlmem.resolve_memory_dir(qlmem.effective_location(getattr(args, "location", None), cwd), cwd=cwd)
     project_lessons = qlmem.load_lessons(mem_dir)
     global_dir = qlmem.resolve_global_memory_dir()
     global_lessons = qlmem.load_lessons(global_dir)
@@ -1848,6 +1972,9 @@ def cmd_brief(args: argparse.Namespace) -> int:
     outcomes_tally = _outcomes_tally(cwd)
     if outcomes_tally:
         sections.append(outcomes_tally)
+    unrecorded = _unrecorded_outcomes(cwd)
+    if unrecorded:
+        sections.append(unrecorded)
 
     sections.append(f"## Lessons ({len(selected)} recalled)\n{lessons_text}")
 
@@ -1877,7 +2004,7 @@ def cmd_brief(args: argparse.Namespace) -> int:
     sections.append(f"## Suggested next step\n{next_hint}")
 
     if getattr(args, "json", False):
-        print(json.dumps({
+        payload = {
             "record": record_summary,
             "lessons_recalled": len(selected),
             "lessons_digest": lessons_text,
@@ -1886,7 +2013,12 @@ def cmd_brief(args: argparse.Namespace) -> int:
             "model_routing": routing_info,
             "heterogeneity_warning": het_warning,
             "next_step": next_hint,
-        }, indent=2, default=str))
+        }
+        if unrecorded:
+            # Key present only when there is something to report, so the
+            # no-archive JSON shape is byte-compatible with pre-Wave-1 output.
+            payload["unrecorded_outcomes"] = unrecorded
+        print(json.dumps(payload, indent=2, default=str))
     else:
         print("\n\n".join(sections))
     return 0
@@ -2530,7 +2662,7 @@ def main() -> int:
     p_mrecall.add_argument("--files", default="")
     p_mrecall.add_argument("--risk", choices=sorted(RISK_TIERS), default="low")
     p_mrecall.add_argument("--budget", type=int, default=None, help="Char budget (default: memory.recall_budget_chars from config, else 1500)")
-    p_mrecall.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_mrecall.add_argument("--location", choices=["checked_in", "local"], default=None, help="Store override; defaults to the config memory.location, else checked_in")
     p_mrecall.add_argument("--json", action="store_true")
     p_mrecall.add_argument("--bump", action="store_true", help="Increment hit counts for recalled lessons (RETROSPECT-time opt-in; recall is read-only by default)")
     p_mrecall.add_argument("--no-bump", action="store_true", help=argparse.SUPPRESS)  # deprecated: recall is read-only by default since v6
@@ -2541,7 +2673,7 @@ def main() -> int:
     p_mcommit.add_argument("--lesson", help="Commit this exact lesson instead of distilling the record")
     p_mcommit.add_argument("--kind", choices=sorted(qlmem.LESSON_KINDS), default="gotcha", help="Kind for an explicit --lesson (distillation derives the kind otherwise)")
     p_mcommit.add_argument("--scope", help="Override scope glob, e.g. 'src/payments/**'")
-    p_mcommit.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_mcommit.add_argument("--location", choices=["checked_in", "local"], default=None, help="Store override; defaults to the config memory.location, else checked_in")
     p_mcommit.add_argument("--global", dest="global_store", action="store_true", help="Write to the cross-project global store (~/.quality-loop/global/)")
     p_mcommit.add_argument("--outcome", choices=sorted(qlmem.OUTCOMES), help="Record a shipped-work outcome (surfaced by brief next session)")
     p_mcommit.add_argument("--note", help="Short context for --outcome (e.g. what regressed and why)")
@@ -2550,12 +2682,12 @@ def main() -> int:
     p_mprune = sub.add_parser("memory-prune", help="Dedup + cap the lessons ledger")
     p_mprune.add_argument("--max", type=int, default=200)
     p_mprune.add_argument("--max-age-days", type=int, default=365)
-    p_mprune.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_mprune.add_argument("--location", choices=["checked_in", "local"], default=None, help="Store override; defaults to the config memory.location, else checked_in")
     p_mprune.add_argument("--global", dest="global_store", action="store_true", help="Prune the cross-project global store")
     p_mprune.set_defaults(func=qlmem.cmd_prune)
 
     p_mstatus = sub.add_parser("memory-status", help="Show memory store location and lesson counts")
-    p_mstatus.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_mstatus.add_argument("--location", choices=["checked_in", "local"], default=None, help="Store override; defaults to the config memory.location, else checked_in")
     p_mstatus.set_defaults(func=qlmem.cmd_status)
 
     p_attest = sub.add_parser("attest-review", help="Embed a recomputed diff sha256 into a review object")
@@ -2583,7 +2715,7 @@ def main() -> int:
 
     p_brief = sub.add_parser("brief", help="Print a session-start project briefing (last record, risks, lessons, progress)")
     p_brief.add_argument("--budget", type=int, default=800, help="Char budget for lesson recall (default 800)")
-    p_brief.add_argument("--location", choices=["checked_in", "local"], default="checked_in")
+    p_brief.add_argument("--location", choices=["checked_in", "local"], default=None, help="Store override; defaults to the config memory.location, else checked_in")
     p_brief.add_argument("--cwd", default=".", help="Working directory (default .)")
     p_brief.add_argument("--config", help="Path to quality-loop.config.json for model routing (auto-detected in cwd if omitted)")
     p_brief.add_argument("--json", action="store_true", help="Machine-readable JSON output")

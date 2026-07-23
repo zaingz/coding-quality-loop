@@ -1,0 +1,32 @@
+{
+  "name": "money-math-compound-wording-trips-floor",
+  "description": "Security review round 1 (2026-07-23) reproduced a bypass: 'Fix half-cent rounding in invoice totals' contains neither 'money' nor 'tax', so the floor stayed silent while SKILL.md's doctrine claims rounding/totals/tax as the payments boundary. Compound terms (half-cent, monetary, currency rounding) close the demonstrated wording class. This goal deliberately avoids money, tax, payment, and billing. Residual, disclosed: bare 'invoice totals' with none of the compounds still passes — closing that re-tiers the canonical walkthrough and is staged as an operator decision.",
+  "record": {
+    "task_id": "t-23",
+    "goal": "Fix half-cent rounding in invoice totals so discounts credit correctly",
+    "acceptance_criteria": [
+      "Half-cent amounts round half-up in every public function"
+    ],
+    "task_class": "small",
+    "risk_tier": "low",
+    "implementer": "implementer-agent",
+    "verification_plan": [
+      "run the committed failing test, then the module suite"
+    ],
+    "plan": [
+      "quantize with Decimal ROUND_HALF_UP in the shared rounding path"
+    ],
+    "commands_run": [
+      {"cmd": "pytest test_invoice.py", "class": "unit", "result": "pass", "evidence": "1 passed"}
+    ],
+    "open_risks": [],
+    "review_findings": [],
+    "status": "verify"
+  },
+  "expect": {
+    "risk_floor": "high",
+    "floor_markers": ["payments"],
+    "gates_exit": 1,
+    "findings_include": ["downgrades a detected boundary"]
+  }
+}

@@ -713,6 +713,83 @@ def case_recall_budget_from_config(tmp: Path) -> tuple[bool, str]:
     )
 
 
+def case_config_location_end_to_end(tmp: Path) -> tuple[bool, str]:
+    """memory.location: "local" in the root config routes every documented
+    memory command — commit, recall, status — and init-record's preview to the
+    machine-local store with NO --location flag, and the checked-in store is
+    never created. Round-2 review (2026-07-23) caught the half-wiring this
+    pins: only init-record's preview honored the config, so configured-local
+    repos committed lessons to a store recall never read. An explicit
+    --location still wins over the config."""
+    with _sandbox(tmp) as root:
+        (root / "quality-loop.config.json").write_text(
+            json.dumps({"memory": {"location": "local"}}), encoding="utf-8"
+        )
+        lesson = "Half-cent rounding fixes must replay red-green on the shared rounding path"
+        code_c, _, err_c = run_cli("memory-commit", "--lesson", lesson, "--kind", "gotcha")
+        local_store = (
+            Path(os.environ["HOME"]) / ".quality-loop"
+            / mem.slugify(str(root.resolve())) / "lessons.jsonl"
+        )
+        checked_in = root / ".quality-loop" / "memory" / "lessons.jsonl"
+        committed_local = code_c == 0 and local_store.is_file() and not checked_in.exists()
+
+        code_s, out_s, _ = run_cli("memory-status")
+        try:
+            status = json.loads(out_s)
+        except json.JSONDecodeError:
+            status = {}
+        status_local = code_s == 0 and status.get("location") == "local" and status.get("lesson_count") == 1
+
+        code_r, out_r, _ = run_cli(
+            "memory-recall", "--goal", "fix half-cent rounding on the shared rounding path"
+        )
+        recalled = code_r == 0 and "Half-cent rounding fixes" in out_r
+
+        code_i, out_i, _ = run_cli(
+            "init-record", "--goal",
+            "Fix half-cent rounding in totals on the shared rounding path",
+            "--risk-tier", "low",
+        )
+        preview = code_i == 0 and "Half-cent rounding fixes" in out_i
+
+        # brief reads the configured local store too: the record init-record
+        # just created carries the half-cent goal, so its lessons section must
+        # recall the local lesson — and an explicit checked_in override on
+        # brief must not see it (round-3 review: every rewired entry point
+        # needs its own pin).
+        code_b, out_b, _ = run_cli("brief", "--cwd", str(root))
+        brief_local = code_b == 0 and "Half-cent rounding fixes" in out_b
+        code_bo, out_bo, _ = run_cli("brief", "--cwd", str(root), "--location", "checked_in")
+        brief_override = code_bo == 0 and "Half-cent rounding fixes" not in out_bo
+
+        # memory-prune (no flag) must mutate only the configured local store:
+        # the lesson survives the prune there and the checked-in store is
+        # still never created.
+        code_p, _, _ = run_cli("memory-prune")
+        pruned_local = (
+            code_p == 0 and local_store.is_file()
+            and "Half-cent rounding fixes" in local_store.read_text(encoding="utf-8")
+            and (local_store.parent / "MEMORY.md").is_file()
+            and not checked_in.exists()
+        )
+
+        # Explicit flag still wins: checked_in recall must NOT see the lesson.
+        code_e, out_e, _ = run_cli(
+            "memory-recall", "--goal",
+            "fix half-cent rounding on the shared rounding path",
+            "--location", "checked_in",
+        )
+        override_wins = code_e == 0 and "Half-cent rounding fixes" not in out_e
+    ok = (committed_local and status_local and recalled and preview
+          and brief_local and brief_override and pruned_local and override_wins)
+    return ok, (
+        f"committed_local={committed_local}; status_local={status_local}; recalled={recalled}; "
+        f"preview={preview}; brief_local={brief_local}; brief_override={brief_override}; "
+        f"pruned_local={pruned_local}; override_wins={override_wins}; commit_err={err_c.strip()[:80]!r}"
+    )
+
+
 CASES = [
     ("slugify + resolve_memory_dir compute correct paths", case_slugify_and_resolve),
     ("lesson append/load round-trips and skips malformed lines", case_lesson_io_roundtrip),
@@ -746,6 +823,7 @@ CASES = [
     ("provenance: committed rows carry source; recall marks [unattributed]", case_provenance_and_unattributed_marker),
     ("memory-prune flags stale-scope lessons as candidates without deleting", case_prune_flags_stale_candidates),
     ("recall_budget_chars config wired: config default honored, --budget wins", case_recall_budget_from_config),
+    ("memory.location config wired end-to-end: commit/recall/status/init-record share the local store", case_config_location_end_to_end),
 ]
 
 
