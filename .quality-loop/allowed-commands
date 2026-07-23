@@ -1,11 +1,13 @@
 # v6.5.0-activation evidence commands (re-executed by run-evidence/verify)
-python3 scripts/quality_loop.py check-config quality-loop.config.json
-python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py
-python3 evals/run_evals.py
-python3 evals/run_control_evals.py
-python3 evals/run_hook_evals.py
-python3 evals/run_routing_evals.py
-python3 evals/run_reality_evals.py
-python3 evals/run_memory_evals.py
-python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
 node --test packages/npm/test/*.test.mjs
+python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py
+python3 evals/run_control_evals.py
+python3 evals/run_evals.py
+python3 evals/run_hook_evals.py
+python3 evals/run_memory_evals.py
+python3 evals/run_reality_evals.py
+python3 evals/run_routing_evals.py
+python3 scripts/quality_loop.py check-config quality-loop.config.json
+python3 scripts/quality_loop.py diff-audit --base origin/main
+python3 scripts/quality_loop.py eval-cases evals/cases
+python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json

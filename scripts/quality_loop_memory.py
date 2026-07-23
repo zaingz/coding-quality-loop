@@ -34,6 +34,19 @@ def slugify(path: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-")
 
 
+def effective_location(explicit: str | None, cwd: Path | None = None) -> str:
+    """An explicit --location always wins; otherwise the root config's
+    memory.location; otherwise checked_in. Round-2 review (2026-07-23) caught
+    the half-wiring this closes: init-record's preview honored the config
+    while every documented memory command and brief defaulted to checked_in,
+    so a configured-local repo committed lessons to a store recall never read."""
+    if explicit:
+        return explicit
+    config = qlcore.load_gate_config(cwd)
+    location = (config.get("memory") or {}).get("location")
+    return location if location in ("checked_in", "local") else "checked_in"
+
+
 def resolve_memory_dir(
     location: str = "checked_in",
     cwd: Path | None = None,
@@ -291,7 +304,7 @@ def cmd_recall(args: Any) -> int:
     if raw_budget is None:  # explicit --budget wins; config supplies the default
         raw_budget = _config_recall_budget() or 1500
     budget = max(1, _safe_int(raw_budget, 1500))
-    mem_dir = resolve_memory_dir(args.location)
+    mem_dir = resolve_memory_dir(effective_location(args.location))
     global_dir = resolve_global_memory_dir()
     pairs = recall_pool(
         load_lessons(mem_dir), load_lessons(global_dir),
@@ -477,7 +490,7 @@ def cmd_commit(args: Any) -> int:
     else:
         print("error: a record path, --lesson, or --outcome is required", file=sys.stderr)
         return 1
-    mem_dir = resolve_global_memory_dir() if getattr(args, "global_store", False) else resolve_memory_dir(args.location)
+    mem_dir = resolve_global_memory_dir() if getattr(args, "global_store", False) else resolve_memory_dir(effective_location(args.location))
     created = date.today().isoformat()
     override_scope = [args.scope] if getattr(args, "scope", None) else None
     if outcome:
@@ -591,7 +604,7 @@ def stale_candidates(
 
 
 def cmd_prune(args: Any) -> int:
-    mem_dir = resolve_global_memory_dir() if getattr(args, "global_store", False) else resolve_memory_dir(args.location)
+    mem_dir = resolve_global_memory_dir() if getattr(args, "global_store", False) else resolve_memory_dir(effective_location(args.location))
     lessons = load_lessons(mem_dir)
     kept = prune(lessons, max_n=args.max, max_age_days=args.max_age_days)
     save_lessons(mem_dir, kept)
@@ -631,14 +644,15 @@ def validate_memory_config(memory: Any) -> list[str]:
 
 
 def cmd_status(args: Any) -> int:
-    mem_dir = resolve_memory_dir(args.location)
+    location = effective_location(args.location)
+    mem_dir = resolve_memory_dir(location)
     lessons = load_lessons(mem_dir)
     global_dir = resolve_global_memory_dir()
     global_lessons = load_lessons(global_dir)
     status: dict[str, Any] = {
         "memory_dir": str(mem_dir),
         "exists": (mem_dir / "lessons.jsonl").is_file(),
-        "location": args.location,
+        "location": location,
         "lesson_count": len(lessons),
         "kinds": count_kinds(lessons),
         "global_dir": str(global_dir),

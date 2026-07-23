@@ -60,3 +60,14 @@
 
 Activated the routed max-intelligence topology for CQL's own development (heterogeneity now verified claude vs gpt, CI-anchored); persistent-worker (sidekick) guidance + honest follow_up ledger semantics; control plane: worktree attribution (canonical, fail-closed, collision-safe), spend-per-accepted-record metric; installer/prepack ship model-neutral templates. 11-round cross-family functional review + 3-round security review, all findings fixed and pinned; 251 core + 40 add-on + 34 npm green. Outcomes recorded: v6.3.0 regressed, v6.4.0 clean.
 
+
+## v6.6.0-adaptive-depth (2026-07-23)
+
+Wave 1 of the adaptive-depth plan, validated before implementation (backtests +
+35-trial fleet + 4 critics) and shipped through 4 functional + 3 security
+cross-family review rounds: money-math is the payments boundary (lexicon +
+doctrine + cases 21/23), the floor surfaces at init-record time, needs_security
+honors its blocked-rationale message (case 22), brief names unrecorded outcomes
+(version-ordered), memory.location wired end-to-end, dogfood high_risk_paths
+[hosts/]. 257 core + 40 add-on green. Released as v6.6.0.
+NEXT: record post-ship outcomes for v6.5.0 and v6.6.0 once field truth exists.

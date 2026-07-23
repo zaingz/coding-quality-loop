@@ -599,6 +599,61 @@ def case_init_record_scaffolds_allowlist(tmp: Path) -> tuple[bool, str]:
     return ok, f"explicit_root(exit={code},ok={root_ok}); default(exit={code2},ok={default_ok})"
 
 
+def case_init_record_floor_preview(tmp: Path) -> tuple[bool, str]:
+    """init-record surfaces the deterministic text floor at INTAKE: a goal that
+    trips a boundary marker prints a floor-preview line naming the markers and
+    the forced-high consequence; a clean goal prints no preview. Facts about
+    the gates, never advice (2026-07-23 trials: recommendations get argued
+    with; the floor binds regardless — so it is surfaced early instead)."""
+    repo = make_repo(tmp)
+    code_f, out_f, _ = run_cli(
+        "init-record", "--goal",
+        "Fix the rounding bug so half-cent tax rounds half-up in invoice totals",
+        "--risk-tier", "low", cwd=str(repo),
+    )
+    fires = (
+        code_f == 0
+        and "floor preview" in out_f
+        and "payments" in out_f
+        and "force risk tier high" in out_f
+    )
+    sub = tmp / "clean-goal"
+    sub.mkdir()
+    repo2 = make_repo(sub)
+    code_c, out_c, _ = run_cli(
+        "init-record", "--goal", "Rename the internal slug helper", cwd=str(repo2),
+    )
+    silent = code_c == 0 and "floor preview" not in out_c
+
+    # Cross-repo regression (review round 1): with --output pointing at a
+    # DIFFERENT repo than the process cwd, the preview must read that repo's
+    # lessons — root derives from --output, never from cwd.
+    sub2 = tmp / "target-repo"
+    sub2.mkdir()
+    repo3 = make_repo(sub2)
+    mem = repo3 / ".quality-loop" / "memory"
+    mem.mkdir(parents=True, exist_ok=True)
+    (mem / "lessons.jsonl").write_text(json.dumps({
+        "id": "abc123def456", "created": "2026-07-01", "source_task_id": "t-x",
+        "kind": "gotcha", "risk_tier": "high", "scope_globs": [],
+        "keywords": ["rounding", "half-cent", "totals"],
+        "lesson": "Half-cent rounding fixes must replay red-green on the shared rounding path",
+        "hits": 1, "source": {"task_id": "t-x", "git_author": "eval"},
+    }) + "\n")
+    outside = tmp / "elsewhere"
+    outside.mkdir()
+    code_x, out_x, _ = run_cli(
+        "init-record", "--goal",
+        "Fix the rounding bug so half-cent tax rounds half-up in invoice totals",
+        "--risk-tier", "low",
+        "--output", str(repo3 / ".quality-loop" / "agent-record.json"),
+        cwd=str(outside),
+    )
+    cross_repo = code_x == 0 and "floor preview" in out_x and "Half-cent rounding fixes" in out_x
+    ok = fires and silent and cross_repo
+    return ok, f"fires={fires}; silent={silent}; cross_repo={cross_repo}; exits=({code_f},{code_c},{code_x})"
+
+
 def case_partial_install_fails_actionably(tmp: Path) -> tuple[bool, str]:
     """A scripts/ copy missing a sibling module must fail with an actionable
     message, not a raw ImportError traceback (agents have been observed
@@ -1740,6 +1795,7 @@ CASES = [
     ("verify AC coverage reads proving_command off object acceptance criteria", case_verify_object_ac_coverage),
     ("record-only trailing change does not stale an attested review", case_record_only_trailing_change_stays_fresh),
     ("init-record scaffolds the run-evidence allowlist", case_init_record_scaffolds_allowlist),
+    ("init-record prints the floor preview only when the goal trips a boundary", case_init_record_floor_preview),
     ("partial scripts/ install fails with an actionable message", case_partial_install_fails_actionably),
     ("softened local gate script passes locally but CI pinned copy still blocks (F1 trust anchor)", case_ci_anchor_defeats_softened_local_script),
     ("verify reports helper-integrity hashes for all five modules", case_verify_reports_helper_integrity),

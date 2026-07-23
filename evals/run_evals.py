@@ -1947,6 +1947,72 @@ def case_brief_prints_outcome_tally(tmp: Path) -> tuple[bool, str]:
     return ok, f"silent={silent}; tally={tally}; json_tally={json_tally}; exits=({code_s},{code_t},{code_j})"
 
 
+def case_brief_lists_unrecorded_outcomes(tmp: Path) -> tuple[bool, str]:
+    """brief names archived records that carry no post-ship outcome (neither an
+    embedded outcome field nor an outcomes.jsonl row for their task_id), and
+    stays silent once every archived record has one. Advisory only — the data
+    unlock for any history use (validation 2026-07-23: 6 of 9 archived records
+    lacked outcomes)."""
+    # No-archive JSON shape must be byte-compatible with pre-Wave-1 output:
+    # the key appears only when there is something to report (review round 1
+    # caught an unconditional "unrecorded_outcomes": null).
+    bare = tmp / "no-archive"
+    bare.mkdir()
+    code_b, out_b, _ = run_cli("brief", "--cwd", str(bare), "--json", cwd=str(bare))
+    try:
+        json_clean = code_b == 0 and "unrecorded_outcomes" not in json.loads(out_b)
+    except json.JSONDecodeError:
+        json_clean = False
+
+    records = tmp / "docs" / "records"
+    records.mkdir(parents=True)
+    # Deliberately out of lexicographic order: v6.10.0 must outrank v6.9.0
+    # (review round 1: plain sort ranked v6.9.0 "newest"), and non-version
+    # names sort after releases.
+    for name, rec in [
+        ("v6.9.0-agent-record.json", {"task_id": "r-69", "goal": "g", "status": "done"}),
+        ("v6.10.0-agent-record.json", {"task_id": "r-610", "goal": "g", "status": "done"}),
+        ("v6.2.0-agent-record.json", {"task_id": "r-62", "goal": "g", "status": "done"}),
+        ("t-alpha-agent-record.json", {"task_id": "t-alpha", "goal": "g", "status": "done"}),
+        ("t-beta-agent-record.json", {
+            "task_id": "t-beta", "goal": "g", "status": "done",
+            "outcome": {"verdict": "clean", "note": "", "recorded_at": "2026-07-22T00:00:00+00:00"},
+        }),
+    ]:
+        (records / name).write_text(json.dumps(rec))
+    code_m, out_m, _ = run_cli("brief", "--cwd", str(tmp), cwd=str(tmp))
+    line = next((l for l in out_m.splitlines() if "missing a post-ship outcome" in l), "")
+    nag = (
+        code_m == 0
+        and "4 archived record(s) missing a post-ship outcome" in line
+        and "t-beta-agent-record.json" not in line
+        and "(+1 more)" in line
+    )
+    order = (
+        line.find("v6.10.0-agent-record.json") != -1
+        and line.find("v6.10.0-agent-record.json") < line.find("v6.9.0-agent-record.json") != -1
+        and "t-alpha" not in line.split("—")[0]  # non-version name is the +1, after all releases
+    )
+    # Ledger rows for every remaining task_id silence the line (archives-win
+    # twin rule: either truth source counts as recorded).
+    ql_dir = tmp / ".quality-loop"
+    ql_dir.mkdir(exist_ok=True)
+    (ql_dir / "outcomes.jsonl").write_text(
+        "\n".join(
+            json.dumps({"task_id": t, "verdict": "clean", "note": "",
+                        "recorded_at": "2026-07-22T00:00:01+00:00"})
+            for t in ("r-69", "r-610", "r-62", "t-alpha")
+        ) + "\n"
+    )
+    code_s, out_s, _ = run_cli("brief", "--cwd", str(tmp), cwd=str(tmp))
+    silent = code_s == 0 and "missing a post-ship outcome" not in out_s
+    ok = json_clean and nag and order and silent
+    return ok, (
+        f"json_clean={json_clean}; nag={nag}; order={order}; "
+        f"silent_after_ledger={silent}; exits=({code_b},{code_m},{code_s})"
+    )
+
+
 def case_derived_count_lint_catches_wrong_number(tmp: Path) -> tuple[bool, str]:
     """canonical_gate_cases()/control_addon_cases() are DERIVED from the real
     suites (static cases/*.json + each suite's len(CASES)), and the lint still
@@ -2091,6 +2157,7 @@ CASES = [
     ("record mutation refuses to write a newly-invalid record", case_record_mutation_refuses_invalid_result),
     ("record outcome writes the field and the outcomes.jsonl ledger", case_record_outcome_writes_field_and_ledger),
     ("brief prints the outcomes tally and stays silent without a ledger", case_brief_prints_outcome_tally),
+    ("brief lists archived records missing a post-ship outcome", case_brief_lists_unrecorded_outcomes),
     ("derived count lint computes the real total and still catches a wrong doc number", case_derived_count_lint_catches_wrong_number),
 ]
 

@@ -1,0 +1,299 @@
+{
+  "task_id": "8ba61c08-7f85-49c3-a617-dd9a6b89b435",
+  "goal": "Adaptive-depth Wave 1: settle the money-math/payments boundary doctrine in the lexicon, surface the risk floor at init-record time, make the high-tier security demand satisfiable as documented (blocked-with-reason), personalize dogfood high_risk_paths/memory, and add the brief unrecorded-outcome line \u2014 per docs/improvement-plan-2026-07-23-adaptive-depth.md v2",
+  "acceptance_criteria": [
+    {
+      "criterion": "Money-math wording (the validated bench phrasing) trips the payments floor and a self-declared low tier fails gates; benign wording stays clean (static cases 21 + existing 17)",
+      "proving_command": "python3 scripts/quality_loop.py eval-cases evals/cases"
+    },
+    {
+      "criterion": "A blocked security commands_run row with a non-empty reason satisfies the high-tier security-evidence rule exactly as the finding message documents (static case 22 passes)",
+      "proving_command": "python3 scripts/quality_loop.py eval-cases evals/cases"
+    },
+    {
+      "criterion": "init-record prints a floor preview naming the markers when the goal trips a boundary, and stays silent on clean goals; existing scaffold behavior unchanged",
+      "proving_command": "python3 evals/run_reality_evals.py"
+    },
+    {
+      "criterion": "brief lists archived records missing a post-ship outcome (count + newest names) and is unchanged in repos without archives",
+      "proving_command": "python3 evals/run_evals.py"
+    },
+    {
+      "criterion": "Dogfood config carries high_risk_paths [hosts/] and memory.location local and still validates",
+      "proving_command": "python3 scripts/quality_loop.py check-config quality-loop.config.json"
+    }
+  ],
+  "constraints": [
+    "No floor may be lowered; every new behavior eval-pinned in both directions",
+    "This slice implements plan v2 Wave 1 + the brief outcome line + dogfood config only; the SKILL ladder cut and Wave 2 items stay separate slices"
+  ],
+  "non_goals": [
+    "The SKILL.md ladder/class cut (separate operator-decision PR)",
+    "Wave 2 field defects and teardown naming (own slices)",
+    "Any recommendation/divergence surface, docs-only floor downgrade, or outcomes-paths join (withdrawn on validation evidence)"
+  ],
+  "assumptions": [
+    "Operator adopted plan v2 by requesting implementation on 2026-07-23; plan doc status updated to ADOPTED (Wave 1)"
+  ],
+  "risk_tier": "high",
+  "task_class": "medium",
+  "implementer": "claude-fable-5 (main session)",
+  "security_sensitive": true,
+  "verification_plan": [
+    "eval-cases + all five core suites + check-config",
+    "verify umbrella with evidence re-execution",
+    "cross-family codex review (functional) + codex security review, both attested"
+  ],
+  "validation_contract": {
+    "goal": "Wave 1 adaptive-depth changes land with every gate suite green, no floor lowered, and the new behaviors pinned by evals in both directions",
+    "evidence": [
+      "python3 scripts/quality_loop.py eval-cases evals/cases -> 22/22 (cases 21+23 pin both money-math wording classes; 22 pins blocked-security satisfiability)",
+      "python3 evals/run_evals.py -> 64/64 (count lint green at 257; brief case pins ordering/json-shape/silencing)",
+      "python3 evals/run_reality_evals.py -> 52/52 (init-record preview: fire, silent, cross-repo root)",
+      "python3 evals/run_memory_evals.py -> 33/33 (memory.location end-to-end case)",
+      "python3 evals/run_hook_evals.py -> 56/56; run_routing 30/30",
+      "python3 scripts/quality_loop.py check-config quality-loop.config.json -> config ok, heterogeneity verified",
+      "python3 scripts/quality_loop.py diff-audit --base origin/main -> no blocking findings",
+      "negative controls: reasonless blocked security row fails; clean goal silent; walkthrough demo unaffected; explicit --location beats config",
+      "cross-family codex review rounds: functional r1 request_changes -> fixed; security r1 request_changes -> fixed; security r2 approve; functional r2 request_changes -> fixed; functional r3 pending attest on final diff"
+    ]
+  },
+  "independent_review": {
+    "reviewer": "Codex GPT-5 functional reviewer \u2014 round 4 final confirmation",
+    "verdict": "approve",
+    "fresh_context": true,
+    "patched": false,
+    "ran_checks": true,
+    "findings": [],
+    "diff_sha256": "a7c09f73ef6c3f0f3d76f2ed10e2c891f261ac3185723c082d4b8e4725fd5c53",
+    "attested_at": "2026-07-23T17:32:30"
+  },
+  "security_review": {
+    "reviewer": "Codex GPT-5 security reviewer \u2014 round 3 delta confirmation",
+    "verdict": "approve",
+    "fresh_context": true,
+    "patched": false,
+    "ran_checks": true,
+    "findings": [],
+    "diff_sha256": "a7c09f73ef6c3f0f3d76f2ed10e2c891f261ac3185723c082d4b8e4725fd5c53",
+    "attested_at": "2026-07-23T17:32:30"
+  },
+  "completion_record": {
+    "goal": "Adaptive-depth Wave 1: settle the money-math/payments boundary doctrine in the lexicon, surface the risk floor at init-record time, make the high-tier security demand satisfiable as documented (blocked-with-reason), personalize dogfood high_risk_paths/memory, and add the brief unrecorded-outcome line \u2014 per docs/improvement-plan-2026-07-23-adaptive-depth.md v2",
+    "acceptance_criteria": [
+      "Money-math wording (the validated bench phrasing) trips the payments floor and a self-declared low tier fails gates; benign wording stays clean (static cases 21 + existing 17)",
+      "A blocked security commands_run row with a non-empty reason satisfies the high-tier security-evidence rule exactly as the finding message documents (static case 22 passes)",
+      "init-record prints a floor preview naming the markers when the goal trips a boundary, and stays silent on clean goals; existing scaffold behavior unchanged",
+      "brief lists archived records missing a post-ship outcome (count + newest names) and is unchanged in repos without archives",
+      "Dogfood config carries high_risk_paths [hosts/] and memory.location local and still validates"
+    ],
+    "evidence": [
+      "257/257 core gate cases (22 static + 64 behavioral + 33 memory + 52 reality + 30 routing + 56 hook), config ok, compile ok",
+      "cross-family codex review chains closed: functional r1-r3 request_changes each fixed (one rebuttal recorded), r4 approve; security r1 request_changes fixed, r2 approve, r3 delta approve; both attested to the final diff",
+      "negative controls: reasonless blocked security row fails; clean goals print no preview; walkthrough demo unaffected; explicit --location beats config"
+    ],
+    "files_changed": [
+      ".quality-loop/allowed-commands",
+      "CHANGELOG.md",
+      "CONTRIBUTING.md",
+      "README.md",
+      "SKILL.md",
+      "docs/comparison.md",
+      "docs/improvement-plan-2026-07-23-adaptive-depth.md",
+      "docs/launch-kit.md",
+      "evals/README.md",
+      "evals/cases/21-money-math-wording-floor.json",
+      "evals/cases/22-high-blocked-security-reason.json",
+      "evals/cases/23-money-math-compound-floor.json",
+      "evals/run_evals.py",
+      "evals/run_memory_evals.py",
+      "evals/run_reality_evals.py",
+      "hosts/github/quality-loop-example.yml",
+      "packages/npm/package.json",
+      "quality-loop.config.json",
+      "scripts/quality_loop.py",
+      "scripts/quality_loop_memory.py"
+    ],
+    "minimality_decision": "minimal_new_code \u2014 two lexicon tuples + one predicate clause + two small helpers + config/data + eval pins; no new subcommand, no schema change",
+    "risks_and_rollback": "Rollback is a single revert; no data or schema migration. Residual (disclosed): bare 'invoice totals' wording passes the text floor; closing it re-tiers the walkthrough (operator decision).",
+    "follow_ups": [
+      "Wave 2 slices: SKILL ladder cut (operator PR), teardown naming, red_green-proven pre-committed-test waiver, descriptive same_family_fallback, stop-gate block counter",
+      "Consider a record-truth lint (evidence rows vs derived suite counts) \u2014 record drift recurred across review rounds 2-3 while the doc lint stayed green",
+      "Wave 4: amend bench/PROTOCOL.md with the two candidates before any run; record v6.5.0 and v6.6.0 post-ship outcomes once field truth exists"
+    ],
+    "models_used": "orchestrator+implementer: claude-fable-5 (main session); reviews: gpt-5.6-sol via codex exec (4 functional + 3 security rounds); validation trials: claude-sonnet-5"
+  },
+  "repair_attempts": 0,
+  "repeated_failure": false,
+  "harness_update": "Durable changes shipped in-slice: static cases 21/22/23, the memory.location end-to-end eval, the init-record preview eval, and the brief ordering/json-shape eval pin every new behavior in both directions. Single-incident lesson (record truth drift across review rounds) goes to project memory per doctrine, with a record-truth lint listed as a follow-up, not built unmeasured.",
+  "repo_map": {
+    "entry_points": [
+      "scripts/quality_loop.py",
+      "SKILL.md"
+    ],
+    "likely_files": [
+      "scripts/quality_loop.py",
+      "evals/cases/*",
+      "evals/run_evals.py",
+      "evals/run_reality_evals.py",
+      "SKILL.md",
+      "references/lifecycle.md",
+      "quality-loop.config.json",
+      "CHANGELOG.md",
+      "README.md",
+      "docs/improvement-plan-2026-07-23-adaptive-depth.md",
+      "docs/*.md",
+      "references/*.md",
+      ".quality-loop/*",
+      "CONTRIBUTING.md"
+    ],
+    "callers_checked": [
+      "hosts/claude-code/stop_gate.py (verify caller, unchanged)",
+      "evals/run_evals.py eval-cases invocation",
+      "examples/walkthrough/agent-record.json (invoice wording \u2014 deliberately untouched)"
+    ],
+    "tests": [
+      "evals/cases/",
+      "evals/run_*.py"
+    ],
+    "patterns_to_follow": [
+      "table-driven _RISK_TIER_RULES",
+      "fail-open preview like _outcomes_tally",
+      "static case shape of 03/07/17"
+    ]
+  },
+  "minimality_decision": {
+    "rung": "minimal_new_code",
+    "reason": "two keywords + one predicate clause + two small print helpers + config/data; no new subcommand, no schema change (validated design: plan v2 withdrew the larger surfaces)",
+    "lower_rungs_rejected": "skip/delete: the defects are real and validated; reuse/stdlib: already pure stdlib in existing modules; one_liner: floor preview and brief line need small helpers"
+  },
+  "plan": [
+    "lexicon: BOUNDARY_KEYWORDS payments += money, tax with doctrine comment (invoice deferred: case 17 + walkthrough use it benignly)",
+    "needs_security: also satisfied by blocked security row with non-empty reason/rationale (message already promises it)",
+    "init_record: floor-preview + memory-recall digest after scaffold output, fail-open",
+    "cmd_brief: unrecorded-outcomes line from docs/records vs record.outcome/outcomes.jsonl",
+    "SKILL.md: money-math doctrine clause + class-vs-tier floor sentence + non-release teardown naming; lifecycle.md teardown naming",
+    "quality-loop.config.json: high_risk_paths [hosts/] (hook code executes at tool time in consumer sessions; the v6.3.0 regressed outcome rode a hook-layer change \u2014 v6.2.0's rode the control add-on), memory.location local",
+    "evals: static cases 21+22, behavioral pins for init-record preview and brief line; CHANGELOG Unreleased; count lint drives doc updates"
+  ],
+  "commands_run": [
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "22/22 eval cases passed (cases 21+23 pin both money-math wording classes; 22 pins blocked-security satisfiability; 17 stays the benign negative)"
+    },
+    {
+      "cmd": "python3 evals/run_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "64/64 passed (count lint green at 257; brief case pins version ordering, +1-more overflow, no-archive --json shape, ledger silencing)"
+    },
+    {
+      "cmd": "python3 evals/run_reality_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "52/52 passed (preview case pins fire/silent/cross-repo --output root derivation)"
+    },
+    {
+      "cmd": "python3 evals/run_hook_evals.py",
+      "class": "integration",
+      "result": "pass",
+      "evidence": "56/56 hook eval cases passed"
+    },
+    {
+      "cmd": "python3 evals/run_memory_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "33/33 passed (memory.location E2E case covers commit/status/recall/init-record/brief/prune + explicit-override in both directions)"
+    },
+    {
+      "cmd": "python3 evals/run_routing_evals.py",
+      "class": "unit",
+      "result": "pass",
+      "evidence": "30/30 routing eval cases passed"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py check-config quality-loop.config.json",
+      "class": "lint",
+      "result": "pass",
+      "evidence": "config ok; reviewer heterogeneity: verified (claude vs gpt); high_risk_paths + memory.location accepted"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py diff-audit --base origin/main",
+      "class": "security",
+      "result": "pass",
+      "evidence": "17 files, blocking: none; advisories: untracked new files + large file count (expected for this slice)"
+    }
+  ],
+  "open_risks": [
+    "RESOLVED in this slice (kept for audit): the needs_security 'or blocked rationale' message/code mismatch found in validation is fixed and eval-pinned (static case 22; reasonless rows still fail)",
+    "diff-splitting across records remains a documented residual (pre-existing; counter only)",
+    "Residual lexicon gap (disclosed): bare 'invoice totals' wording without half-cent/monetary/currency/money/tax still passes the text floor; closing it requires adding 'invoice total(s)', which re-tiers the canonical walkthrough demo to high \u2014 staged as an operator decision, not taken in this slice"
+  ],
+  "review_findings": [
+    {
+      "source": "codex gpt-5.6-sol cross-family review of plan v1",
+      "verdict": "request_changes",
+      "finding": "1 blocker (docs-only rule lowers a floor) + 6 major (determinism scope, unresolved --auto semantics, path-history not defect evidence, cut overclaim/bundling, false memory blocker, Wave 4 not actually pre-registered)",
+      "resolution": "all 7 accepted; plan v2 withdraws the docs-only downgrade, the recommendation/divergence surface, and the outcomes-paths join; Wave 4 now amends PROTOCOL first; validated against references/memory.md and bench/PROTOCOL.md"
+    },
+    {
+      "source": "claude critic panel (evasion red-team, doctrine, simplicity) on plan v1",
+      "verdict": "needs_changes x3",
+      "finding": "24 findings; sharpest: .md is the agent control surface (SKILL/CLAUDE/AGENTS weakening rides a docs-only downgrade); docs/conftest.py smuggling; classify+schema = 3 surfaces where lexicon fix suffices; same_family_fallback/waiver underspecified; canonical pointers must move with the cut",
+      "resolution": "plan v2: 1.4 reshaped to satisfiability (no floor change); Wave 1 collapsed to doctrine+lexicon+intake preview; 2.3 waiver is red_green-proven only; same_family_fallback descriptive-only; 2.1 repoints canonicals; task-id sanitized"
+    },
+    {
+      "source": "35-trial fleet (sonnet, schema-forced, 5 scenarios x bare/assisted/wrong-anchor)",
+      "verdict": "H1+H3+H4 confirmed, H2 refuted",
+      "finding": "tier variance replicates unassisted (4/1 split on the billing task); the advisory anchor did NOT collapse it (agents argue with anchors); wrong-low anchor overridden 3/3",
+      "resolution": "v1 recommendation design withdrawn; v2 rests on settling doctrine once + surfacing the floor at intake"
+    },
+    {
+      "source": "codex gpt-5.6-sol security review round 1",
+      "verdict": "request_changes",
+      "finding": "HIGH: payments floor bypassable \u2014 'Fix half-cent rounding in invoice totals' trips neither money nor tax; SKILL doctrine promises more than the lexicon delivers",
+      "resolution": "compound terms half-cent / monetary / currency rounding added; positive case 23 uses the reviewer's wording class (no money/tax/payment/billing); residual bare-'invoice totals' wording documented in open_risks (closing it re-tiers the canonical walkthrough \u2014 staged as an operator decision)"
+    },
+    {
+      "source": "codex gpt-5.6-sol functional review round 1",
+      "verdict": "request_changes",
+      "finding": "3 blocking (record carried stale docs-only constraint from the plan task; brief --json leaked unrecorded_outcomes:null with no archive; 'newest' ordering was lexicographic so v6.9.0 outranked v6.10.0) + 1 major (teardown naming is Wave 2.2 scope creep) + 2 out-of-scope majors (plan/config high_risk_paths mismatch; preview resolves config/lessons from process cwd not the --output repo, ranks by declared not effective tier)",
+      "resolution": "contract rewritten truthfully (adoption recorded); --json key now emitted only when non-null with regression; version-aware ordering with out-of-order eval; teardown-naming doc edits reverted out of this slice; plan doc updated to as-built (hosts/-only with rationale); preview derives root from --output and ranks by the floor-effective tier, cross-repo regression added"
+    },
+    {
+      "source": "codex gpt-5.6-sol security review round 2 (confirmation on final diff)",
+      "verdict": "approve",
+      "finding": "round-1 HIGH resolution confirmed; residual honestly scoped; no new findings",
+      "resolution": "none needed"
+    },
+    {
+      "source": "codex gpt-5.6-sol functional review round 2",
+      "verdict": "request_changes",
+      "finding": "BLOCKING: memory.location config honored only by init-record preview \u2014 memory-commit/recall/status and brief defaulted to checked_in (dogfood personalization broken end-to-end). MAJOR: validation_contract still said 21/21+255 after case 23. OOS: plan 3.1 age-line wording vs implemented count+newest.",
+      "resolution": "effective_location resolver: explicit --location wins, else config, else checked_in; wired through all five commands + brief; E2E eval pins commit->status->recall->preview + override. Contract numbers trued to 22/22+257. Plan 3.1 as-built delta recorded (age dropped: no reliable ship-date in a git checkout)."
+    },
+    {
+      "source": "codex gpt-5.6-sol security review round 3 (delta confirmation on final diff)",
+      "verdict": "approve",
+      "finding": "memory.location wiring delta introduces no security regression",
+      "resolution": "none needed"
+    },
+    {
+      "source": "codex gpt-5.6-sol functional review round 3",
+      "verdict": "request_changes",
+      "finding": "BLOCKING: E2E case missed two rewired entry points (brief, memory-prune). MAJOR: record truth drift (run_evals row said 256 vs derived 257; diff-audit row said 15 vs current 17; record plan overclaimed 'both regressions rode hosts/'; open_risks still called needs_security unfixed; plan doc omitted case 23 from as-built header). Also claimed the plan 'still includes reverted teardown naming'.",
+      "resolution": "E2E case extended to brief (local + checked_in override) and prune (local-only mutation, checked-in store never created), 33/33. All record rows and claims trued (257, 17 files, accurate hosts/ rationale, needs_security marked RESOLVED with case-22 pin). Plan as-built header now names cases 21+23 and marks the mismatch fixed. REBUTTED with reason: plan \u00a72.2 keeping teardown naming is intentional \u2014 the plan stages Wave 2; only the Wave-1 slice reverted it, and the as-built header says exactly that."
+    },
+    {
+      "source": "codex gpt-5.6-sol functional review round 4 (final confirmation)",
+      "verdict": "approve",
+      "finding": "round-3 resolutions confirmed incl. the recorded rebuttal; no new findings",
+      "resolution": "none needed. Post-approve delta before attestation is release scaffolding only: version 6.5.0->6.6.0 on the four parity surfaces (packages/npm/package.json, SKILL.md frontmatter, README badge, hosts/github example) + CHANGELOG 'Unreleased'->'6.6.0' heading; parity lint re-run green (64/64)."
+    }
+  ],
+  "next_action": "Teardown: archive to docs/records/v6.6.0-agent-record.json, remove live record, commit on release branch, PR, merge, gh release v6.6.0",
+  "status": "package",
+  "escalation_reason": ""
+}

@@ -1,5 +1,69 @@
 # Changelog
 
+## 6.6.0
+
+Adaptive-depth Wave 1 (validated before implementation: prototype backtests on the
+archived records and eval corpus, two scratch-repo reproductions, a 35-trial
+classification fleet, and four independent critics — see
+`docs/improvement-plan-2026-07-23-adaptive-depth.md` §Validation). The depth
+decision gets deterministic anchors; nothing lowers a floor.
+Suites: 22 static + 64 behavioral + 33 memory + 52 reality + 30 routing +
+56 hook = **257 core gate cases** (+40 control add-on).
+
+- **Money-math is the payments boundary (doctrine settled).** The live bench
+  seeds tiered the same billing micro-bugfix low/medium because its natural
+  wording ("rounds money", "half-cent tax") tripped no lexicon term.
+  `BOUNDARY_KEYWORDS` gains `money`, `tax`, and — after the cross-family
+  security review reproduced a bypass ("Fix half-cent rounding in invoice
+  totals" tripped neither) — the compounds `half-cent`/`half cent`,
+  `monetary`, and `currency rounding`. SKILL.md states the doctrine and
+  clarifies that the floor forces the risk *tier* to high while class is
+  medium+. Static cases 21 + 23 pin both wording classes; case 17 stays the
+  benign-copy negative. Residual, disclosed: bare "invoice totals" wording
+  still passes — closing it re-tiers the canonical walkthrough demo and is
+  staged as an operator decision (`invoice` deferred for the same reason).
+- **The floor surfaces at INTAKE, not just at verify.** `init-record` prints a
+  floor-preview line naming the markers the goal already trips and the
+  forced-high consequence, plus up to three recalled lessons — facts about the
+  gates, never advice (the 35-trial fleet showed advisory recommendations get
+  argued with; the floor binds regardless). Silent on clean goals; never
+  blocks init. Reality case pins fire-and-silent.
+- **`needs_security` honors its own message.** "security review/check evidence
+  or blocked rationale" now accepts a `blocked` security row with a non-empty
+  reason (the code counted pass rows only, making the demand unsatisfiable
+  where no scanner can run — reproduced as 11 blocking errors on a docs-only
+  diff). A reasonless blocked row still fails both gates. Static case 22 pins
+  it; no other tier rule changes.
+- **`brief` names archived records missing a post-ship outcome** (count +
+  three newest + the `record outcome` command) — the data unlock for any
+  history-based signal: 6 of 9 archived records lacked outcomes. Advisory
+  only; silent when all are recorded or no archive exists. Newest is
+  semantic-version order (v6.10.0 outranks v6.9.0; non-release names after —
+  filesystem mtimes are arbitrary in git checkouts), and the `--json` key
+  appears only when there is something to report, keeping the no-archive
+  shape byte-compatible. Both pinned after the cross-family functional
+  review caught the lexicographic sort and the leaked null key.
+- **Dogfood config personalization.** `high_risk_paths: ["hosts/"]` (hook code
+  executes at tool time in consumer sessions; the v6.3.0 regressed outcome
+  rode a hook-layer change) and `memory.location: "local"` so dogfood lessons
+  accumulate without touching the shipped tree.
+- Not taken here, per the validated plan and review round 1: the SKILL.md
+  ladder/class cut stays a separate operator-decision PR; non-release
+  teardown naming (Wave 2.2) was reverted out of this slice by the
+  cross-family review as scope creep; the recommendation/divergence surface,
+  the docs-only floor downgrade, and the outcomes×paths intake join were
+  **withdrawn on validation evidence** (see the plan's §Validation).
+- **`memory.location` wired end-to-end (review round 2):** the config value
+  now resolves for `memory-commit`/`recall`/`prune`/`status` and `brief`,
+  with an explicit `--location` still winning — round 2 caught that only
+  init-record's preview honored it, so configured-local repos committed
+  lessons to a store recall never read. End-to-end eval pins
+  commit→status→recall→preview on the local store plus the override.
+- **`init-record` preview correctness (review round 1):** the preview derives
+  the repo root from `--output` (never the process cwd) so config and lessons
+  come from the repo the task targets, and lessons rank against the tier the
+  floor will actually bind; cross-repo regression pinned.
+
 ## 6.5.0
 
 The activation release: the routed topology the repo has shipped since v5.0.0

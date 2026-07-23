@@ -1,0 +1,32 @@
+{
+  "name": "money-math-wording-trips-payments-floor",
+  "description": "Doctrine (validated 2026-07-23): money-math counts as the payments boundary even without a payment-processor surface. The live bench seeds tiered the same billing micro-bugfix low/medium because its natural wording ('half-cent tax', 'rounds money') tripped no lexicon term. This record uses that exact plausible wording with a self-declared low tier; the floor must force high and the gates must fail the downgrade.",
+  "record": {
+    "task_id": "t-21",
+    "goal": "Fix the rounding bug so half-cent tax and discounts round half-up in invoice totals",
+    "acceptance_criteria": [
+      "Half-cent amounts round up, matching the module docstrings"
+    ],
+    "task_class": "small",
+    "risk_tier": "low",
+    "implementer": "implementer-agent",
+    "verification_plan": [
+      "run the committed failing test, then the module suite"
+    ],
+    "plan": [
+      "switch round() to Decimal ROUND_HALF_UP in the shared rounding path"
+    ],
+    "commands_run": [
+      {"cmd": "pytest test_invoice.py", "class": "unit", "result": "pass", "evidence": "1 passed"}
+    ],
+    "open_risks": [],
+    "review_findings": [],
+    "status": "verify"
+  },
+  "expect": {
+    "risk_floor": "high",
+    "floor_markers": ["payments"],
+    "gates_exit": 1,
+    "findings_include": ["downgrades a detected boundary"]
+  }
+}

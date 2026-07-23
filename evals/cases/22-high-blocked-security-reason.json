@@ -1,0 +1,86 @@
+{
+  "name": "high-blocked-security-row-with-reason-satisfies",
+  "description": "The high-tier finding message has always promised 'security review/check evidence or blocked rationale', but until 2026-07-23 the check counted pass-labeled rows only, making the demand unsatisfiable when no scanner can run (reproduced: a docs-only diff whose wording tripped the text floor drew 11 blocking errors). A blocked security row with a non-empty reason, alongside a real security_review object and the other high-tier evidence, must now pass.",
+  "record": {
+    "task_id": "t-22",
+    "goal": "Harden the payment webhook retry handling without changing charge semantics",
+    "acceptance_criteria": [
+      {
+        "criterion": "Webhook retries are idempotent; a duplicate delivery never double-applies",
+        "proving_command": "pytest billing/tests/test_webhook_retry.py"
+      }
+    ],
+    "task_class": "medium",
+    "risk_tier": "high",
+    "security_sensitive": true,
+    "implementer": "implementer-agent",
+    "validation_contract": {
+      "goal": "Duplicate webhook deliveries are idempotent and never double-apply a charge",
+      "evidence": [
+        "pytest billing/tests/test_webhook_retry.py -> 6 passed incl. duplicate-delivery case",
+        "security review: approve (no scanner available in the offline sandbox; blocked row records why)"
+      ]
+    },
+    "independent_review": {
+      "reviewer": "fresh-reviewer-agent",
+      "fresh_context": true,
+      "ran_checks": true,
+      "verdict": "approve",
+      "findings": []
+    },
+    "security_review": {
+      "reviewer": "security-reviewer-agent",
+      "fresh_context": true,
+      "ran_checks": false,
+      "verdict": "approve",
+      "findings": []
+    },
+    "verification_plan": [
+      "unit suite for retry idempotency",
+      "security scan or a recorded reason it cannot run here"
+    ],
+    "repo_map": {
+      "entry_points": ["billing/webhooks.py:handle_delivery"],
+      "likely_files": ["billing/webhooks.py", "billing/tests/test_webhook_retry.py"],
+      "callers_checked": ["api/routes/webhooks.py:post_webhook"],
+      "tests": ["billing/tests/test_webhook_retry.py"],
+      "patterns_to_follow": ["idempotency-key dedupe used in billing/payments.py"]
+    },
+    "minimality_decision": {
+      "rung": "minimal_new_code",
+      "reason": "Add an idempotency-key check in the existing handler; dedupe helper reused from payments."
+    },
+    "plan": [
+      "check idempotency key before applying the delivery",
+      "add duplicate-delivery regression test"
+    ],
+    "commands_run": [
+      {"cmd": "pytest billing/tests/test_webhook_retry.py", "class": "unit", "result": "pass", "evidence": "6 passed incl. duplicate-delivery case"},
+      {"cmd": "bandit -r billing", "class": "security", "result": "blocked", "reason": "no security scanner installed in the offline eval sandbox; risk covered by the recorded security_review"}
+    ],
+    "open_risks": [
+      "Replay outside the dedupe window would still apply; window sized to provider retry policy"
+    ],
+    "review_findings": [
+      "Security review: idempotency check is before side effects; approve."
+    ],
+    "completion_record": {
+      "goal": "Duplicate webhook deliveries are idempotent and never double-apply a charge",
+      "acceptance_criteria": [
+        "Duplicate delivery never double-applies; regression test added"
+      ],
+      "evidence": [
+        "pytest billing/tests/test_webhook_retry.py -> 6 passed",
+        "security scan blocked with recorded reason; security review: approve"
+      ]
+    },
+    "next_action": "package",
+    "status": "package"
+  },
+  "expect": {
+    "risk_floor": "high",
+    "floor_markers": ["payments"],
+    "gates_exit": 0,
+    "findings_exclude": ["security review/check evidence"]
+  }
+}

@@ -1,13 +1,18 @@
 {
   "$schema": "assets/quality-loop.config.schema.json",
   "version": "5.1.0",
-  "description": "CQL's own orchestration config (dogfood). Since v6.5.0 this is the full orchestration shape consumers run \u2014 profiles/steps stay host-neutral placeholders; concrete routing lives in model_routing (pasted from assets/routing/max-intelligence.json, applied via setup-models, enforced by check-config: cross-family review is the load-bearing leg). Gate-config keys kept from the pre-v6.5.0 gate-only file: tests.path_markers teaches the gates that evals/cases/ IS this repo's pinned test-fixture suite (deliberately NOT evals/ wholesale: the eval runners embed weakening-marker fixture strings to test the detector itself). protect_harness is false HERE ONLY because this repo IS the harness: its gate scripts are the workpiece under constant edit; the always-on destructive-command layer still applies, and consumer installs keep the default (on).",
+  "description": "CQL's own orchestration config (dogfood). Since v6.5.0 this is the full orchestration shape consumers run \u2014 profiles/steps stay host-neutral placeholders; concrete routing lives in model_routing (pasted from assets/routing/max-intelligence.json, applied via setup-models, enforced by check-config: cross-family review is the load-bearing leg). Gate-config keys kept from the pre-v6.5.0 gate-only file: tests.path_markers teaches the gates that evals/cases/ IS this repo's pinned test-fixture suite (deliberately NOT evals/ wholesale: the eval runners embed weakening-marker fixture strings to test the detector itself). protect_harness is false HERE ONLY because this repo IS the harness: its gate scripts are the workpiece under constant edit; the always-on destructive-command layer still applies, and consumer installs keep the default (on). high_risk_paths pins hosts/ because hook code executes at tool time in consumer sessions and the v6.3.0 regressed outcome rode a hook-layer change (v6.2.0's rode the control add-on); memory.location local keeps dogfood lessons out of the shipped tree (a memory eval pins the checked-in store empty).",
   "tests": {
     "path_markers": [
       "evals/cases/"
     ]
   },
-  "high_risk_paths": [],
+  "high_risk_paths": [
+    "hosts/"
+  ],
+  "memory": {
+    "location": "local"
+  },
   "protect_harness": false,
   "profiles": {
     "orchestrator": {
