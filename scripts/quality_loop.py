@@ -1302,6 +1302,92 @@ def _brief_size_advisories(delegations: list[dict[str, Any]], limit: int) -> lis
     return notes
 
 
+def _implementer_identity(
+    record: dict[str, Any], delegations: list[dict[str, Any]]
+) -> tuple[Any, Any] | None:
+    """Best-effort ``(host, model)`` for the implementer, for isolation comparison.
+
+    Prefers a ledger entry whose role names the implementer (host + model), then
+    falls back to a ``models_used`` implementer entry (model, maybe host).
+    Returns None when no model can be attributed — the isolation check then
+    cannot confirm independence and downgrades to an advisory, never an error.
+    """
+    for entry in delegations:
+        if "implement" in str(entry.get("role", "")).lower():
+            if entry.get("model") is not None or entry.get("host") is not None:
+                return entry.get("host"), entry.get("model")
+    models_used = record.get("models_used")
+    if isinstance(models_used, list):
+        for entry in models_used:
+            if isinstance(entry, dict) and entry.get("role") == "implementer":
+                if entry.get("model") is not None:
+                    return entry.get("host"), entry.get("model")
+    return None
+
+
+def _isolation_evidence_findings(
+    record: dict[str, Any], delegations: list[dict[str, Any]], non_trivial: bool
+) -> tuple[list[str], list[str]]:
+    """Ground review independence in the ledger. Returns ``(advisories, findings)``.
+
+    Only medium+ (``non_trivial``) work is checked, and only when a ledger exists
+    (the caller gates on that): a repo without one is completely silent.
+    ``isolation_evidence`` is an optional record field ``{task_id?, role}``
+    pointing at the fresh-context reviewer's ledger entry. Resolving to an entry
+    whose RECORDED host or model family differs from the implementer's grounds
+    independence (silent). Resolving to the same host AND family means the ledger
+    refutes it -> blocking finding. Absent evidence, an unfindable reference, or
+    an unattributable implementer -> advisory only.
+
+    What this verifies is recorded identity, not runtime process isolation.
+    """
+    if not non_trivial:
+        return [], []
+    iso = record.get("isolation_evidence")
+    if iso is None:
+        return (
+            ["review independence is self-attested: no isolation_evidence links a "
+             "fresh-context reviewer to a delegation-ledger entry on a different host/model"],
+            [],
+        )
+    if not isinstance(iso, dict):
+        return (["isolation_evidence must be an object {task_id?, role}; "
+                 "independence remains self-attested"], [])
+    ref_role = iso.get("role")
+    ref_task = iso.get("task_id")
+    reviewer = None
+    for entry in delegations:
+        if ref_role is not None and str(entry.get("role", "")).lower() != str(ref_role).lower():
+            continue
+        if ref_task is not None and entry.get("task_id") != ref_task:
+            continue
+        reviewer = entry
+        break
+    if reviewer is None:
+        return (["isolation_evidence references a delegation entry not found in the ledger; "
+                 "independence remains self-attested"], [])
+    impl = _implementer_identity(record, delegations)
+    if impl is None:
+        return (["isolation_evidence found, but the implementer's host/model is unrecorded; "
+                 "cannot confirm review independence"], [])
+    impl_host, impl_model = impl
+    rev_host, rev_model = reviewer.get("host"), reviewer.get("model")
+    host_differs = bool(rev_host) and bool(impl_host) and rev_host != impl_host
+    fam_rev = qlroute.model_family(rev_model)
+    fam_impl = qlroute.model_family(impl_model)
+    model_differs = fam_rev is not None and fam_impl is not None and fam_rev != fam_impl
+    if host_differs or model_differs:
+        return [], []
+    if fam_rev is not None and fam_impl is not None and fam_rev == fam_impl:
+        return (
+            [],
+            ["isolation_evidence resolves to a ledger entry whose recorded host and model "
+             "family match the implementer's; the ledger does not ground the review as isolated"],
+        )
+    return (["isolation_evidence present but does not demonstrate a different host or model "
+             "than the implementer; independence unconfirmed"], [])
+
+
 def collect_gate_findings(
     record: dict[str, Any],
     record_path: Path,
@@ -1512,14 +1598,21 @@ def collect_gate_findings(
     findings.extend(ac_findings)
     soft_warnings.extend(ac_warnings)
 
-    # Ledger-grounded advisories (the orchestrator's delegation ledger, when
-    # present). Brief size is purely advisory: an oversized hand-off brief signals
-    # context bloat, not a rule violation, so it never blocks a ship. A repo
-    # without a ledger — most repos — is completely silent here.
+    # Ledger-grounded checks (the orchestrator's delegation ledger, when present).
+    # Both are opt-in on the ledger's presence: a repo without one — most repos —
+    # is completely silent here, no advisory and no finding. Brief size is purely
+    # advisory (context bloat is a signal, not a rule violation). Isolation
+    # grounding advises when independence is merely self-attested and blocks only
+    # when the ledger positively refutes it (same recorded host AND model family).
     delegations = _read_delegation_ledger(base_dir)
     if delegations:
         limit = qlcore.brief_char_limit(_nearest_gate_config(base_dir))
         soft_warnings.extend(_brief_size_advisories(delegations, limit))
+        iso_advisories, iso_findings = _isolation_evidence_findings(
+            record, delegations, non_trivial
+        )
+        soft_warnings.extend(iso_advisories)
+        findings.extend(iso_findings)
 
     # Reality layer: ground the record in the real git diff when --against-diff
     # is requested. This catches phantom completion, unmapped scope, a diff-

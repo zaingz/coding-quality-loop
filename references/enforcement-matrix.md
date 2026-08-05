@@ -67,6 +67,19 @@ malformed or half-flushed ledger is skipped, never crashing a gate.
   `delegation.brief_char_limit` (config, default 4000). Over the ceiling emits a
   non-blocking `note:` in `verify-gates` and `control-report`; it never fails a
   gate. An oversized hand-off brief signals context bloat, not a rule violation.
+- **Review isolation** (`isolation_evidence`, medium+ only) is graded, because
+  the record cannot prove its own independence:
+  - resolves to a ledger entry whose **recorded** host or model family differs
+    from the implementer's -> **silent** (independence is grounded);
+  - resolves to an entry with the **same host AND model family** -> **blocking
+    finding**: the ledger does not ground the review as isolated;
+  - **absent**, malformed, unresolvable, or implementer identity unrecorded ->
+    **advisory** ("self-attested"), never blocking.
+
+  Scope honestly stated: this compares *recorded identities in the ledger*, not
+  runtime process isolation. It raises the cost of a false independence claim
+  from zero to "forge a matching ledger line"; it is not proof of a fresh
+  context.
 
 ## Helper integrity
 
