@@ -1,0 +1,20 @@
+{
+  "name": "version-trust-chain-tag-lag-advisory",
+  "description": "All files agree at 6.7.0 but the latest tag still reads v6.6.0 -- the normal state of main between releases. Locally and on PR CI this is a warning that never blocks; the enforced half is pinned by case 27.",
+  "check": "version",
+  "version": {
+    "surfaces": {
+      "packages/npm/package.json": "6.7.0",
+      "SKILL.md": "6.7.0",
+      "README.md badge": "6.7.0",
+      "hosts/github/quality-loop-example.yml": "6.7.0"
+    },
+    "tag": "v6.6.0",
+    "enforce_tag": false
+  },
+  "expect": {
+    "exit": 0,
+    "warnings_include": ["does not match the file version"],
+    "errors_exclude": ["tag"]
+  }
+}

@@ -31,6 +31,107 @@ Two SKILL.md imperatives have no deterministic owner and are **advisory** by des
 Records may carry optional `diff_sha256` (attest-review), `files_changed`
 (completion record), and `red_green` (commands_run) fields.
 
+## Version trust chain (`check-version`)
+
+A project whose brand is checkable claims must be able to prove its own release
+surface. `check-version` asserts that every shipped version surface agrees:
+`packages/npm/package.json`, the `SKILL.md` frontmatter, the README version
+badge, and the shipped GitHub example's action ref — plus the latest git tag.
+
+- **File-to-file drift is always an error** (exit 1), locally and in CI: those
+  four files ship together, and the badge and the example ref have shipped stale
+  before (caught in the v6.5.0 review).
+- **A tag that lags the files is a warning**, not an error: between releases main
+  legitimately sits ahead of the newest tag. The tag leg is hard-enforced only on
+  a release-framed CI event — a push to `main`, a tag push, or a published
+  release (`_ci_enforces_tag`) — or when `--enforce-tag` is passed explicitly.
+- **No tags at all is always a warning**: a shallow or fresh clone has none, and
+  that is a clone artifact, not a release-surface defect.
+- **The tag is read from the repo the files are read from.** File surfaces come
+  from the CQL repo root, so `git tag` runs with that root as cwd: invoked from
+  another directory the check no longer reports the caller's tags (or, outside any
+  repo, a spurious "no tags").
+- **Only release tags count** (`^v?\d+\.\d+\.\d+$`). `--sort=-v:refname` ranks
+  `v6.7.0-rc1` and foreign namespaces like `skill-v9.9.9` above the real latest
+  release; comparing shipped files against one of those is a false mismatch.
+
+`.github/workflows/version-trust.yml` runs the check on PRs (advisory tag leg)
+and on main/tag/release events (enforced), with `fetch-depth: 0` so tags exist.
+Overlap, stated plainly: `evals/run_evals.py::case_release_version_parity`
+already pins the same four *file* surfaces in-tree. `check-version` adds the tag
+leg, the release-event enforcement, and a portable command a consumer repo can
+run; folding the eval onto it is a follow-up, not a claim made here.
+
+## Complexity delta (advisory, `diff-audit`)
+
+`diff-audit` scores each changed `.py` file's functions with stdlib `ast`
+(cyclomatic complexity; nested functions and classes are pruned so a closure is
+not charged to its parent twice). A function whose score grows by at least
+`diff_audit.complexity_delta` (config, default 5) earns an **advisory** line;
+new functions are measured against a straight-line baseline of 1.
+
+Which two sides are compared follows the mode, so the audit always describes the
+change it claims to:
+
+| mode | pre-change side | post-change side |
+| --- | --- | --- |
+| `--base REF` | blob at `REF` | working tree file |
+| `--staged` | blob at `HEAD` | **index blob** (`git show :path`) |
+
+`--staged` is pre-commit mode, so it reads the staged content; unstaged edits on
+top are deliberately invisible to it.
+
+Advisory only, and deliberately so: a real feature legitimately adds branches,
+and `diff-audit` does not know the risk tier. The pre-commit hook keys off the
+exit code, so this never blocks a commit. Unparsable or unreadable files are
+silent rather than guessed at, and a path that is **absent at the base ref** (any
+newly added file) reads as empty **quietly** — git's `fatal: path ... does not
+exist` never reaches stderr, so a clean advisory run has clean output.
+
+## Delegation ledger advisories
+
+When `.quality-loop/delegations.jsonl` is present (most repos have none, so this
+no-ops), ledger-grounded checks run inside `collect_gate_findings`, the same
+structured entry point `verify-gates`, `verify`, and `eval-cases` all consume. A
+malformed or half-flushed ledger is skipped, never crashing a gate.
+
+- **Brief size** is **advisory only**. Each ledger entry's brief size
+  (`brief_chars` if logged, else `len(brief_summary)`) is compared to
+  `delegation.brief_char_limit` (config, default 4000). Over the ceiling emits a
+  non-blocking `note:` in `verify-gates` and `control-report`; it never fails a
+  gate. An oversized hand-off brief signals context bloat, not a rule violation.
+  `brief_chars` has a shipped producer — `log-delegation --brief-file <brief>`
+  appends the row and records `len(full_brief)` — so the measurement comes from
+  the brief itself rather than from the truncated summary. The invariant holds
+  end to end: the brief input is **required** (missing input exits 2 and writes no
+  row, instead of an unmeasured `brief_chars: 0`) and is read **without newline
+  translation**, so a CRLF brief is counted at its supplied length.
+- **Review isolation** (`isolation_evidence`, medium+ only) is graded, because
+  the record cannot prove its own independence. Resolution is **task-scoped and
+  fail-advisory**:
+  - the task id is `isolation_evidence.task_id`, or the **record's own
+    `task_id`** when the evidence omits it. Reviewer *and* implementer are
+    resolved only from ledger rows carrying that id — the ledger is append-only,
+    so unrelated historical tasks must never be compared against;
+  - `role` must be a **non-empty string** (and `task_id`, when present, likewise).
+    Shape is validated **before** any lookup, so malformed evidence can never
+    resolve to an arbitrary row;
+  - resolves to a same-task row whose **recorded** host or model family differs
+    from the implementer's -> **silent** (independence is grounded);
+  - resolves to a same-task row where **both hosts are recorded and equal AND
+    both model families resolve and are equal** -> the **only blocking
+    finding**: the ledger does not ground the review as isolated;
+  - everything else -> **advisory**, never blocking: evidence absent, non-object,
+    blank/wrong-typed selectors, an unknown task, no matching role row, several
+    rows with conflicting host/model for the same role (ambiguity is never
+    resolved by picking one), an unrecorded implementer, or a host/family that is
+    **unknown on either side** (unknown is not "the same").
+
+  Scope honestly stated: this compares *recorded identities in the ledger*, not
+  runtime process isolation. It raises the cost of a false independence claim
+  from zero to "forge a matching same-task ledger line"; it is not proof of a
+  fresh context.
+
 ## Helper integrity
 
 The helper itself is a file in the workspace, and a live eval (webapp,

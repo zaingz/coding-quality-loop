@@ -1,0 +1,26 @@
+{
+  "name": "diff-audit-staged-reads-index",
+  "check": "diff_audit_cli",
+  "description": "The staged version of mod.py is branchy; the working tree has since been reverted to the simple version. --staged audits what is about to be committed, so the post-change side must come from the index blob (git show :path) and the complexity advisory must fire on the STAGED code. Reading the working tree instead reported the wrong file entirely -- silent on complexity that the commit does contain.",
+  "repo": {
+    "base_files": {
+      "mod.py": "def score(value):\n    \"\"\"Trivial baseline.\"\"\"\n    return value * 2\n"
+    },
+    "staged_files": {
+      "mod.py": "def score(value):\n    \"\"\"Branchy version: many decision points.\"\"\"\n    total = 0\n    for item in value:\n        if item > 10:\n            total += 1\n        elif item > 5:\n            total += 2\n        elif item > 3:\n            total += 3\n        elif item > 2:\n            total += 4\n        elif item > 1:\n            total += 5\n        else:\n            total -= 1\n        while total > 100:\n            total -= 10\n            if total % 3 == 0:\n                break\n        try:\n            total += int(item)\n        except (TypeError, ValueError):\n            total -= 1\n    return total if total else -1\n"
+    },
+    "worktree_files": {
+      "mod.py": "def score(value):\n    \"\"\"Trivial baseline.\"\"\"\n    return value * 2\n"
+    },
+    "args": [
+      "--staged"
+    ]
+  },
+  "expect": {
+    "exit_code": 0,
+    "stderr_empty": true,
+    "stdout_include": [
+      "complexity"
+    ]
+  }
+}

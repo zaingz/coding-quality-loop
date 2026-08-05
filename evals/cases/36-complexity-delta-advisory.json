@@ -1,0 +1,18 @@
+{
+  "name": "complexity-delta-advisory",
+  "description": "A refactor keeps the function name and rough size but grows its branch count well past the advisory threshold of 5. diff-audit's complexity signal names the function and its before -> after score. Advisory only: the pre-commit hook keys off blocking findings, so this never fails a commit.",
+  "check": "complexity",
+  "complexity": {
+    "path": "lib/router.py",
+    "threshold": 5,
+    "before": "def route(req):\n    return req.path\n",
+    "after": "def route(req):\n    if req.path:\n        for part in req.path.split('/'):\n            if part and part != 'api':\n                while part.endswith('-'):\n                    part = part[:-1]\n    try:\n        return req.path\n    except AttributeError:\n        return None\n"
+  },
+  "expect": {
+    "advisory_count": 1,
+    "advisories_include": [
+      "complexity grew by",
+      "lib/router.py:route"
+    ]
+  }
+}

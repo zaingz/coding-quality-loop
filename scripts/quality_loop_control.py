@@ -1185,13 +1185,14 @@ def _ingest_lessons(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: s
 
 
 _DELEGATION_FIELDS = ("ts", "task_id", "role", "host", "model", "brief_summary",
-                      "expected_agent_name", "session_id")
+                      "brief_chars", "expected_agent_name", "session_id")
 
 
 def _ingest_delegations(conn: sqlite3.Connection, path: Path, rel: str, mtime_iso: str) -> int:
     """Ingest the orchestrator's append-only ``.quality-loop/delegations.jsonl``.
 
     One JSON object per line: ts, task_id, role, host, model, brief_summary,
+    brief_chars (optional true brief length),
     expected_agent_name, and (producer-side convention, v6) session_id — the
     worker's session id, known at hand-off. Mirrors the lessons/JSONL pattern.
     Malformed lines are skipped and counted (returned), never crash the pass —
@@ -1702,6 +1703,7 @@ def delegations_with_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             "task_id": detail.get("task_id"), "role": detail.get("role"),
             "host": detail.get("host"), "model": detail.get("model"),
             "brief_summary": detail.get("brief_summary"),
+            "brief_chars": detail.get("brief_chars"),
             "expected_agent_name": detail.get("expected_agent_name"),
             "session_id": detail.get("session_id"),
             "ts": detail.get("ts") or art["ts"], "title": art["title"],
@@ -2420,7 +2422,7 @@ def _fmt_tokens(spend_totals: dict[str, int]) -> str:
             f"{spend_totals.get('cache_read_tokens', 0)} cache-read")
 
 
-def render_report_md(bundle: dict[str, Any]) -> str:
+def render_report_md(bundle: dict[str, Any], brief_limit: int | None = None) -> str:
     rec = _pick_record(bundle.get("records") or [])["detail"]
     lines = [f"# Audit report: {bundle['task_id']}", ""]
     lines.append(f"- Goal: {rec.get('goal') or '(unknown)'}")
@@ -2438,12 +2440,23 @@ def render_report_md(bundle: dict[str, Any]) -> str:
             lines.append(f"{i}. {step}")
     delegations = bundle.get("delegations") or []
     if delegations:
+        limit = (
+            brief_limit
+            if isinstance(brief_limit, int) and brief_limit > 0
+            else qlcore.BRIEF_CHAR_LIMIT_DEFAULT
+        )
         lines += ["", "## Delegations"]
         for d in delegations:
             head = f"- {d.get('role')} -> {d.get('expected_agent_name')} [{d.get('host')}/{d.get('model')}]"
             if d.get("brief_summary"):
                 head += f": {d['brief_summary']}"
             lines.append(head)
+            chars = qlcore.brief_entry_chars(d)
+            if chars > limit:
+                lines.append(
+                    f"    note: brief is {chars} chars (advisory limit {limit}); "
+                    f"a tighter brief keeps the sub-agent's context focused"
+                )
             sess = d.get("session")
             if sess:
                 t = sess.get("tokens", {})
@@ -2709,7 +2722,12 @@ def cmd_report(args: Any) -> int:
     if getattr(args, "json", False):
         print(json.dumps(bundle, indent=2))
     else:
-        print(render_report_md(bundle), end="")
+        # The advisory brief ceiling is read from the repo's own config so the
+        # report and verify-gates cannot disagree about what "oversized" means.
+        print(
+            render_report_md(bundle, qlcore.brief_char_limit(qlcore.load_gate_config(root))),
+            end="",
+        )
     return 0
 
 

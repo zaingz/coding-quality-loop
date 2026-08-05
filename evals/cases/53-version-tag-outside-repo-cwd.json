@@ -1,0 +1,13 @@
+{
+  "name": "version-tag-outside-repo-cwd",
+  "check": "version_tag",
+  "description": "check-version is invoked from a directory that is not a git repo, and its answer must be identical to the same command run from the repo root: it reads its file surfaces from the CQL repo root, so the tag lookup runs with that same root as cwd. Before the fix the lookup inherited the caller's cwd, so outside a repo it reported latest-tag=None with a spurious 'no tags' warning, and inside an unrelated repo it compared that repo's tags against these files. The assertion is the invariance, not a literal tag value: a tagless or shallow checkout (CI's actions/checkout without fetch-depth: 0) honestly reports latest-tag=None from BOTH cwds, and the property under test -- the caller's directory cannot change the answer -- still holds. One of the two caller directories is itself a repo tagged v9.9.9, a tag this repo cannot legitimately report, so a cwd-inheriting lookup is caught even in a tagless checkout where None == None would otherwise pass.",
+  "repo": {
+    "outside_repo": true,
+    "decoy_tag": "v9.9.9"
+  },
+  "expect": {
+    "exit_code": 0,
+    "same_answer_from_repo_root": true
+  }
+}

@@ -54,8 +54,44 @@ written at the moment of delegation (not reconstructed afterward). One object pe
 ```json
 {"ts": "2026-07-13T10:00:00Z", "task_id": "T-42", "role": "reviewer",
  "host": "codex", "model": "gpt-5", "brief_summary": "review the slice diff",
- "expected_agent_name": "reviewer", "session_id": "<worker session id, when known>"}
+ "brief_chars": 1820, "expected_agent_name": "reviewer",
+ "session_id": "<worker session id, when known>"}
 ```
+
+`brief_chars` is `len(full_brief)` — the char length of the brief the worker
+actually receives, recorded even though the brief's text never is. It is the only
+number the brief-size advisory can trust: `brief_summary` is truncated by design,
+so a ledger without `brief_chars` makes the gate fall back to the summary's
+length and an oversized hand-off goes unreported.
+
+**Write the row with the shipped writer rather than by hand** — it measures the
+brief for you, so the count cannot drift from the text:
+
+```bash
+python3 scripts/quality_loop.py log-delegation \
+  --task-id T-42 --role reviewer --host codex --model gpt-5 \
+  --brief-file /tmp/reviewer-brief.md    # REQUIRED; brief_chars = its exact length
+  # optional: --brief-summary, --expected-agent-name, --session-id, --ts, --cwd
+```
+
+`--brief-file` is **required** — pass `-` to pipe the brief from stdin as it is
+handed over:
+
+```bash
+render_reviewer_brief | tee >(claude -p -) \
+  | python3 scripts/quality_loop.py log-delegation \
+      --task-id T-42 --role reviewer --host codex --model gpt-5 --brief-file -
+```
+
+There is deliberately no "log it without the brief" mode: a row whose
+`brief_chars` was never measured looks measured and is not, so the command exits
+2 with a message instead of writing `brief_chars: 0`. The brief is read **without
+newline translation**, so `brief_chars` is the length as supplied — a CRLF brief
+is not silently counted as if it were LF.
+
+It appends one row (creating `.quality-loop/` on demand), echoes it as JSON, and
+notes on stderr when the brief is over the advisory ceiling. Authoring rows by
+hand still works; then `brief_chars` is yours to keep honest.
 
 `expected_agent_name` is the name the worker's session will report (the profile/agent handle
 the host runs under); the control plane uses it to join the delegation to the session it ran

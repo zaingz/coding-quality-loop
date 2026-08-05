@@ -1,0 +1,20 @@
+{
+  "name": "version-trust-chain-no-tags-warns",
+  "description": "A shallow or fresh clone has no tags at all. The tag leg is skipped with a warning and never becomes an error -- not even under release-CI enforcement -- because an absent tag is a clone artifact, not a release-surface defect.",
+  "check": "version",
+  "version": {
+    "surfaces": {
+      "packages/npm/package.json": "6.6.0",
+      "SKILL.md": "6.6.0",
+      "README.md badge": "6.6.0",
+      "hosts/github/quality-loop-example.yml": "6.6.0"
+    },
+    "tag": null,
+    "enforce_tag": true
+  },
+  "expect": {
+    "exit": 0,
+    "warnings_include": ["no git tags found"],
+    "errors_exclude": ["tag"]
+  }
+}

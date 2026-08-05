@@ -1,0 +1,19 @@
+{
+  "name": "version-trust-chain-file-mismatch",
+  "description": "The README badge and the shipped GitHub example ref lag the package version. Because every one of these surfaces ships together, file drift is a hard failure everywhere, not just on release CI -- the exact drift that shipped stale into the v6.5.0 review.",
+  "check": "version",
+  "version": {
+    "surfaces": {
+      "packages/npm/package.json": "6.6.0",
+      "SKILL.md": "6.6.0",
+      "README.md badge": "6.5.0",
+      "hosts/github/quality-loop-example.yml": "6.4.0"
+    },
+    "tag": "v6.6.0",
+    "enforce_tag": false
+  },
+  "expect": {
+    "exit": 1,
+    "errors_include": ["README.md badge is '6.5.0'", "quality-loop-example.yml is '6.4.0'"]
+  }
+}

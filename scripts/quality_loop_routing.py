@@ -17,6 +17,11 @@ from pathlib import Path
 from typing import Any
 
 import quality_loop_core as qlcore
+from quality_loop_core import (  # noqa: E402
+    require_bool_or_null,
+    require_dict,
+    require_str_or_null,
+)
 
 SUPPORTED_HOSTS = ("claude-code", "droid", "codex", "pi")
 MODEL_CLASSES = ("cheap_fast", "strong_reasoning", "code_specialized")
@@ -207,15 +212,12 @@ def validate_model_routing(section: Any) -> list[str]:
             f"model_routing.host must be one of {list(SUPPORTED_HOSTS)} or null, got {host!r}"
         )
     host_models = section.get("host_models", {})
-    if not isinstance(host_models, dict):
-        errors.append("model_routing.host_models must be an object")
-    else:
+    if require_dict(errors, host_models, "model_routing.host_models"):
         for hname, hblock in host_models.items():
             if hname not in SUPPORTED_HOSTS:
                 errors.append(f"model_routing.host_models has unknown host: {hname!r}")
                 continue
-            if not isinstance(hblock, dict):
-                errors.append(f"model_routing.host_models.{hname} must be an object")
+            if not require_dict(errors, hblock, f"model_routing.host_models.{hname}"):
                 continue
             for cname, cblock in hblock.items():
                 if cname not in MODEL_CLASSES:
@@ -223,16 +225,13 @@ def validate_model_routing(section: Any) -> list[str]:
                         f"model_routing.host_models.{hname} has unknown model_class: {cname!r}"
                     )
                     continue
-                if not isinstance(cblock, dict):
-                    errors.append(
-                        f"model_routing.host_models.{hname}.{cname} must be an object"
-                    )
+                if not require_dict(
+                    errors, cblock, f"model_routing.host_models.{hname}.{cname}"
+                ):
                     continue
-                model = cblock.get("model")
-                if model is not None and not isinstance(model, str):
-                    errors.append(
-                        f"model_routing.host_models.{hname}.{cname}.model must be a string or null"
-                    )
+                require_str_or_null(
+                    errors, cblock.get("model"), f"model_routing.host_models.{hname}.{cname}.model"
+                )
                 thinking = cblock.get("thinking")
                 if thinking is not None and thinking not in THINKING_VALUES:
                     errors.append(
@@ -240,15 +239,16 @@ def validate_model_routing(section: Any) -> list[str]:
                         f"{list(THINKING_VALUES)} or null, got {thinking!r}"
                     )
                 allow_overthink = cblock.get("allow_overthink")
-                if allow_overthink is not None and not isinstance(allow_overthink, bool):
-                    errors.append(
-                        f"model_routing.host_models.{hname}.{cname}.allow_overthink must be a boolean"
-                    )
-                family = cblock.get("family")
-                if family is not None and not isinstance(family, str):
-                    errors.append(
-                        f"model_routing.host_models.{hname}.{cname}.family must be a string or null"
-                    )
+                require_bool_or_null(
+                    errors,
+                    allow_overthink,
+                    f"model_routing.host_models.{hname}.{cname}.allow_overthink",
+                )
+                require_str_or_null(
+                    errors,
+                    cblock.get("family"),
+                    f"model_routing.host_models.{hname}.{cname}.family",
+                )
                 if thinking in OVERTHINK_LEVELS and allow_overthink is not True:
                     errors.append(
                         f"model_routing.host_models.{hname}.{cname}.thinking={thinking!r} exceeds the "
@@ -259,9 +259,7 @@ def validate_model_routing(section: Any) -> list[str]:
                         f"architecture-sensitive case."
                     )
     agents = section.get("agents", {})
-    if not isinstance(agents, dict):
-        errors.append("model_routing.agents must be an object")
-    else:
+    if require_dict(errors, agents, "model_routing.agents"):
         for aname, aval in agents.items():
             entry = _agent_entry(aval)
             if entry is None:
@@ -282,9 +280,7 @@ def validate_model_routing(section: Any) -> list[str]:
                 )
     main_session = section.get("main_session")
     if main_session is not None:
-        if not isinstance(main_session, dict):
-            errors.append("model_routing.main_session must be an object")
-        else:
+        if require_dict(errors, main_session, "model_routing.main_session"):
             ms_host = main_session.get("host")
             if ms_host is not None and ms_host not in SUPPORTED_HOSTS:
                 errors.append(
@@ -297,18 +293,18 @@ def validate_model_routing(section: Any) -> list[str]:
                     f"model_routing.main_session.class must be one of "
                     f"{list(MODEL_CLASSES)}, got {ms_class!r}"
                 )
-            ms_model = main_session.get("model")
-            if ms_model is not None and not isinstance(ms_model, str):
-                errors.append("model_routing.main_session.model must be a string or null")
+            require_str_or_null(
+                errors, main_session.get("model"), "model_routing.main_session.model"
+            )
             if main_session.get("host") is None and host is None:
                 errors.append(
                     "model_routing.main_session needs a host: set main_session.host or "
                     "model_routing.host -- a hostless main_session cannot be resolved and "
                     "would silently skip the reviewer-heterogeneity check"
                 )
-    allow_same_family = section.get("allow_same_family")
-    if allow_same_family is not None and not isinstance(allow_same_family, bool):
-        errors.append("model_routing.allow_same_family must be a boolean")
+    require_bool_or_null(
+        errors, section.get("allow_same_family"), "model_routing.allow_same_family"
+    )
     families = section.get("families")
     if families is not None:
         if not isinstance(families, dict):

@@ -63,6 +63,11 @@ from quality_loop_core import (  # noqa: E402
     load_gate_config,
     load_json,
     redact,
+    require_bool,
+    require_dict,
+    require_list,
+    require_number,
+    require_str,
     run_git,
     write_json,
 )
@@ -645,10 +650,8 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         if key not in record:
             errors.append(f"missing required field: {key}")
 
-    if not isinstance(record.get("task_id"), str) or not record.get("task_id", "").strip():
-        errors.append("task_id must be a non-empty string")
-    if not isinstance(record.get("goal"), str) or not record.get("goal", "").strip():
-        errors.append("goal must be a non-empty string")
+    require_str(errors, record.get("task_id"), "task_id")
+    require_str(errors, record.get("goal"), "goal")
     if record.get("risk_tier") not in RISK_TIERS:
         errors.append("risk_tier must be one of: low, medium, high")
     status = record.get("status")
@@ -659,9 +662,7 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
 
     minimality = record.get("minimality_decision")
     if minimality is not None:
-        if not isinstance(minimality, dict):
-            errors.append("minimality_decision must be an object")
-        else:
+        if require_dict(errors, minimality, "minimality_decision"):
             if minimality.get("rung") not in MINIMALITY_RUNGS:
                 errors.append("minimality_decision.rung is invalid")
             if not minimality.get("reason"):
@@ -680,17 +681,15 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         "open_risks",
         "review_findings",
     ]:
-        if array_key in record and not isinstance(record[array_key], list):
-            errors.append(f"{array_key} must be an array")
+        if array_key in record:
+            require_list(errors, record[array_key], array_key)
 
     commands = record.get("commands_run")
     if isinstance(commands, list):
         for idx, cmd in enumerate(commands):
-            if not isinstance(cmd, dict):
-                errors.append(f"commands_run[{idx}] must be an object")
+            if not require_dict(errors, cmd, f"commands_run[{idx}]"):
                 continue
-            if not isinstance(cmd.get("cmd"), str) or not cmd.get("cmd", "").strip():
-                errors.append(f"commands_run[{idx}].cmd must be a non-empty string")
+            require_str(errors, cmd.get("cmd"), f"commands_run[{idx}].cmd")
             if cmd.get("result") not in COMMAND_RESULTS:
                 errors.append(f"commands_run[{idx}].result must be one of: pass, fail, blocked")
             cls = cmd.get("class")
@@ -725,28 +724,21 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
 
     repair_attempts = record.get("repair_attempts")
     if repair_attempts is not None:
-        if isinstance(repair_attempts, bool) or not isinstance(repair_attempts, int):
-            errors.append("repair_attempts must be an integer")
-        elif repair_attempts < 0:
-            errors.append("repair_attempts must be >= 0")
-    if "repeated_failure" in record and not isinstance(record.get("repeated_failure"), bool):
-        errors.append("repeated_failure must be a boolean")
+        require_number(errors, repair_attempts, "repair_attempts", integer=True)
+    if "repeated_failure" in record:
+        require_bool(errors, record.get("repeated_failure"), "repeated_failure")
 
     # Optional run_metrics (R3 process-tax instrumentation). Absent is fine; when
     # present, every value must be a non-negative number and no unknown keys are
     # allowed inside the object.
     run_metrics = record.get("run_metrics")
     if run_metrics is not None:
-        if not isinstance(run_metrics, dict):
-            errors.append("run_metrics must be an object")
-        else:
+        if require_dict(errors, run_metrics, "run_metrics"):
             for key, value in run_metrics.items():
                 if key not in RUN_METRICS_FIELDS:
                     errors.append(f"run_metrics has unknown key: {key!r}")
-                elif isinstance(value, bool) or not isinstance(value, (int, float)):
-                    errors.append(f"run_metrics.{key} must be a number")
-                elif value < 0:
-                    errors.append(f"run_metrics.{key} must be >= 0")
+                else:
+                    require_number(errors, value, f"run_metrics.{key}")
 
     # Optional shipped-work outcome (v6.2): {verdict, note, recorded_at}, set by
     # `record outcome`. Absence is valid and no gate requires it; when present
@@ -754,9 +746,7 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
     # tally stay machine-readable.
     outcome = record.get("outcome")
     if outcome is not None:
-        if not isinstance(outcome, dict):
-            errors.append("outcome must be an object")
-        else:
+        if require_dict(errors, outcome, "outcome"):
             if outcome.get("verdict") not in qlmem.OUTCOMES:
                 errors.append(
                     "outcome.verdict must be one of: " + ", ".join(qlmem.OUTCOMES)
@@ -766,25 +756,19 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
                     errors.append(f"outcome.{key} must be a string")
 
     if "implementer" in record and record["implementer"] is not None:
-        if not isinstance(record["implementer"], str) or not record["implementer"].strip():
-            errors.append("implementer must be a non-empty string")
+        require_str(errors, record["implementer"], "implementer")
 
     # Optional multi-model routing evidence (v4.2): per-role model attribution
     # and escalation events. Absent is fine; when present the shape must hold so
     # the R5 evidence base stays machine-readable.
     models_used = record.get("models_used")
     if models_used is not None:
-        if not isinstance(models_used, list):
-            errors.append("models_used must be an array")
-        else:
+        if require_list(errors, models_used, "models_used"):
             for idx, entry in enumerate(models_used):
-                if not isinstance(entry, dict):
-                    errors.append(f"models_used[{idx}] must be an object")
+                if not require_dict(errors, entry, f"models_used[{idx}]"):
                     continue
                 for req in ("role", "model"):
-                    val = entry.get(req)
-                    if not isinstance(val, str) or not val.strip():
-                        errors.append(f"models_used[{idx}].{req} must be a non-empty string")
+                    require_str(errors, entry.get(req), f"models_used[{idx}].{req}")
                 attempts = entry.get("attempts")
                 if attempts is not None and (
                     isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1
@@ -798,17 +782,12 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
                         errors.append(f"models_used[{idx}].{num_key} must be a non-negative number")
     escalations = record.get("escalations")
     if escalations is not None:
-        if not isinstance(escalations, list):
-            errors.append("escalations must be an array")
-        else:
+        if require_list(errors, escalations, "escalations"):
             for idx, entry in enumerate(escalations):
-                if not isinstance(entry, dict):
-                    errors.append(f"escalations[{idx}] must be an object")
+                if not require_dict(errors, entry, f"escalations[{idx}]"):
                     continue
                 for req in ("step", "from_model", "to_model"):
-                    val = entry.get(req)
-                    if not isinstance(val, str) or not val.strip():
-                        errors.append(f"escalations[{idx}].{req} must be a non-empty string")
+                    require_str(errors, entry.get(req), f"escalations[{idx}].{req}")
                 if entry.get("trigger") != "verified_failure":
                     errors.append(
                         f"escalations[{idx}].trigger must be 'verified_failure' -- the only "
@@ -841,8 +820,7 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         review = record.get(review_key)
         if review is None:
             continue
-        if not isinstance(review, dict):
-            errors.append(f"{review_key} must be an object")
+        if not require_dict(errors, review, review_key):
             continue
         verdict = str(review.get("verdict", "")).lower()
         if verdict not in REVIEW_VERDICTS:
@@ -1006,6 +984,57 @@ def is_migration_path(path: str) -> bool:
     return any(left == "db" and right == "migrate" for left, right in zip(parts, parts[1:]))
 
 
+def _blob_at(ref: str, path: str) -> str:
+    """File contents at ``ref`` ('' when the path is absent there or is binary).
+
+    Read **quietly** via ``git_capture``, not ``run_git``: an absent blob is the
+    expected outcome for every newly added file, and ``run_git`` printed git's
+    ``fatal: path 'x' does not exist in 'origin/main'`` to stderr, which read as a
+    tool failure in an otherwise clean advisory run. Absent blob is now silent.
+
+    An empty ``ref`` reads the **index** (``git show :path``) — the staged blob.
+    """
+    spec = f"{ref}:{path}" if ref else f":{path}"
+    try:
+        code, out, _ = qlcore.git_capture(["show", spec])
+    except (OSError, UnicodeDecodeError):
+        return ""
+    return out if code == 0 else ""
+
+
+def _complexity_delta_advisories(
+    files: list[str], base_ref: str | None, threshold: int
+) -> list[str]:
+    """Advisory notes for Python files whose functions got materially branchier.
+
+    ``base_ref`` None means the **staged** path: the pre-change side is then HEAD
+    and the post-change side is the **index blob** (``git show :path``), not the
+    working tree — ``--staged`` audits what is about to be committed, so reading
+    unstaged edits would report complexity that the commit does not contain (and
+    miss complexity that it does).
+
+    An unreadable or unparsable side just yields no notes — this must never fail
+    a commit.
+    """
+    staged = base_ref is None
+    notes: list[str] = []
+    for path in files:
+        if not path.endswith(".py"):
+            continue
+        before = _blob_at(base_ref or "HEAD", path)
+        if staged:
+            after = _blob_at("", path)
+            if not after:
+                continue
+        else:
+            try:
+                after = Path(path).read_text(errors="replace")
+            except (OSError, ValueError):
+                continue
+        notes.extend(qlcore.complexity_delta_findings(before, after, path, threshold))
+    return notes
+
+
 def diff_audit(args: argparse.Namespace) -> int:
     # Findings split by severity. blocking = a real correctness/safety problem
     # that must stop a commit (leaked secret, silently weakened test). advisory =
@@ -1130,6 +1159,17 @@ def diff_audit(args: argparse.Namespace) -> int:
     # diff-audit does not know the risk tier; verify-gates --against-diff
     # promotes the same hits to blocking at medium+.
     advisory.extend(qlcore.test_shrinkage_hits(patch, gate_markers))
+
+    # Complexity delta: a flat-line-count diff can still turn a readable function
+    # into a branch thicket. Advisory only — a real feature legitimately adds
+    # branches, and diff-audit does not know the risk tier.
+    advisory.extend(
+        _complexity_delta_advisories(
+            files,
+            None if staged else base_label,
+            qlcore.complexity_delta_threshold(qlcore.load_gate_config()),
+        )
+    )
 
     marker_count = sum(1 for line in patch.splitlines() if _SHORTCUT_MARKER_RE.search(line))
     if marker_count:
@@ -1264,6 +1304,340 @@ def verify_gates(args: argparse.Namespace) -> int:
         return 1
     print("verification gates look sufficient for recorded risk tier")
     return 0
+
+
+def _read_delegation_ledger(base_dir: Path) -> list[dict[str, Any]]:
+    """Load ``.quality-loop/delegations.jsonl`` near ``base_dir`` (best-effort).
+
+    The ledger is written by the orchestrator, so a half-flushed or malformed
+    line must never break a gate: an unreadable file yields ``[]`` and bad lines
+    are skipped. An absent ledger (most repos) also yields ``[]``, which makes
+    every ledger-grounded check no-op.
+    """
+    ledger = base_dir / ".quality-loop" / "delegations.jsonl"
+    if not ledger.is_file() and base_dir.name == ".quality-loop":
+        ledger = base_dir / "delegations.jsonl"
+    entries: list[dict[str, Any]] = []
+    try:
+        raw_text = ledger.read_text(encoding="utf-8")
+    except OSError:
+        return entries
+    for raw in raw_text.splitlines():
+        if not raw.strip():
+            continue
+        try:
+            obj = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(obj, dict):
+            entries.append(obj)
+    return entries
+
+
+def _nearest_gate_config(base_dir: Path) -> dict[str, Any]:
+    """Nearest ``quality-loop.config.json`` walking up from ``base_dir``.
+
+    ``qlcore.load_gate_config`` reads one directory; the record usually lives in
+    ``<repo>/.quality-loop/``, so the config is a level or two up. Bounded walk,
+    and {} on absence or any parse error — the config only tunes advisory
+    thresholds here, so a broken config falls back to defaults, never a crash.
+    """
+    start = base_dir.resolve()
+    for directory in [start, *list(start.parents)[:6]]:
+        config = qlcore.load_gate_config(directory)
+        if config:
+            return config
+    return {}
+
+
+def _brief_size_advisories(delegations: list[dict[str, Any]], limit: int) -> list[str]:
+    """Advisory notes for delegation briefs exceeding ``limit`` chars (never blocking)."""
+    notes: list[str] = []
+    for entry in delegations:
+        chars = qlcore.brief_entry_chars(entry)
+        if chars > limit:
+            who = entry.get("task_id") or entry.get("role") or "?"
+            notes.append(
+                f"delegation brief for {who!r} is {chars} chars (advisory limit {limit}); "
+                f"a tighter brief keeps the sub-agent's context focused"
+            )
+    return notes
+
+
+DELEGATION_LEDGER_NAME = "delegations.jsonl"
+# Ledger rows carry metadata only, never the brief's full text. brief_summary is
+# a short human handle; brief_chars is the TRUE length of the brief that was
+# handed over, which is the only number the brief-size advisory can trust.
+BRIEF_SUMMARY_MAX = 200
+
+
+def _brief_summary_from(text: str) -> str:
+    """A one-line handle for a brief: first non-empty line, capped."""
+    for line in text.splitlines():
+        line = line.strip().lstrip("#").strip()
+        if line:
+            return line[:BRIEF_SUMMARY_MAX]
+    return ""
+
+
+def _read_brief_exactly(source: str) -> str:
+    """The brief's text **exactly as supplied** — no newline translation.
+
+    ``open(..., newline="")`` (and ``sys.stdin.buffer`` for ``-``) is deliberate:
+    the default universal-newline mode rewrites ``\r\n`` to ``\n``, so a CRLF
+    brief of 13 chars was measured as 11. ``brief_chars`` claims to be the length
+    of the brief the worker receives, so the read must not silently normalize it.
+
+    Raises OSError / UnicodeDecodeError; the caller turns those into exit 2.
+    """
+    if source == "-":
+        return sys.stdin.buffer.read().decode("utf-8")
+    with open(source, encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
+def log_delegation(args: argparse.Namespace) -> int:
+    """Append one hand-off row to ``.quality-loop/delegations.jsonl``.
+
+    This is the documented producer for the ledger: it reads the brief the worker
+    actually receives (``--brief-file PATH``, or ``-`` for stdin) and records
+    ``brief_chars = len(full brief)`` alongside a short ``brief_summary``. Without
+    a writer that measures the real brief, the brief-size advisory could only see
+    the summary's length, which is short by construction.
+
+    The brief input is **required**, and the text is read without newline
+    translation, because the row's whole value is that the measurement was
+    actually made on the real brief: a row with ``brief_chars: 0`` (or a
+    CRLF-normalized count) is worse than no row, since it looks measured and is
+    not. Append-only and stdlib-only; the ledger directory is created on demand.
+    Exit 2 on missing or unreadable input, so a hand-off never records a brief
+    length that was never taken.
+    """
+    root = Path(getattr(args, "cwd", None) or ".").resolve()
+    source = getattr(args, "brief_file", None)
+    if not source:
+        print("log-delegation: --brief-file PATH is required (use '-' to read the brief from "
+              "stdin); brief_chars must be measured on the brief that is handed over, never "
+              "assumed", file=sys.stderr)
+        return 2
+    try:
+        brief = _read_brief_exactly(source)
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"log-delegation: cannot read --brief-file {source!r} ({exc.__class__.__name__})",
+              file=sys.stderr)
+        return 2
+
+    summary = getattr(args, "brief_summary", None) or _brief_summary_from(brief)
+    row: dict[str, Any] = {
+        "ts": getattr(args, "ts", None) or _utc_now_iso(),
+        "task_id": args.task_id,
+        "role": args.role,
+        "host": args.host,
+        "model": args.model,
+        "brief_summary": summary[:BRIEF_SUMMARY_MAX],
+        # The measurement the advisory consumes. Recorded even when the brief text
+        # itself is never stored, which is the point: metadata only.
+        "brief_chars": len(brief),
+        "expected_agent_name": getattr(args, "expected_agent_name", None) or args.role,
+    }
+    session_id = getattr(args, "session_id", None)
+    if session_id:
+        row["session_id"] = session_id
+
+    ledger_dir = root / ".quality-loop"
+    try:
+        ledger_dir.mkdir(parents=True, exist_ok=True)
+        with (ledger_dir / DELEGATION_LEDGER_NAME).open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row) + "\n")
+    except OSError as exc:
+        print(f"log-delegation: cannot append to the delegation ledger ({exc.__class__.__name__})",
+              file=sys.stderr)
+        return 2
+
+    print(json.dumps(row))
+    limit = qlcore.brief_char_limit(_nearest_gate_config(ledger_dir))
+    if row["brief_chars"] > limit:
+        print(
+            f"note: this brief is {row['brief_chars']} chars (advisory limit {limit}); "
+            f"a tighter brief keeps the sub-agent's context focused",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _nonempty_str(value: Any) -> str | None:
+    """``value`` as a stripped non-empty string, else None (shape guard)."""
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _ledger_rows_for_task(
+    delegations: list[dict[str, Any]], task_id: str
+) -> list[dict[str, Any]]:
+    """Ledger rows recorded for exactly ``task_id``.
+
+    The ledger is append-only, so it normally holds many unrelated historical
+    tasks. Every isolation lookup is scoped to one task id first — comparing a
+    current reviewer against some older task's implementer is meaningless and was
+    a false-block path.
+    """
+    return [e for e in delegations if _nonempty_str(e.get("task_id")) == task_id]
+
+
+def _identity_of(entry: dict[str, Any]) -> tuple[str | None, str | None]:
+    """``(host, model)`` of a ledger row, normalized to non-empty strings or None."""
+    return _nonempty_str(entry.get("host")), _nonempty_str(entry.get("model"))
+
+
+def _unique_identity(rows: list[dict[str, Any]]) -> tuple[str | None, str | None] | str:
+    """One ``(host, model)`` shared by ``rows``, or a reason string when it is not unique.
+
+    Duplicate rows for the same worker (fix rounds append one row each) are
+    normal, so identical identities collapse. Genuinely conflicting identities
+    are *ambiguous* and must never be resolved by picking one — the caller turns
+    the reason into an advisory instead.
+    """
+    identities = {_identity_of(row) for row in rows}
+    if not identities:
+        return "no matching ledger row"
+    if len(identities) > 1:
+        return "multiple ledger rows with conflicting host/model"
+    return identities.pop()
+
+
+def _implementer_identity(
+    record: dict[str, Any], task_rows: list[dict[str, Any]]
+) -> tuple[str | None, str | None] | str:
+    """Implementer ``(host, model)`` for one task, or a reason string when unresolved.
+
+    Looks only at ``task_rows`` (already scoped to the record's task), preferring
+    a ledger row whose role names the implementer and falling back to a
+    ``models_used`` implementer entry. Ambiguity and absence both return a reason,
+    which the caller downgrades to an advisory — never a block.
+    """
+    rows = [e for e in task_rows if "implement" in str(e.get("role", "")).lower()]
+    rows = [e for e in rows if any(_identity_of(e))]
+    if rows:
+        return _unique_identity(rows)
+    models_used = record.get("models_used")
+    if isinstance(models_used, list):
+        entries = [
+            e for e in models_used
+            if isinstance(e, dict) and e.get("role") == "implementer"
+            and _nonempty_str(e.get("model"))
+        ]
+        identities = {
+            (_nonempty_str(e.get("host")), _nonempty_str(e.get("model"))) for e in entries
+        }
+        if len(identities) == 1:
+            return identities.pop()
+        if len(identities) > 1:
+            return "multiple models_used implementer entries with conflicting models"
+    return "the implementer's host/model is unrecorded for this task"
+
+
+_ISO_SELF_ATTESTED = (
+    "review independence is self-attested: no isolation_evidence links a "
+    "fresh-context reviewer to a delegation-ledger entry on a different host/model"
+)
+
+
+def _isolation_evidence_findings(
+    record: dict[str, Any], delegations: list[dict[str, Any]], non_trivial: bool
+) -> tuple[list[str], list[str]]:
+    """Ground review independence in the ledger. Returns ``(advisories, findings)``.
+
+    Only medium+ (``non_trivial``) work is checked, and only when a ledger exists
+    (the caller gates on that): a repo without one is completely silent.
+    ``isolation_evidence`` is an optional record field ``{task_id?, role}``
+    pointing at the fresh-context reviewer's ledger row.
+
+    Resolution is **task-scoped and fail-advisory**:
+
+    * the task id comes from ``isolation_evidence.task_id`` or, absent that, the
+      record's own ``task_id``; both reviewer and implementer must be resolved
+      from rows carrying that id, so unrelated append-only history can never be
+      compared against;
+    * ``role`` must be a non-empty string (and ``task_id``, when supplied, too);
+    * a reviewer or implementer that is missing, or ambiguous across conflicting
+      rows, yields an **advisory**;
+    * the **only** blocking outcome is an affirmative refutation: both hosts are
+      recorded and equal **and** both model families resolve and are equal.
+      Anything unknown stays advisory.
+
+    What this verifies is recorded identity, not runtime process isolation.
+    """
+    if not non_trivial:
+        return [], []
+    iso = record.get("isolation_evidence")
+    if iso is None:
+        return [_ISO_SELF_ATTESTED], []
+    if not isinstance(iso, dict):
+        return (["isolation_evidence must be an object {task_id?, role}; "
+                 "independence remains self-attested"], [])
+
+    ref_role = _nonempty_str(iso.get("role"))
+    if ref_role is None:
+        return (["isolation_evidence.role must be a non-empty string naming the reviewer's "
+                 "delegation role; independence remains self-attested"], [])
+    if "task_id" in iso and _nonempty_str(iso.get("task_id")) is None:
+        return (["isolation_evidence.task_id must be a non-empty string when present; "
+                 "independence remains self-attested"], [])
+
+    task_id = _nonempty_str(iso.get("task_id")) or _nonempty_str(record.get("task_id"))
+    if task_id is None:
+        return (["isolation_evidence cannot be scoped to a task (no task_id on the evidence "
+                 "or the record); independence remains self-attested"], [])
+
+    task_rows = _ledger_rows_for_task(delegations, task_id)
+    if not task_rows:
+        return ([f"isolation_evidence references task {task_id!r}, which has no rows in the "
+                 f"delegation ledger; independence remains self-attested"], [])
+
+    reviewer_rows = [
+        e for e in task_rows if str(e.get("role", "")).strip().lower() == ref_role.lower()
+    ]
+    reviewer = _unique_identity(reviewer_rows)
+    if isinstance(reviewer, str):
+        return ([f"isolation_evidence role {ref_role!r} on task {task_id!r} is unresolvable "
+                 f"({reviewer}); independence remains self-attested"], [])
+
+    impl = _implementer_identity(record, task_rows)
+    if isinstance(impl, str):
+        return ([f"isolation_evidence found, but {impl}; "
+                 f"cannot confirm review independence"], [])
+
+    impl_host, impl_model = impl
+    rev_host, rev_model = reviewer
+    fam_rev = qlroute.model_family(rev_model) if rev_model else None
+    fam_impl = qlroute.model_family(impl_model) if impl_model else None
+
+    # Grounded: something recorded on both sides genuinely differs.
+    if impl_host and rev_host and impl_host != rev_host:
+        return [], []
+    if fam_rev and fam_impl and fam_rev != fam_impl:
+        return [], []
+
+    # Blocking only on affirmative sameness of BOTH axes. An unknown host or an
+    # unknown family is NOT "the same" — it is unknown, and unknown is advisory.
+    if impl_host and rev_host and impl_host == rev_host and fam_rev and fam_impl \
+            and fam_rev == fam_impl:
+        return (
+            [],
+            [f"isolation_evidence resolves to a ledger entry (task {task_id!r}, role "
+             f"{ref_role!r}) whose recorded host and model family match the implementer's "
+             f"({rev_host}/{fam_rev}); the ledger does not ground the review as isolated"],
+        )
+
+    missing = []
+    if not (impl_host and rev_host):
+        missing.append("host")
+    if not (fam_rev and fam_impl):
+        missing.append("model family")
+    detail = " and ".join(missing) if missing else "identity"
+    return ([f"isolation_evidence present but the recorded {detail} is unknown on at least one "
+             f"side, so independence is unconfirmed; independence remains self-attested"], [])
 
 
 def collect_gate_findings(
@@ -1475,6 +1849,22 @@ def collect_gate_findings(
     ac_findings, ac_warnings = _check_ac_coverage(record, non_trivial)
     findings.extend(ac_findings)
     soft_warnings.extend(ac_warnings)
+
+    # Ledger-grounded checks (the orchestrator's delegation ledger, when present).
+    # Both are opt-in on the ledger's presence: a repo without one — most repos —
+    # is completely silent here, no advisory and no finding. Brief size is purely
+    # advisory (context bloat is a signal, not a rule violation). Isolation
+    # grounding advises when independence is merely self-attested and blocks only
+    # when the ledger positively refutes it (same recorded host AND model family).
+    delegations = _read_delegation_ledger(base_dir)
+    if delegations:
+        limit = qlcore.brief_char_limit(_nearest_gate_config(base_dir))
+        soft_warnings.extend(_brief_size_advisories(delegations, limit))
+        iso_advisories, iso_findings = _isolation_evidence_findings(
+            record, delegations, non_trivial
+        )
+        soft_warnings.extend(iso_advisories)
+        findings.extend(iso_findings)
 
     # Reality layer: ground the record in the real git diff when --against-diff
     # is requested. This catches phantom completion, unmapped scope, a diff-
@@ -2026,21 +2416,400 @@ def cmd_brief(args: argparse.Namespace) -> int:
 
 
 
-def _run_case_gates(record: dict[str, Any]) -> tuple[int, list[str]]:
+def _run_case_gates(
+    record: dict[str, Any], delegations: list[dict[str, Any]] | None = None
+) -> tuple[int, list[str], list[str]]:
     """Run the real gate logic on a record in-process, capturing findings.
 
     Writes the record to a temp file (artifact paths resolve relative to it) and
     consumes the structured findings ``collect_gate_findings`` returns — no
     stdout-prefix parsing, and no parallel classifier to drift from the
-    shipping gate.
+    shipping gate. Returns ``(exit_code, findings, notes)``: notes are the
+    advisory lines the CLI prints as ``note:``, so a case can pin an advisory
+    without the advisory becoming blocking.
+
+    When ``delegations`` is given they are written to a temp
+    ``.quality-loop/delegations.jsonl`` beside the record, so ledger-grounded
+    checks run against a real ledger. Omitting them exercises the ledger-less
+    path every consumer repo without an orchestrator ledger is on.
     """
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
         rec_path = Path(tmp) / "agent-record.json"
         rec_path.write_text(json.dumps(record))
-        findings, _notes = collect_gate_findings(record, rec_path, against_diff=False)
-    return (1 if findings else 0), findings
+        if delegations:
+            ledger_dir = Path(tmp) / ".quality-loop"
+            ledger_dir.mkdir(parents=True, exist_ok=True)
+            (ledger_dir / "delegations.jsonl").write_text(
+                "\n".join(json.dumps(d) for d in delegations) + "\n"
+            )
+        findings, notes = collect_gate_findings(record, rec_path, against_diff=False)
+    return (1 if findings else 0), findings, notes
+
+
+def _eval_record_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """Assert the record gates: risk floor, gate exit, findings and advisories."""
+    record = case.get("record", {})
+    mismatches: list[str] = []
+
+    floor, markers = detect_risk_floor(record)
+    gates_rc, findings, advisories = _run_case_gates(record, delegations=case.get("delegations"))
+
+    if "risk_floor" in expect and expect["risk_floor"] != floor:
+        mismatches.append(f"risk_floor: expected {expect['risk_floor']!r}, got {floor!r}")
+    for marker in expect.get("floor_markers", []):
+        if marker not in markers:
+            mismatches.append(f"floor_markers missing {marker!r} (got {markers})")
+    if "gates_exit" in expect and expect["gates_exit"] != gates_rc:
+        mismatches.append(f"gates_exit: expected {expect['gates_exit']}, got {gates_rc}")
+    for needle in expect.get("findings_include", []):
+        if not any(needle in f for f in findings):
+            mismatches.append(f"expected a finding containing {needle!r}; got {findings}")
+    for needle in expect.get("findings_exclude", []):
+        if any(needle in f for f in findings):
+            mismatches.append(f"unexpected finding containing {needle!r}; got {findings}")
+    for needle in expect.get("advisories_include", []):
+        if not any(needle in a for a in advisories):
+            mismatches.append(f"expected an advisory containing {needle!r}; got {advisories}")
+    for needle in expect.get("advisories_exclude", []):
+        if any(needle in a for a in advisories):
+            mismatches.append(f"unexpected advisory containing {needle!r}; got {advisories}")
+    return mismatches
+
+
+def _eval_version_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """Assert the version trust chain against explicit inputs (no git, no env)."""
+    spec = case.get("version", {})
+    errors, warnings = version_consistency_findings(
+        spec.get("surfaces", {}),
+        spec.get("tag"),
+        enforce_tag=bool(spec.get("enforce_tag")),
+    )
+    rc = 1 if errors else 0
+    mismatches: list[str] = []
+    if "exit" in expect and expect["exit"] != rc:
+        mismatches.append(f"exit: expected {expect['exit']}, got {rc} (errors={errors})")
+    for needle in expect.get("errors_include", []):
+        if not any(needle in e for e in errors):
+            mismatches.append(f"expected an error containing {needle!r}; got {errors}")
+    for needle in expect.get("errors_exclude", []):
+        if any(needle in e for e in errors):
+            mismatches.append(f"unexpected error containing {needle!r}; got {errors}")
+    for needle in expect.get("warnings_include", []):
+        if not any(needle in w for w in warnings):
+            mismatches.append(f"expected a warning containing {needle!r}; got {warnings}")
+    for needle in expect.get("warnings_exclude", []):
+        if any(needle in w for w in warnings):
+            mismatches.append(f"unexpected warning containing {needle!r}; got {warnings}")
+    return mismatches
+
+
+def _eval_complexity_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """Assert the complexity-delta advisory on inline before/after sources.
+
+    Inputs are literal source strings, so the case needs no git repository and no
+    temp checkout — it pins the pure function the diff-audit advisory calls.
+    """
+    spec = case.get("complexity", {})
+    notes = qlcore.complexity_delta_findings(
+        spec.get("before", ""),
+        spec.get("after", ""),
+        spec.get("path", "module.py"),
+        int(spec.get("threshold", qlcore.COMPLEXITY_DELTA_DEFAULT)),
+    )
+    mismatches: list[str] = []
+    if "advisory_count" in expect and expect["advisory_count"] != len(notes):
+        mismatches.append(
+            f"advisory_count: expected {expect['advisory_count']}, got {len(notes)} ({notes})"
+        )
+    for needle in expect.get("advisories_include", []):
+        if not any(needle in n for n in notes):
+            mismatches.append(f"expected an advisory containing {needle!r}; got {notes}")
+    for needle in expect.get("advisories_exclude", []):
+        if any(needle in n for n in notes):
+            mismatches.append(f"unexpected advisory containing {needle!r}; got {notes}")
+    return mismatches
+
+
+def _eval_delegation_writer_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """End-to-end test of the ledger PRODUCER, not just the consumer.
+
+    Runs ``log-delegation`` in a throwaway repo with a brief of a known length,
+    then reads the row back and (optionally) runs the real gates against the
+    ledger the writer produced. This is what proves the advisory is operationally
+    grounded: the writer must record the brief's exact char count, so the gate
+    never has to fall back to the short ``brief_summary``.
+    """
+    import subprocess
+    import tempfile
+
+    spec = case.get("writer", {})
+    brief = spec.get("brief", "")
+    mismatches: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        brief_path = root / "brief.md"
+        # newline="" writes the brief byte-for-byte, so a case can supply CRLF and
+        # assert the recorded length is the length it handed over.
+        with open(brief_path, "w", encoding="utf-8", newline="") as handle:
+            handle.write(brief)
+        cmd = [
+            sys.executable, str(Path(__file__).resolve()), "log-delegation",
+            "--task-id", spec.get("task_id", "t-writer"),
+            "--role", spec.get("role", "reviewer"),
+            "--host", spec.get("host", "codex"),
+            "--model", spec.get("model", "gpt-5"),
+            "--cwd", str(root),
+        ]
+        if not spec.get("omit_brief_file"):
+            cmd += ["--brief-file", str(brief_path)]
+        if spec.get("ts"):
+            cmd += ["--ts", spec["ts"]]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        ledger = root / ".quality-loop" / "delegations.jsonl"
+
+        # A case may assert the command REFUSES to write (missing brief input):
+        # the row must not exist, because a row that looks measured and is not is
+        # worse than no row at all.
+        if expect.get("must_fail"):
+            if proc.returncode == 0:
+                mismatches.append("expected a non-zero exit when the brief input is unusable")
+            for needle in expect.get("stderr_include", []):
+                if needle not in proc.stderr:
+                    mismatches.append(f"expected {needle!r} on stderr; got {proc.stderr.strip()!r}")
+            if ledger.exists():
+                mismatches.append(f"expected no ledger row; got {ledger.read_text()!r}")
+            return mismatches
+
+        if proc.returncode != 0:
+            return [f"log-delegation exited {proc.returncode}: {proc.stderr.strip()}"]
+        if not ledger.is_file():
+            return ["log-delegation wrote no delegation ledger"]
+        rows = [json.loads(line) for line in ledger.read_text().splitlines() if line.strip()]
+        if len(rows) != 1:
+            return [f"expected exactly one ledger row, got {len(rows)}"]
+        row = rows[0]
+
+        if row.get("brief_chars") != len(brief):
+            mismatches.append(
+                f"brief_chars: writer recorded {row.get('brief_chars')!r}, "
+                f"brief is {len(brief)} chars"
+            )
+        if "brief_summary" in expect and row.get("brief_summary") != expect["brief_summary"]:
+            mismatches.append(
+                f"brief_summary: expected {expect['brief_summary']!r}, got {row.get('brief_summary')!r}"
+            )
+        if expect.get("summary_shorter_than_brief") and len(row.get("brief_summary") or "") >= len(brief):
+            mismatches.append("brief_summary is not shorter than the brief; the fallback would be equivalent")
+        for field in expect.get("row_fields", []):
+            if field not in row:
+                mismatches.append(f"writer omitted required ledger field {field!r}")
+        if "stderr_note" in expect and expect["stderr_note"] not in proc.stderr:
+            mismatches.append(f"expected {expect['stderr_note']!r} on stderr; got {proc.stderr.strip()!r}")
+
+        # Now run the real gates against the ledger the writer just produced.
+        record = case.get("record")
+        if record is not None:
+            rec_path = root / "agent-record.json"
+            rec_path.write_text(json.dumps(record))
+            findings, notes = collect_gate_findings(record, rec_path, against_diff=False)
+            rc = 1 if findings else 0
+            if "gates_exit" in expect and expect["gates_exit"] != rc:
+                mismatches.append(f"gates_exit: expected {expect['gates_exit']}, got {rc} ({findings})")
+            for needle in expect.get("advisories_include", []):
+                if not any(needle in n for n in notes):
+                    mismatches.append(f"expected an advisory containing {needle!r}; got {notes}")
+            for needle in expect.get("advisories_exclude", []):
+                if any(needle in n for n in notes):
+                    mismatches.append(f"unexpected advisory containing {needle!r}; got {notes}")
+    return mismatches
+
+
+def _eval_diff_audit_cli_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """Run the real ``diff-audit`` CLI in a throwaway git repo.
+
+    Some diff-audit behaviour is only observable as a process: which stream git's
+    own noise lands on, and whether ``--staged`` reads the index or the working
+    tree. Those cannot be asserted from ``collect_gate_findings``, so this kind
+    drives the command end to end and asserts on exit code, stdout and **stderr**.
+
+    Case ``repo`` keys: ``base_files`` (committed first), ``staged_files``
+    (written then ``git add``), ``worktree_files`` (written after staging and left
+    unstaged), ``args`` (extra CLI args).
+    """
+    import subprocess
+    import tempfile
+
+    spec = case.get("repo", {})
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+    def git(args: list[str], root: Path) -> None:
+        subprocess.run(["git", *args], cwd=root, env=env, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def write(root: Path, files: dict[str, str]) -> None:
+        for rel, text in files.items():
+            target = root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+
+    mismatches: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        git(["init", "-q", "-b", "main", "."], root)
+        git(["config", "user.email", "eval@example.com"], root)
+        git(["config", "user.name", "eval"], root)
+        write(root, spec.get("base_files", {"seed.txt": "seed\n"}))
+        git(["add", "-A"], root)
+        git(["commit", "-qm", "base"], root)
+        write(root, spec.get("staged_files", {}))
+        git(["add", "-A"], root)
+        if spec.get("commit_staged"):
+            git(["commit", "-qm", "change"], root)
+        write(root, spec.get("worktree_files", {}))
+
+        proc = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), "diff-audit", *spec.get("args", [])],
+            cwd=root, env=env, capture_output=True, text=True,
+        )
+
+    if "exit_code" in expect and proc.returncode != expect["exit_code"]:
+        mismatches.append(f"exit_code: expected {expect['exit_code']}, got {proc.returncode}")
+    if expect.get("stderr_empty") and proc.stderr.strip():
+        mismatches.append(f"expected empty stderr; got {proc.stderr.strip()!r}")
+    for needle in expect.get("stdout_include", []):
+        if needle not in proc.stdout:
+            mismatches.append(f"expected {needle!r} in stdout; got {proc.stdout.strip()!r}")
+    for needle in expect.get("stdout_exclude", []):
+        if needle in proc.stdout:
+            mismatches.append(f"unexpected {needle!r} in stdout; got {proc.stdout.strip()!r}")
+    for needle in expect.get("stderr_include", []):
+        if needle not in proc.stderr:
+            mismatches.append(f"expected {needle!r} in stderr; got {proc.stderr.strip()!r}")
+    return mismatches
+
+
+def _tag_token(stdout: str) -> str | None:
+    """The ``latest-tag=<value>`` token of a ``check-version`` run, or None.
+
+    Used to compare two runs by the only field the caller's cwd could have
+    influenced, without pinning the test to whatever tag this checkout happens to
+    carry.
+    """
+    for word in stdout.split():
+        if word.startswith("latest-tag="):
+            return word
+    return None
+
+
+def _eval_version_tag_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """Exercise the tag leg of ``check-version`` against real git tags.
+
+    Two shapes, both about *where the tag comes from* — neither is reachable from
+    the pure ``version_consistency_findings`` cases:
+
+    * ``tags``: build a throwaway repo carrying those tags and assert which one
+      ``_latest_git_tag`` selects (release tags only).
+    * ``outside_repo``: run the ``check-version`` CLI from a directory that is not
+      a git repo at all and assert its answer is *identical* to the same command
+      run from the repo root, because the lookup is pinned to the repo the file
+      surfaces are read from rather than to the caller's cwd. The assertion is
+      deliberately an invariance, not a literal tag: a shallow or tagless checkout
+      (CI's ``actions/checkout`` without ``fetch-depth: 0``) legitimately reports
+      ``latest-tag=None``, and the property under test — cwd cannot change the
+      answer — holds there too.
+    """
+    import subprocess
+    import tempfile
+
+    spec = case.get("repo", {})
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    mismatches: list[str] = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        if spec.get("outside_repo"):
+            cmd = [sys.executable, str(Path(__file__).resolve()), "check-version"]
+            proc = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
+            if "exit_code" in expect and proc.returncode != expect["exit_code"]:
+                mismatches.append(
+                    f"exit_code: expected {expect['exit_code']}, got {proc.returncode} "
+                    f"({proc.stdout.strip()} | {proc.stderr.strip()})"
+                )
+            if expect.get("same_answer_from_repo_root"):
+                inside = subprocess.run(cmd, cwd=_REPO_ROOT, env=env,
+                                        capture_output=True, text=True)
+                reference = _tag_token(inside.stdout)
+                runs = [("a directory that is not a git repo", proc)]
+                decoy = spec.get("decoy_tag")
+                if decoy:
+                    # A second caller cwd that IS a repo, carrying a tag this repo
+                    # cannot legitimately report. Without it the case cannot fail in
+                    # a tagless checkout (None == None); with it, a lookup that
+                    # inherits the caller's cwd reports the decoy and is caught at
+                    # any checkout depth.
+                    other = root / "unrelated"
+                    other.mkdir()
+                    for args in (["init", "-q", "-b", "main", "."],
+                                 ["config", "user.email", "eval@example.com"],
+                                 ["config", "user.name", "eval"]):
+                        subprocess.run(["git", *args], cwd=other, env=env, check=True,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    (other / "seed.txt").write_text("seed\n", encoding="utf-8")
+                    for args in (["add", "-A"], ["commit", "-qm", "base"], ["tag", decoy]):
+                        subprocess.run(["git", *args], cwd=other, env=env, check=True,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    runs.append((f"an unrelated repo tagged {decoy}",
+                                 subprocess.run(cmd, cwd=other, env=env,
+                                                capture_output=True, text=True)))
+                for where, run in runs:
+                    if _tag_token(run.stdout) != reference:
+                        mismatches.append(
+                            f"latest-tag depends on the caller's cwd: {_tag_token(run.stdout)!r} "
+                            f"from {where} vs {reference!r} from the repo root"
+                        )
+                    if run.returncode != inside.returncode:
+                        mismatches.append(
+                            f"exit code depends on the caller's cwd: {run.returncode} from "
+                            f"{where} vs {inside.returncode} from the repo root"
+                        )
+            for needle in expect.get("stdout_exclude", []):
+                if needle in proc.stdout:
+                    mismatches.append(f"unexpected {needle!r} in stdout; got {proc.stdout.strip()!r}")
+            for needle in expect.get("stdout_include", []):
+                if needle not in proc.stdout:
+                    mismatches.append(f"expected {needle!r} in stdout; got {proc.stdout.strip()!r}")
+            return mismatches
+
+        def git(args: list[str]) -> None:
+            subprocess.run(["git", *args], cwd=root, env=env, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        git(["init", "-q", "-b", "main", "."])
+        git(["config", "user.email", "eval@example.com"])
+        git(["config", "user.name", "eval"])
+        (root / "seed.txt").write_text("seed\n", encoding="utf-8")
+        git(["add", "-A"])
+        git(["commit", "-qm", "base"])
+        for tag in spec.get("tags", []):
+            git(["tag", tag])
+        found = _latest_git_tag(root)
+        if found != expect.get("tag"):
+            mismatches.append(f"tag: expected {expect.get('tag')!r}, got {found!r}")
+    return mismatches
+
+
+# Case kinds an eval case may pin via its "check" key (default: record_gates).
+# Each handler takes (case, expect) and returns a list of mismatch strings.
+_EVAL_CASE_HANDLERS = {
+    "record_gates": _eval_record_case,
+    "version": _eval_version_case,
+    "complexity": _eval_complexity_case,
+    "delegation_writer": _eval_delegation_writer_case,
+    "diff_audit_cli": _eval_diff_audit_cli_case,
+    "version_tag": _eval_version_tag_case,
+}
 
 
 def eval_cases(args: argparse.Namespace) -> int:
@@ -2064,26 +2833,16 @@ def eval_cases(args: argparse.Namespace) -> int:
     for case_file in case_files:
         case = load_json(case_file)
         name = case.get("name", case_file.stem)
-        record = case.get("record", {})
         expect = case.get("expect", {})
-        mismatches: list[str] = []
-
-        floor, markers = detect_risk_floor(record)
-        gates_rc, findings = _run_case_gates(record)
-
-        if "risk_floor" in expect and expect["risk_floor"] != floor:
-            mismatches.append(f"risk_floor: expected {expect['risk_floor']!r}, got {floor!r}")
-        for marker in expect.get("floor_markers", []):
-            if marker not in markers:
-                mismatches.append(f"floor_markers missing {marker!r} (got {markers})")
-        if "gates_exit" in expect and expect["gates_exit"] != gates_rc:
-            mismatches.append(f"gates_exit: expected {expect['gates_exit']}, got {gates_rc}")
-        for needle in expect.get("findings_include", []):
-            if not any(needle in f for f in findings):
-                mismatches.append(f"expected a finding containing {needle!r}; got {findings}")
-        for needle in expect.get("findings_exclude", []):
-            if any(needle in f for f in findings):
-                mismatches.append(f"unexpected finding containing {needle!r}; got {findings}")
+        kind = case.get("check", "record_gates")
+        handler = _EVAL_CASE_HANDLERS.get(kind)
+        if handler is None:
+            mismatches: list[str] = [
+                f"unknown case check kind: {kind!r} "
+                f"(known: {sorted(_EVAL_CASE_HANDLERS)})"
+            ]
+        else:
+            mismatches = handler(case, expect)
 
         total += 1
         if mismatches:
@@ -2180,6 +2939,163 @@ def helper_integrity() -> dict[str, str]:
         except OSError:
             out[name] = "missing"
     return out
+
+
+# ---------------------------------------------------------------------------
+# Version trust chain
+# ---------------------------------------------------------------------------
+# For a project whose brand is checkable claims, the release surface itself must
+# pass a gate: every shipped version surface (npm package.json, SKILL.md
+# frontmatter, the README badge, the shipped GitHub example's action ref) and the
+# latest git tag must agree. File-to-file drift is a hard failure everywhere
+# (those files ship together). A tag that lags the files is normal BETWEEN
+# releases, so it is a local warning, hard-failed only on a release-framed CI
+# event (a push to main, a tag push, or a published release) where the tag is
+# supposed to have caught up.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_SKILL_VERSION_RE = re.compile(r"^\s*version:\s*\"?([0-9][^\"\n]*?)\"?\s*$", re.MULTILINE)
+_BADGE_VERSION_RE = re.compile(r"badge/version-([0-9][0-9.]*)-")
+_GH_EXAMPLE_REF_RE = re.compile(r"coding-quality-loop@v([0-9][0-9.]*)")
+
+
+def _read_json_version(path: Path) -> str | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    version = data.get("version") if isinstance(data, dict) else None
+    return version if isinstance(version, str) and version.strip() else None
+
+
+def _read_matched_version(path: Path, pattern: re.Pattern[str], *, frontmatter: bool = False) -> str | None:
+    """First capture group of ``pattern`` in ``path``, or None when unreadable.
+
+    ``frontmatter=True`` restricts the search to the leading YAML block so a
+    ``version:`` line in the body can never be mistaken for the shipped version.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if frontmatter and text.startswith("---"):
+        end = text.find("\n---", 3)
+        text = text[: end if end != -1 else len(text)]
+    match = pattern.search(text)
+    return match.group(1).strip() if match else None
+
+
+def version_surfaces(root: Path) -> dict[str, str | None]:
+    """Every shipped version surface, keyed by label (None = unreadable/absent)."""
+    return {
+        "packages/npm/package.json": _read_json_version(root / "packages" / "npm" / "package.json"),
+        "SKILL.md": _read_matched_version(root / "SKILL.md", _SKILL_VERSION_RE, frontmatter=True),
+        "README.md badge": _read_matched_version(root / "README.md", _BADGE_VERSION_RE),
+        "hosts/github/quality-loop-example.yml": _read_matched_version(
+            root / "hosts" / "github" / "quality-loop-example.yml", _GH_EXAMPLE_REF_RE
+        ),
+    }
+
+
+# A release tag, and nothing else. Docs tags, rc/beta markers and vendored
+# third-party tags sort into the same namespace, and `--sort=-v:refname` happily
+# ranks "v6.6.0-rc1" or "skill-v2" above the real latest release; comparing the
+# shipped files against one of those is a false mismatch.
+_RELEASE_TAG_RE = re.compile(r"^v?\d+\.\d+\.\d+$")
+
+
+def _latest_git_tag(root: Path | None = None) -> str | None:
+    """Most recent release tag, or None when the repo has none.
+
+    Run with the **repo root** as cwd: ``check-version`` reads its file surfaces
+    from ``_REPO_ROOT``, so the tag must come from that same repo. Invoked from
+    another directory (or from outside any repo) the old call read whatever repo
+    the caller happened to stand in — or nothing at all — and compared its tags
+    against this repo's files.
+
+    Only ``vX.Y.Z``/``X.Y.Z`` tags are considered; a shallow or fresh clone
+    legitimately has none, so None is never itself an error — the caller
+    downgrades it to a warning.
+    """
+    code, out, _ = qlcore.git_capture(["tag", "--sort=-v:refname"], cwd=root or _REPO_ROOT)
+    if code != 0:
+        return None
+    for line in out.splitlines():
+        tag = line.strip()
+        if tag and _RELEASE_TAG_RE.match(tag):
+            return tag
+    return None
+
+
+def _ci_enforces_tag() -> bool:
+    """True on a release-framed CI event, where the tag must match the files.
+
+    A push to main, a tag push, or a published release is where the tag is
+    expected to have caught up. Ordinary PR CI only warns, so a tag that
+    intentionally lags the files does not block a feature PR.
+    """
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return False
+    if os.environ.get("GITHUB_EVENT_NAME") == "release":
+        return True
+    ref = os.environ.get("GITHUB_REF", "")
+    return ref == "refs/heads/main" or ref.startswith("refs/tags/")
+
+
+def version_consistency_findings(
+    surfaces: dict[str, str | None],
+    tag: str | None,
+    *,
+    enforce_tag: bool,
+) -> tuple[list[str], list[str]]:
+    """Pure version trust-chain check. Returns ``(errors, warnings)``.
+
+    - An unreadable surface, or any surface disagreeing with the reference (the
+      first readable surface, in insertion order), is always an error: these
+      files ship together.
+    - Tag vs files is an error only when ``enforce_tag`` (a release-framed CI
+      event), otherwise a warning. A missing tag is always a warning.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    reference_label = next((k for k, v in surfaces.items() if v is not None), None)
+    reference = surfaces.get(reference_label) if reference_label else None
+    for label, value in surfaces.items():
+        if value is None:
+            errors.append(f"could not read a version from {label}")
+        elif reference is not None and value != reference:
+            errors.append(
+                f"version mismatch: {label} is {value!r} but {reference_label} is "
+                f"{reference!r} (they ship together and must match)"
+            )
+
+    tag_version = tag[1:] if isinstance(tag, str) and tag.startswith("v") else tag
+    if tag is None:
+        warnings.append("no git tags found; skipping the tag leg of the trust chain")
+    elif reference is not None and tag_version != reference:
+        msg = f"latest git tag {tag!r} does not match the file version {reference!r}"
+        (errors if enforce_tag else warnings).append(
+            msg + ("" if enforce_tag else " (warning locally; enforced on release CI)")
+        )
+    return errors, warnings
+
+
+def check_version(args: argparse.Namespace) -> int:
+    surfaces = version_surfaces(_REPO_ROOT)
+    tag = _latest_git_tag()
+    enforce_tag = bool(getattr(args, "enforce_tag", False)) or _ci_enforces_tag()
+
+    errors, warnings = version_consistency_findings(surfaces, tag, enforce_tag=enforce_tag)
+    rendered = " ".join(f"{label}={value}" for label, value in surfaces.items())
+    print(
+        "versions: %s latest-tag=%s (tag %s)"
+        % (rendered, tag, "enforced" if enforce_tag else "advisory")
+    )
+    for warning in warnings:
+        print(f"warning: {warning}")
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    return 1 if errors else 0
 
 
 # File suffixes that never count as the "one new source file" of an
@@ -2650,6 +3566,34 @@ def main() -> int:
     p_config = sub.add_parser("check-config", help="Validate an orchestration config")
     p_config.add_argument("config")
     p_config.set_defaults(func=check_config)
+
+    p_version = sub.add_parser(
+        "check-version",
+        help="Assert every shipped version surface and the latest git tag agree",
+    )
+    p_version.add_argument(
+        "--enforce-tag",
+        action="store_true",
+        help="Hard-fail on a tag/file mismatch (auto-enabled on release-framed CI events)",
+    )
+    p_version.set_defaults(func=check_version)
+
+    p_deleg = sub.add_parser(
+        "log-delegation",
+        help="Append one worker hand-off to .quality-loop/delegations.jsonl "
+             "(records brief_chars = the true brief length)",
+    )
+    p_deleg.add_argument("--task-id", dest="task_id", required=True, help="Task this hand-off belongs to (scopes the isolation check)")
+    p_deleg.add_argument("--role", required=True, help="Worker role, e.g. implementer / reviewer / security_reviewer")
+    p_deleg.add_argument("--host", required=True, help="Harness the worker runs on, e.g. claude-code / codex / droid")
+    p_deleg.add_argument("--model", required=True, help="Model id the worker runs")
+    p_deleg.add_argument("--brief-file", dest="brief_file", required=True, help="REQUIRED. File holding the brief handed to the worker ('-' for stdin); its exact length, newlines included, is recorded as brief_chars")
+    p_deleg.add_argument("--brief-summary", dest="brief_summary", help="Short handle for the brief (default: its first line, capped)")
+    p_deleg.add_argument("--expected-agent-name", dest="expected_agent_name", help="Agent/profile name the worker's session will report (default: the role)")
+    p_deleg.add_argument("--session-id", dest="session_id", help="Worker session id when the spawning harness already knows it (enables a direct join)")
+    p_deleg.add_argument("--ts", help="ISO-8601 hand-off timestamp (default: now, UTC)")
+    p_deleg.add_argument("--cwd", default=".", help="Repo root holding .quality-loop/ (default: current directory)")
+    p_deleg.set_defaults(func=log_delegation)
 
     p_eval = sub.add_parser("eval-cases", help="Run static eval cases against expected gates")
     p_eval.add_argument("cases_dir", help="Directory of *.json cases or a single case file")

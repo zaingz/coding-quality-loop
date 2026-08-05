@@ -1,0 +1,19 @@
+{
+  "name": "version-trust-chain-tag-lag-enforced",
+  "description": "The same lagging tag as case 26, but on a release-framed CI event (push to main, tag push, or published release). The tag mismatch is now a hard error: the release surface must not ship with a tag that disagrees with the files.",
+  "check": "version",
+  "version": {
+    "surfaces": {
+      "packages/npm/package.json": "6.7.0",
+      "SKILL.md": "6.7.0",
+      "README.md badge": "6.7.0",
+      "hosts/github/quality-loop-example.yml": "6.7.0"
+    },
+    "tag": "v6.6.0",
+    "enforce_tag": true
+  },
+  "expect": {
+    "exit": 1,
+    "errors_include": ["does not match the file version"]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "diff-audit-new-file-quiet-stderr",
+  "check": "diff_audit_cli",
+  "description": "A newly added Python file has no blob at the base ref, so the complexity delta's base read is expected to come back empty. diff-audit must stay silent on stderr: git's own \"fatal: path ... does not exist in ...\" leaking through made a clean advisory run look like a broken tool. Absent base blob = empty string, no noise.",
+  "repo": {
+    "base_files": {
+      "seed.txt": "seed\n"
+    },
+    "staged_files": {
+      "newmod.py": "def score(value):\n    \"\"\"Branchy version: many decision points.\"\"\"\n    total = 0\n    for item in value:\n        if item > 10:\n            total += 1\n        elif item > 5:\n            total += 2\n        elif item > 3:\n            total += 3\n        elif item > 2:\n            total += 4\n        elif item > 1:\n            total += 5\n        else:\n            total -= 1\n        while total > 100:\n            total -= 10\n            if total % 3 == 0:\n                break\n        try:\n            total += int(item)\n        except (TypeError, ValueError):\n            total -= 1\n    return total if total else -1\n"
+    },
+    "commit_staged": true,
+    "args": [
+      "--base",
+      "HEAD~1"
+    ]
+  },
+  "expect": {
+    "exit_code": 0,
+    "stderr_empty": true
+  }
+}

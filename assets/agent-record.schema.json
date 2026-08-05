@@ -190,6 +190,15 @@
       "type": "string",
       "minLength": 1,
       "description": "Required by the stop-gate valve when status is escalated: a non-empty reason makes the pause auditable."
+    },
+    "isolation_evidence": {
+      "type": "object",
+      "description": "Optional pointer to the fresh-context reviewer's entry in .quality-loop/delegations.jsonl, grounding review independence in the ledger instead of self-attestation. Checked on medium+ work and only when a ledger exists: a resolved entry on a different recorded host or model family is silent; same host AND family is a blocking finding; absent or unresolvable is advisory only.",
+      "properties": {
+        "task_id": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true
