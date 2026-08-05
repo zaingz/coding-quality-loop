@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+Enforcement gates (PR #11), rebased onto 6.6.0. No version bump: the release
+surfaces stay at 6.6.0 until a release is cut.
+Suites: 37 static + 64 behavioral + 33 memory + 52 reality + 30 routing +
+56 hook = **272 core gate cases** (+40 control add-on).
+
+- **Version trust chain (`check-version`)**: one portable command pins the four
+  release surfaces (npm `package.json`, `SKILL.md`, README badge,
+  `hosts/github/quality-loop-example.yml`) and, with `--enforce-tag`, the latest
+  git tag. Enforced in CI by `.github/workflows/version-trust.yml`
+  (`fetch-depth: 0`). A tag that lags the surfaces is advisory by default and
+  blocking under `--enforce-tag`; a repo with no tags is advisory only.
+- **`require_*` validators** (`quality_loop_core`): `require_str`, `require_list`,
+  `require_dict`, `require_number`, `require_bool`, `require_bool_or_null`,
+  `require_str_or_null` replace hand-rolled shape checks in
+  `record_validation_issues` and `validate_model_routing`. Messages are
+  byte-identical, so no case or consumer changes behavior.
+- **Advisory delegation brief size**: `brief_chars` on a ledger line (or
+  `len(brief_summary)`) over `delegation.brief_char_limit` (default 4000) emits a
+  non-blocking note in `verify-gates` and `control-report`. Silent without a
+  ledger.
+- **`isolation_evidence`**: an optional record pointer to the fresh-context
+  reviewer's delegation-ledger entry. On medium+ work with a ledger present, a
+  reviewer entry on a different recorded host or model family is silent; the same
+  host *and* family is a blocking finding; absent or unresolvable is advisory.
+  Compares recorded identities, not runtime process isolation.
+- **Advisory complexity delta in `diff-audit`**: per-function cyclomatic
+  complexity (stdlib `ast`, nested scopes pruned) growing by
+  `diff_audit.complexity_delta` (default 5) emits an advisory line. Never
+  blocking, so the pre-commit hook is unaffected.
+
 ## 6.6.0
 
 Adaptive-depth Wave 1 (validated before implementation: prototype backtests on the
