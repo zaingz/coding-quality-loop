@@ -59,15 +59,27 @@ run; folding the eval onto it is a follow-up, not a claim made here.
 
 `diff-audit` scores each changed `.py` file's functions with stdlib `ast`
 (cyclomatic complexity; nested functions and classes are pruned so a closure is
-not charged to its parent twice) at the base ref and in the working tree. A
-function whose score grows by at least `diff_audit.complexity_delta` (config,
-default 5) earns an **advisory** line; new functions are measured against a
-straight-line baseline of 1.
+not charged to its parent twice). A function whose score grows by at least
+`diff_audit.complexity_delta` (config, default 5) earns an **advisory** line;
+new functions are measured against a straight-line baseline of 1.
+
+Which two sides are compared follows the mode, so the audit always describes the
+change it claims to:
+
+| mode | pre-change side | post-change side |
+| --- | --- | --- |
+| `--base REF` | blob at `REF` | working tree file |
+| `--staged` | blob at `HEAD` | **index blob** (`git show :path`) |
+
+`--staged` is pre-commit mode, so it reads the staged content; unstaged edits on
+top are deliberately invisible to it.
 
 Advisory only, and deliberately so: a real feature legitimately adds branches,
 and `diff-audit` does not know the risk tier. The pre-commit hook keys off the
 exit code, so this never blocks a commit. Unparsable or unreadable files are
-silent rather than guessed at.
+silent rather than guessed at, and a path that is **absent at the base ref** (any
+newly added file) reads as empty **quietly** — git's `fatal: path ... does not
+exist` never reaches stderr, so a clean advisory run has clean output.
 
 ## Delegation ledger advisories
 

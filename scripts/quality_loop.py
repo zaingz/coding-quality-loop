@@ -985,13 +985,21 @@ def is_migration_path(path: str) -> bool:
 
 
 def _blob_at(ref: str, path: str) -> str:
-    """File contents at ``ref`` ('' when the path did not exist there or is binary)."""
+    """File contents at ``ref`` ('' when the path is absent there or is binary).
+
+    Read **quietly** via ``git_capture``, not ``run_git``: an absent blob is the
+    expected outcome for every newly added file, and ``run_git`` printed git's
+    ``fatal: path 'x' does not exist in 'origin/main'`` to stderr, which read as a
+    tool failure in an otherwise clean advisory run. Absent blob is now silent.
+
+    An empty ``ref`` reads the **index** (``git show :path``) — the staged blob.
+    """
+    spec = f"{ref}:{path}" if ref else f":{path}"
     try:
-        return run_git(["show", f"{ref}:{path}"])
-    except SystemExit:
-        return ""
+        code, out, _ = qlcore.git_capture(["show", spec])
     except (OSError, UnicodeDecodeError):
         return ""
+    return out if code == 0 else ""
 
 
 def _complexity_delta_advisories(
@@ -999,19 +1007,30 @@ def _complexity_delta_advisories(
 ) -> list[str]:
     """Advisory notes for Python files whose functions got materially branchier.
 
-    ``base_ref`` None means the staged path: the pre-change side is then HEAD.
-    Comparison is old blob vs the working-tree file, so an unreadable or
-    unparsable side just yields no notes — this must never fail a commit.
+    ``base_ref`` None means the **staged** path: the pre-change side is then HEAD
+    and the post-change side is the **index blob** (``git show :path``), not the
+    working tree — ``--staged`` audits what is about to be committed, so reading
+    unstaged edits would report complexity that the commit does not contain (and
+    miss complexity that it does).
+
+    An unreadable or unparsable side just yields no notes — this must never fail
+    a commit.
     """
+    staged = base_ref is None
     notes: list[str] = []
     for path in files:
         if not path.endswith(".py"):
             continue
         before = _blob_at(base_ref or "HEAD", path)
-        try:
-            after = Path(path).read_text(errors="replace")
-        except (OSError, ValueError):
-            continue
+        if staged:
+            after = _blob_at("", path)
+            if not after:
+                continue
+        else:
+            try:
+                after = Path(path).read_text(errors="replace")
+            except (OSError, ValueError):
+                continue
         notes.extend(qlcore.complexity_delta_findings(before, after, path, threshold))
     return notes
 
@@ -2568,6 +2587,70 @@ def _eval_delegation_writer_case(case: dict[str, Any], expect: dict[str, Any]) -
     return mismatches
 
 
+def _eval_diff_audit_cli_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """Run the real ``diff-audit`` CLI in a throwaway git repo.
+
+    Some diff-audit behaviour is only observable as a process: which stream git's
+    own noise lands on, and whether ``--staged`` reads the index or the working
+    tree. Those cannot be asserted from ``collect_gate_findings``, so this kind
+    drives the command end to end and asserts on exit code, stdout and **stderr**.
+
+    Case ``repo`` keys: ``base_files`` (committed first), ``staged_files``
+    (written then ``git add``), ``worktree_files`` (written after staging and left
+    unstaged), ``args`` (extra CLI args).
+    """
+    import subprocess
+    import tempfile
+
+    spec = case.get("repo", {})
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+    def git(args: list[str], root: Path) -> None:
+        subprocess.run(["git", *args], cwd=root, env=env, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def write(root: Path, files: dict[str, str]) -> None:
+        for rel, text in files.items():
+            target = root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+
+    mismatches: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        git(["init", "-q", "-b", "main", "."], root)
+        git(["config", "user.email", "eval@example.com"], root)
+        git(["config", "user.name", "eval"], root)
+        write(root, spec.get("base_files", {"seed.txt": "seed\n"}))
+        git(["add", "-A"], root)
+        git(["commit", "-qm", "base"], root)
+        write(root, spec.get("staged_files", {}))
+        git(["add", "-A"], root)
+        if spec.get("commit_staged"):
+            git(["commit", "-qm", "change"], root)
+        write(root, spec.get("worktree_files", {}))
+
+        proc = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), "diff-audit", *spec.get("args", [])],
+            cwd=root, env=env, capture_output=True, text=True,
+        )
+
+    if "exit_code" in expect and proc.returncode != expect["exit_code"]:
+        mismatches.append(f"exit_code: expected {expect['exit_code']}, got {proc.returncode}")
+    if expect.get("stderr_empty") and proc.stderr.strip():
+        mismatches.append(f"expected empty stderr; got {proc.stderr.strip()!r}")
+    for needle in expect.get("stdout_include", []):
+        if needle not in proc.stdout:
+            mismatches.append(f"expected {needle!r} in stdout; got {proc.stdout.strip()!r}")
+    for needle in expect.get("stdout_exclude", []):
+        if needle in proc.stdout:
+            mismatches.append(f"unexpected {needle!r} in stdout; got {proc.stdout.strip()!r}")
+    for needle in expect.get("stderr_include", []):
+        if needle not in proc.stderr:
+            mismatches.append(f"expected {needle!r} in stderr; got {proc.stderr.strip()!r}")
+    return mismatches
+
+
 # Case kinds an eval case may pin via its "check" key (default: record_gates).
 # Each handler takes (case, expect) and returns a list of mismatch strings.
 _EVAL_CASE_HANDLERS = {
@@ -2575,6 +2658,7 @@ _EVAL_CASE_HANDLERS = {
     "version": _eval_version_case,
     "complexity": _eval_complexity_case,
     "delegation_writer": _eval_delegation_writer_case,
+    "diff_audit_cli": _eval_diff_audit_cli_case,
 }
 
 
