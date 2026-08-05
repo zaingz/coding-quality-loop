@@ -93,11 +93,15 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
   stdout — pipe it to the reviewing CLI (see `docs/cross-cli-recipe.md`).
 - `scan-text --stdin` secret-scans text for host hook shims.
 - `log-delegation --task-id <id> --role <role> --host <host> --model <model>
-  [--brief-file <path|->]` appends one hand-off row to
+  --brief-file <path|->` appends one hand-off row to
   `.quality-loop/delegations.jsonl` and records `brief_chars = len(full_brief)` (the
-  brief's text is never stored). Echoes the row as JSON; notes on stderr when the brief
-  exceeds `delegation.brief_char_limit`. This is the documented producer for the ledger
-  the brief-size and isolation checks read — it is a core command, not control-plane.
+  brief's text is never stored). `--brief-file` is **required** and read **without
+  newline translation**, so the recorded count is the brief's length exactly as
+  supplied; missing or unreadable input **exits 2 and writes no row** rather than
+  recording an unmeasured `brief_chars: 0`. Echoes the row as JSON; notes on stderr
+  when the brief exceeds `delegation.brief_char_limit`. This is the documented producer
+  for the ledger the brief-size and isolation checks read — a core command, not
+  control-plane.
 
 **Record mutation (`record <verb>`).** The sanctioned, structured way to change
 the record: each verb does an atomic, schema-validated write that preserves

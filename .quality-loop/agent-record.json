@@ -1,0 +1,407 @@
+{
+  "task_id": "pr11-rereview-2026-08-05",
+  "goal": "Apply the independent cross-family re-review findings to the enforcement-gates PR",
+  "acceptance_criteria": [
+    {
+      "criterion": "Isolation resolution is task-scoped: unrelated historical ledger rows never produce a same-family block",
+      "proving_command": "python3 scripts/quality_loop.py eval-cases evals/cases/39-isolation-evidence-historical-rows-ignored.json"
+    },
+    {
+      "criterion": "Malformed or unknown isolation evidence stays advisory; the only block needs both hosts equal and both families equal",
+      "proving_command": "python3 scripts/quality_loop.py eval-cases evals/cases/42-isolation-evidence-empty-object-advisory.json"
+    },
+    {
+      "criterion": "brief_chars has a shipped producer that records the brief's exact length end to end",
+      "proving_command": "python3 scripts/quality_loop.py eval-cases evals/cases/49-delegation-writer-brief-chars.json"
+    },
+    {
+      "criterion": "diff-audit emits no stderr for files absent at the base ref",
+      "proving_command": "python3 scripts/quality_loop.py eval-cases evals/cases/50-diff-audit-new-file-quiet-stderr.json"
+    },
+    {
+      "criterion": "--staged reads the post-change side from the index, not the working tree",
+      "proving_command": "python3 scripts/quality_loop.py eval-cases evals/cases/51-diff-audit-staged-reads-index.json"
+    },
+    {
+      "criterion": "check-version reads tags from the repo its file surfaces come from, release tags only",
+      "proving_command": "python3 scripts/quality_loop.py eval-cases evals/cases/52-version-tag-mixed-namespace-filtered.json"
+    },
+    {
+      "criterion": "All six core suites, the control add-on and the doc-count lint stay green at 287 canonical cases",
+      "proving_command": "python3 evals/run_evals.py"
+    }
+  ],
+  "constraints": [
+    "stdlib only; no version bumps (release surfaces stay at 6.6.0)",
+    "advisory gates must never become blocking; the one new block is an affirmative refutation",
+    "file territory must not overlap PR #10 beyond the documented CONTRIBUTING.md line"
+  ],
+  "non_goals": [
+    "proving runtime process isolation (only recorded ledger identity is compared)",
+    "folding case_release_version_parity onto check-version"
+  ],
+  "assumptions": [
+    "the delegation ledger is append-only and holds many unrelated historical tasks",
+    "records carry a task_id, so role-only evidence can still be task-scoped"
+  ],
+  "risk_tier": "medium",
+  "task_class": "bug_fix",
+  "implementer": "claude-opus-4-7",
+  "security_sensitive": false,
+  "verification_plan": [
+    "red-before-green: run each new CLI-driven case against the pre-fix code",
+    "all six core suites + control add-on + npm tests",
+    "diff-audit --base origin/main asserting empty stderr",
+    "combined main + #10 + #11 merge in a worktree"
+  ],
+  "validation_contract": {
+    "goal": "Prove each re-review finding is fixed by a case that is red before the fix and green after.",
+    "hypothesis": "Each finding names an observable wrong behavior, so each fix must be provable by a case that fails on the pre-fix code and passes after.",
+    "method": "red-before-green replay: revert the fix in place, run the new case, restore, re-run.",
+    "evidence": [
+      "case 50 pre-fix: FAIL \u2014 expected empty stderr; got \"fatal: path 'newmod.py' exists on disk, but not in 'HEAD~1'\"",
+      "case 51 pre-fix: FAIL \u2014 expected 'complexity' in stdout; advisory list was []",
+      "case 52 pre-fix: FAIL \u2014 tag: expected 'v6.6.1', got 'v6.7.0-rc1'",
+      "case 53 pre-fix: FAIL \u2014 unexpected 'latest-tag=None' in stdout",
+      "case 35 pre-fix advisory text differed, proving the resolution path actually changed",
+      "all 52 static cases pass after the fixes"
+    ],
+    "result": "confirmed"
+  },
+  "independent_review": {
+    "fresh_context": true,
+    "reviewer": "gpt-5-codex (cross-family: implementer is claude-opus-4-7)",
+    "patched": false,
+    "ran_checks": true,
+    "verdict": "request_changes",
+    "findings": [
+      "_implementer_identity took the first role-matching row across the whole append-only ledger; reviewer resolution likewise, so unrelated historical rows caused false same-family blocks.",
+      "Malformed isolation_evidence ({}, blank role, wrong types, missing host) resolved arbitrarily and could BLOCK; an unknown host was treated as 'not different'.",
+      "brief_chars had no producer: the canonical authoring workflow and example omitted it, so the gate fell back to len(brief_summary).",
+      "diff-audit printed raw 'fatal: path ... not in origin/main' for newly added Python files.",
+      "--staged complexity read the working tree instead of the index.",
+      "check-version ran git in the caller's cwd and accepted any tag namespace."
+    ],
+    "evidence": "/home/user/workspace/rereview_pr10_pr11.md \u2014 per-finding line numbers, reproductions and re-run verification tables",
+    "notes": "Reviewer arrived with fresh context on a different model family, re-ran the suites, reproduced each finding, and did not patch: every fix here is the implementer's, verified red-before-green where the behavior is observable.",
+    "diff_sha256": "188ef1e816614a9640dd54c514626735750e5a7f85bf391d37a05c28df8287dc",
+    "attested_at": "2026-08-05T18:22:04"
+  },
+  "security_review": null,
+  "completion_record": {
+    "goal": "Apply the independent cross-family re-review findings to the enforcement-gates PR",
+    "acceptance_criteria": [
+      "Isolation resolution is task-scoped: unrelated historical ledger rows never produce a same-family block",
+      "Malformed or unknown isolation evidence stays advisory; the only block needs both hosts equal and both families equal",
+      "brief_chars has a shipped producer that records the brief's exact length end to end",
+      "diff-audit emits no stderr for files absent at the base ref",
+      "--staged reads the post-change side from the index, not the working tree",
+      "check-version reads tags from the repo its file surfaces come from, release tags only",
+      "All six core suites, the control add-on and the doc-count lint stay green at 287 canonical cases"
+    ],
+    "summary": "Eight re-review findings across both PRs resolved: two blocking isolation-resolution bugs, the missing brief_chars producer, and four smaller correctness fixes, with 15 new static cases (39-53) and the docs restated to match final behavior.",
+    "evidence": "all six core suites + control add-on green; 52/52 static; npm 34/34; diff-audit blocking [] with empty stderr",
+    "residual_risk": "advisory-only grounding of review independence; see open_risks",
+    "files_changed": [
+      ".github/workflows/version-trust.yml",
+      "CHANGELOG.md",
+      "CONTRIBUTING.md",
+      "README.md",
+      "assets/agent-record.schema.json",
+      "assets/quality-loop.config.example.json",
+      "assets/quality-loop.config.schema.json",
+      "docs/comparison.md",
+      "docs/control-plane.md",
+      "docs/launch-kit.md",
+      "evals/README.md",
+      "evals/cases/24-version-trust-chain-consistent.json",
+      "evals/cases/25-version-trust-chain-file-mismatch.json",
+      "evals/cases/26-version-trust-chain-tag-lag.json",
+      "evals/cases/27-version-trust-chain-tag-lag-enforced.json",
+      "evals/cases/28-version-trust-chain-no-tags.json",
+      "evals/cases/29-delegation-brief-oversized-advisory.json",
+      "evals/cases/30-delegation-brief-within-limit.json",
+      "evals/cases/31-isolation-evidence-grounded.json",
+      "evals/cases/32-isolation-evidence-same-family.json",
+      "evals/cases/33-isolation-evidence-absent-advisory.json",
+      "evals/cases/34-isolation-evidence-no-ledger-silent.json",
+      "evals/cases/35-isolation-evidence-unresolvable-advisory.json",
+      "evals/cases/36-complexity-delta-advisory.json",
+      "evals/cases/37-complexity-delta-nested-scope-pruned.json",
+      "evals/cases/38-complexity-delta-below-threshold-silent.json",
+      "evals/cases/39-isolation-evidence-historical-rows-ignored.json",
+      "evals/cases/40-isolation-evidence-role-only-scoped-by-record.json",
+      "evals/cases/41-isolation-evidence-ambiguous-reviewer-rows.json",
+      "evals/cases/42-isolation-evidence-empty-object-advisory.json",
+      "evals/cases/43-isolation-evidence-blank-role-advisory.json",
+      "evals/cases/44-isolation-evidence-wrong-types-advisory.json",
+      "evals/cases/45-isolation-evidence-missing-host-advisory.json",
+      "evals/cases/46-isolation-evidence-same-host-different-family.json",
+      "evals/cases/47-isolation-evidence-unknown-task-advisory.json",
+      "evals/cases/48-isolation-evidence-implementer-ambiguous-advisory.json",
+      "evals/cases/49-delegation-writer-brief-chars.json",
+      "evals/cases/50-diff-audit-new-file-quiet-stderr.json",
+      "evals/cases/51-diff-audit-staged-reads-index.json",
+      "evals/cases/52-version-tag-mixed-namespace-filtered.json",
+      "evals/cases/53-version-tag-outside-repo-cwd.json",
+      "references/agentic-orchestration.md",
+      "references/enforcement-matrix.md",
+      "references/tool-contracts.md",
+      "scripts/quality_loop.py",
+      "scripts/quality_loop_control.py",
+      "scripts/quality_loop_core.py",
+      "scripts/quality_loop_routing.py"
+    ]
+  },
+  "repair_attempts": 0,
+  "repeated_failure": false,
+  "harness_update": null,
+  "repo_map": {
+    "entry_points": [
+      "scripts/quality_loop.py"
+    ],
+    "likely_files": [
+      "scripts/quality_loop.py",
+      "references/enforcement-matrix.md",
+      "references/agentic-orchestration.md",
+      "evals/cases/"
+    ],
+    "callers_checked": [
+      "collect_gate_findings",
+      "diff_audit",
+      "check_version",
+      "eval_cases"
+    ],
+    "tests": [
+      "evals/cases/39-53*.json",
+      "evals/run_evals.py"
+    ],
+    "patterns_to_follow": [
+      "advisory-by-default gates",
+      "eval case kinds via _EVAL_CASE_HANDLERS"
+    ]
+  },
+  "minimality_decision": {
+    "rung": "minimal_new_code",
+    "why": "The two blocking findings are resolution-logic bugs, fixed inside the existing helpers plus small shape guards. The major finding needed a real producer, so log-delegation is the smallest new command that measures a brief. The three minors are one-call changes (git_capture, index blob spec, cwd + a tag regex).",
+    "alternatives_rejected": [
+      "reuse: no existing command appends a ledger row, so brief_chars had no writer to reuse",
+      "existing_dependency: stdlib-only constraint rules out a git library for quiet blob reads"
+    ]
+  },
+  "plan": [
+    "task-scope isolation resolution and validate evidence shape before lookup",
+    "ship log-delegation and document it as the brief_chars producer",
+    "quiet base blob reads; read the index in staged mode",
+    "pin check-version's tag lookup to the repo root and release tags",
+    "sweep doc counts to 287 and restate behavior in enforcement-matrix.md + CHANGELOG"
+  ],
+  "commands_run": [
+    {
+      "cmd": "python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py",
+      "result": "pass",
+      "class": "build",
+      "evidence": "no output, exit 0"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json",
+      "result": "pass",
+      "class": "unit",
+      "evidence": "52/52 eval cases passed"
+    },
+    {
+      "cmd": "python3 evals/run_evals.py",
+      "result": "pass",
+      "class": "integration",
+      "evidence": "64/64 eval cases passed; canonical=287 derived_ok=True"
+    },
+    {
+      "cmd": "python3 evals/run_memory_evals.py",
+      "result": "pass",
+      "class": "integration",
+      "evidence": "33/33 memory eval cases passed"
+    },
+    {
+      "cmd": "python3 evals/run_reality_evals.py",
+      "result": "pass",
+      "class": "integration",
+      "evidence": "52/52 reality eval cases passed"
+    },
+    {
+      "cmd": "python3 evals/run_routing_evals.py",
+      "result": "pass",
+      "class": "integration",
+      "evidence": "30/30 routing eval cases passed"
+    },
+    {
+      "cmd": "python3 evals/run_hook_evals.py",
+      "result": "pass",
+      "class": "integration",
+      "evidence": "56/56 hook eval cases passed"
+    },
+    {
+      "cmd": "python3 evals/run_control_evals.py",
+      "result": "pass",
+      "class": "integration",
+      "evidence": "40/40 control-plane eval cases passed"
+    },
+    {
+      "cmd": "npm --prefix packages/npm test",
+      "result": "pass",
+      "class": "unit",
+      "evidence": "# tests 34 / # pass 34 / # fail 0"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json",
+      "result": "pass",
+      "class": "integration",
+      "evidence": "config ok"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py check-config quality-loop.config.json",
+      "result": "pass",
+      "class": "integration",
+      "evidence": "reviewer heterogeneity: verified (claude vs gpt); config ok"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py diff-audit --base origin/main",
+      "result": "pass",
+      "class": "integration",
+      "evidence": "blocking [] on 48 files; stderr 0 bytes (the new-file fatal: noise is gone)"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases/39-isolation-evidence-historical-rows-ignored.json",
+      "result": "pass",
+      "class": "unit",
+      "evidence": "1/1 eval cases passed"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases/42-isolation-evidence-empty-object-advisory.json",
+      "result": "pass",
+      "class": "unit",
+      "evidence": "1/1 eval cases passed"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases/49-delegation-writer-brief-chars.json",
+      "result": "pass",
+      "class": "unit",
+      "evidence": "1/1 eval cases passed"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases/50-diff-audit-new-file-quiet-stderr.json",
+      "result": "pass",
+      "class": "unit",
+      "evidence": "1/1 eval cases passed"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases/51-diff-audit-staged-reads-index.json",
+      "result": "pass",
+      "class": "unit",
+      "evidence": "1/1 eval cases passed"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases/52-version-tag-mixed-namespace-filtered.json",
+      "result": "pass",
+      "class": "unit",
+      "evidence": "1/1 eval cases passed"
+    }
+  ],
+  "open_risks": [
+    "Isolation grounding still compares recorded identities only; a forged same-task ledger row defeats it.",
+    "log-delegation is a convention, not an enforcement: a hand-written row may still omit brief_chars."
+  ],
+  "review_findings": [
+    {
+      "severity": "blocking",
+      "reviewer": "gpt-5-codex (independent, fresh context)",
+      "finding": "_implementer_identity took the first role-matching row across the whole append-only ledger; reviewer resolution likewise, so unrelated historical rows caused false same-family blocks.",
+      "resolution": "Reviewer and implementer are now resolved as a task-scoped pair (evidence task_id, else the record's), with conflicting rows treated as ambiguous -> advisory. Cases 39, 40, 41, 47, 48."
+    },
+    {
+      "severity": "blocking",
+      "reviewer": "gpt-5-codex (independent, fresh context)",
+      "finding": "Malformed isolation_evidence ({}, blank role, wrong types, missing host) resolved arbitrarily and could BLOCK; an unknown host was treated as 'not different'.",
+      "resolution": "Shape is validated before any lookup, and the block now requires affirmative equality of both recorded hosts AND both model families; unknown stays advisory. Cases 42-46."
+    },
+    {
+      "severity": "major",
+      "reviewer": "gpt-5-codex (independent, fresh context)",
+      "finding": "brief_chars had no producer: the canonical authoring workflow and example omitted it, so the gate fell back to len(brief_summary).",
+      "resolution": "log-delegation ships as the documented writer recording len(full_brief); the workflow, example, control-plane doc, tool contracts and matrix all name it. End-to-end case 49."
+    },
+    {
+      "severity": "minor",
+      "reviewer": "gpt-5-codex (independent, fresh context)",
+      "finding": "diff-audit printed raw 'fatal: path ... not in origin/main' for newly added Python files.",
+      "resolution": "_blob_at reads via git_capture; an absent blob is silent. Case 50 asserts empty stderr (red before the fix)."
+    },
+    {
+      "severity": "minor",
+      "reviewer": "gpt-5-codex (independent, fresh context)",
+      "finding": "--staged complexity read the working tree instead of the index.",
+      "resolution": "Staged mode reads the post-change side from ':path'. Case 51 stages a branchy version behind a reverted working tree (red before the fix)."
+    },
+    {
+      "severity": "minor",
+      "reviewer": "gpt-5-codex (independent, fresh context)",
+      "finding": "check-version ran git in the caller's cwd and accepted any tag namespace.",
+      "resolution": "The lookup runs with _REPO_ROOT as cwd and filters to ^v?\\d+\\.\\d+\\.\\d+$. Cases 52 and 53 (both red before the fix)."
+    }
+  ],
+  "next_action": "Await re-review of the pushed branch.",
+  "status": "done",
+  "files_touched": [
+    ".github/workflows/version-trust.yml",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "README.md",
+    "assets/agent-record.schema.json",
+    "assets/quality-loop.config.example.json",
+    "assets/quality-loop.config.schema.json",
+    "docs/comparison.md",
+    "docs/control-plane.md",
+    "docs/launch-kit.md",
+    "evals/README.md",
+    "evals/cases/24-version-trust-chain-consistent.json",
+    "evals/cases/25-version-trust-chain-file-mismatch.json",
+    "evals/cases/26-version-trust-chain-tag-lag.json",
+    "evals/cases/27-version-trust-chain-tag-lag-enforced.json",
+    "evals/cases/28-version-trust-chain-no-tags.json",
+    "evals/cases/29-delegation-brief-oversized-advisory.json",
+    "evals/cases/30-delegation-brief-within-limit.json",
+    "evals/cases/31-isolation-evidence-grounded.json",
+    "evals/cases/32-isolation-evidence-same-family.json",
+    "evals/cases/33-isolation-evidence-absent-advisory.json",
+    "evals/cases/34-isolation-evidence-no-ledger-silent.json",
+    "evals/cases/35-isolation-evidence-unresolvable-advisory.json",
+    "evals/cases/36-complexity-delta-advisory.json",
+    "evals/cases/37-complexity-delta-nested-scope-pruned.json",
+    "evals/cases/38-complexity-delta-below-threshold-silent.json",
+    "evals/cases/39-isolation-evidence-historical-rows-ignored.json",
+    "evals/cases/40-isolation-evidence-role-only-scoped-by-record.json",
+    "evals/cases/41-isolation-evidence-ambiguous-reviewer-rows.json",
+    "evals/cases/42-isolation-evidence-empty-object-advisory.json",
+    "evals/cases/43-isolation-evidence-blank-role-advisory.json",
+    "evals/cases/44-isolation-evidence-wrong-types-advisory.json",
+    "evals/cases/45-isolation-evidence-missing-host-advisory.json",
+    "evals/cases/46-isolation-evidence-same-host-different-family.json",
+    "evals/cases/47-isolation-evidence-unknown-task-advisory.json",
+    "evals/cases/48-isolation-evidence-implementer-ambiguous-advisory.json",
+    "evals/cases/49-delegation-writer-brief-chars.json",
+    "evals/cases/50-diff-audit-new-file-quiet-stderr.json",
+    "evals/cases/51-diff-audit-staged-reads-index.json",
+    "evals/cases/52-version-tag-mixed-namespace-filtered.json",
+    "evals/cases/53-version-tag-outside-repo-cwd.json",
+    "references/agentic-orchestration.md",
+    "references/enforcement-matrix.md",
+    "references/tool-contracts.md",
+    "scripts/quality_loop.py",
+    "scripts/quality_loop_control.py",
+    "scripts/quality_loop_core.py",
+    "scripts/quality_loop_routing.py"
+  ],
+  "self_review": {
+    "claims_verified": true,
+    "notes": "Each of the four CLI-observable fixes was re-run against the pre-fix code to confirm the new case fails first (recorded in the commit messages). Advisory gates stayed advisory: the only blocking path is the affirmative host+family match."
+  }
+}

@@ -102,7 +102,10 @@ malformed or half-flushed ledger is skipped, never crashing a gate.
   gate. An oversized hand-off brief signals context bloat, not a rule violation.
   `brief_chars` has a shipped producer — `log-delegation --brief-file <brief>`
   appends the row and records `len(full_brief)` — so the measurement comes from
-  the brief itself rather than from the truncated summary.
+  the brief itself rather than from the truncated summary. The invariant holds
+  end to end: the brief input is **required** (missing input exits 2 and writes no
+  row, instead of an unmeasured `brief_chars: 0`) and is read **without newline
+  translation**, so a CRLF brief is counted at its supplied length.
 - **Review isolation** (`isolation_evidence`, medium+ only) is graded, because
   the record cannot prove its own independence. Resolution is **task-scoped and
   fail-advisory**:

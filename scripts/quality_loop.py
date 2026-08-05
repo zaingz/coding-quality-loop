@@ -1380,31 +1380,52 @@ def _brief_summary_from(text: str) -> str:
     return ""
 
 
+def _read_brief_exactly(source: str) -> str:
+    """The brief's text **exactly as supplied** — no newline translation.
+
+    ``open(..., newline="")`` (and ``sys.stdin.buffer`` for ``-``) is deliberate:
+    the default universal-newline mode rewrites ``\r\n`` to ``\n``, so a CRLF
+    brief of 13 chars was measured as 11. ``brief_chars`` claims to be the length
+    of the brief the worker receives, so the read must not silently normalize it.
+
+    Raises OSError / UnicodeDecodeError; the caller turns those into exit 2.
+    """
+    if source == "-":
+        return sys.stdin.buffer.read().decode("utf-8")
+    with open(source, encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
 def log_delegation(args: argparse.Namespace) -> int:
     """Append one hand-off row to ``.quality-loop/delegations.jsonl``.
 
     This is the documented producer for the ledger: it reads the brief the worker
-    actually receives (``--brief-file``, or ``-`` for stdin) and records
+    actually receives (``--brief-file PATH``, or ``-`` for stdin) and records
     ``brief_chars = len(full brief)`` alongside a short ``brief_summary``. Without
     a writer that measures the real brief, the brief-size advisory could only see
     the summary's length, which is short by construction.
 
-    Append-only and stdlib-only; the ledger directory is created on demand. Exit 2
-    on unreadable input so a hand-off never proceeds with an unrecorded brief.
+    The brief input is **required**, and the text is read without newline
+    translation, because the row's whole value is that the measurement was
+    actually made on the real brief: a row with ``brief_chars: 0`` (or a
+    CRLF-normalized count) is worse than no row, since it looks measured and is
+    not. Append-only and stdlib-only; the ledger directory is created on demand.
+    Exit 2 on missing or unreadable input, so a hand-off never records a brief
+    length that was never taken.
     """
     root = Path(getattr(args, "cwd", None) or ".").resolve()
     source = getattr(args, "brief_file", None)
-    if source == "-":
-        brief = sys.stdin.read()
-    elif source:
-        try:
-            brief = Path(source).read_text(encoding="utf-8")
-        except OSError as exc:
-            print(f"log-delegation: cannot read --brief-file {source!r} ({exc.__class__.__name__})",
-                  file=sys.stderr)
-            return 2
-    else:
-        brief = ""
+    if not source:
+        print("log-delegation: --brief-file PATH is required (use '-' to read the brief from "
+              "stdin); brief_chars must be measured on the brief that is handed over, never "
+              "assumed", file=sys.stderr)
+        return 2
+    try:
+        brief = _read_brief_exactly(source)
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"log-delegation: cannot read --brief-file {source!r} ({exc.__class__.__name__})",
+              file=sys.stderr)
+        return 2
 
     summary = getattr(args, "brief_summary", None) or _brief_summary_from(brief)
     row: dict[str, Any] = {
@@ -2529,22 +2550,40 @@ def _eval_delegation_writer_case(case: dict[str, Any], expect: dict[str, Any]) -
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         brief_path = root / "brief.md"
-        brief_path.write_text(brief, encoding="utf-8")
+        # newline="" writes the brief byte-for-byte, so a case can supply CRLF and
+        # assert the recorded length is the length it handed over.
+        with open(brief_path, "w", encoding="utf-8", newline="") as handle:
+            handle.write(brief)
         cmd = [
             sys.executable, str(Path(__file__).resolve()), "log-delegation",
             "--task-id", spec.get("task_id", "t-writer"),
             "--role", spec.get("role", "reviewer"),
             "--host", spec.get("host", "codex"),
             "--model", spec.get("model", "gpt-5"),
-            "--brief-file", str(brief_path),
             "--cwd", str(root),
         ]
+        if not spec.get("omit_brief_file"):
+            cmd += ["--brief-file", str(brief_path)]
         if spec.get("ts"):
             cmd += ["--ts", spec["ts"]]
         proc = subprocess.run(cmd, capture_output=True, text=True)
+        ledger = root / ".quality-loop" / "delegations.jsonl"
+
+        # A case may assert the command REFUSES to write (missing brief input):
+        # the row must not exist, because a row that looks measured and is not is
+        # worse than no row at all.
+        if expect.get("must_fail"):
+            if proc.returncode == 0:
+                mismatches.append("expected a non-zero exit when the brief input is unusable")
+            for needle in expect.get("stderr_include", []):
+                if needle not in proc.stderr:
+                    mismatches.append(f"expected {needle!r} on stderr; got {proc.stderr.strip()!r}")
+            if ledger.exists():
+                mismatches.append(f"expected no ledger row; got {ledger.read_text()!r}")
+            return mismatches
+
         if proc.returncode != 0:
             return [f"log-delegation exited {proc.returncode}: {proc.stderr.strip()}"]
-        ledger = root / ".quality-loop" / "delegations.jsonl"
         if not ledger.is_file():
             return ["log-delegation wrote no delegation ledger"]
         rows = [json.loads(line) for line in ledger.read_text().splitlines() if line.strip()]
@@ -3495,7 +3534,7 @@ def main() -> int:
     p_deleg.add_argument("--role", required=True, help="Worker role, e.g. implementer / reviewer / security_reviewer")
     p_deleg.add_argument("--host", required=True, help="Harness the worker runs on, e.g. claude-code / codex / droid")
     p_deleg.add_argument("--model", required=True, help="Model id the worker runs")
-    p_deleg.add_argument("--brief-file", dest="brief_file", help="File holding the brief handed to the worker ('-' for stdin); its length is recorded as brief_chars")
+    p_deleg.add_argument("--brief-file", dest="brief_file", required=True, help="REQUIRED. File holding the brief handed to the worker ('-' for stdin); its exact length, newlines included, is recorded as brief_chars")
     p_deleg.add_argument("--brief-summary", dest="brief_summary", help="Short handle for the brief (default: its first line, capped)")
     p_deleg.add_argument("--expected-agent-name", dest="expected_agent_name", help="Agent/profile name the worker's session will report (default: the role)")
     p_deleg.add_argument("--session-id", dest="session_id", help="Worker session id when the spawning harness already knows it (enables a direct join)")

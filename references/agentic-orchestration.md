@@ -70,14 +70,28 @@ brief for you, so the count cannot drift from the text:
 ```bash
 python3 scripts/quality_loop.py log-delegation \
   --task-id T-42 --role reviewer --host codex --model gpt-5 \
-  --brief-file /tmp/reviewer-brief.md          # brief_chars = its exact length
+  --brief-file /tmp/reviewer-brief.md    # REQUIRED; brief_chars = its exact length
   # optional: --brief-summary, --expected-agent-name, --session-id, --ts, --cwd
 ```
 
+`--brief-file` is **required** — pass `-` to pipe the brief from stdin as it is
+handed over:
+
+```bash
+render_reviewer_brief | tee >(claude -p -) \
+  | python3 scripts/quality_loop.py log-delegation \
+      --task-id T-42 --role reviewer --host codex --model gpt-5 --brief-file -
+```
+
+There is deliberately no "log it without the brief" mode: a row whose
+`brief_chars` was never measured looks measured and is not, so the command exits
+2 with a message instead of writing `brief_chars: 0`. The brief is read **without
+newline translation**, so `brief_chars` is the length as supplied — a CRLF brief
+is not silently counted as if it were LF.
+
 It appends one row (creating `.quality-loop/` on demand), echoes it as JSON, and
-notes on stderr when the brief is over the advisory ceiling. Pass `-` to
-`--brief-file` to pipe the brief from stdin as it is handed over. Authoring rows
-by hand still works; then `brief_chars` is yours to keep honest.
+notes on stderr when the brief is over the advisory ceiling. Authoring rows by
+hand still works; then `brief_chars` is yours to keep honest.
 
 `expected_agent_name` is the name the worker's session will report (the profile/agent handle
 the host runs under); the control plane uses it to join the delegation to the session it ran

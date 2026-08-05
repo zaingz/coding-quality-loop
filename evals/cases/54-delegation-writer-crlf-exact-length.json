@@ -1,0 +1,26 @@
+{
+  "name": "delegation-writer-crlf-exact-length",
+  "check": "delegation_writer",
+  "description": "The brief is supplied with CRLF line endings. brief_chars must be the length of the brief as handed over (13 chars for 'alpha\\r\\nbeta\\r\\n'), so the read must not apply universal-newline translation -- Path.read_text() normalized CRLF to LF and recorded 11, understating every CRLF brief and, with it, the oversize advisory.",
+  "writer": {
+    "task_id": "t-writer-crlf",
+    "role": "reviewer",
+    "host": "codex",
+    "model": "gpt-5",
+    "brief": "alpha\r\nbeta\r\n",
+    "ts": "2026-08-05T10:00:00Z"
+  },
+  "expect": {
+    "brief_summary": "alpha",
+    "row_fields": [
+      "ts",
+      "task_id",
+      "role",
+      "host",
+      "model",
+      "brief_summary",
+      "brief_chars",
+      "expected_agent_name"
+    ]
+  }
+}

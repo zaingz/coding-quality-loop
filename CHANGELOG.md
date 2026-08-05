@@ -4,8 +4,8 @@
 
 Enforcement gates (PR #11), rebased onto 6.6.0. No version bump: the release
 surfaces stay at 6.6.0 until a release is cut.
-Suites: 52 static + 64 behavioral + 33 memory + 52 reality + 30 routing +
-56 hook = **287 core gate cases** (+40 control add-on).
+Suites: 54 static + 64 behavioral + 33 memory + 52 reality + 30 routing +
+56 hook = **289 core gate cases** (+40 control add-on).
 
 - **Version trust chain (`check-version`)**: one portable command pins the four
   release surfaces (npm `package.json`, `SKILL.md`, README badge,
@@ -35,10 +35,13 @@ Suites: 52 static + 64 behavioral + 33 memory + 52 reality + 30 routing +
   family all stay advisory. Compares recorded identities, not runtime process
   isolation.
 - **`log-delegation`**: the documented producer for the delegation ledger. Appends
-  one hand-off row and records `brief_chars = len(full_brief)` read from
-  `--brief-file` (or stdin), so the brief-size advisory measures the brief itself
-  instead of falling back to the truncated `brief_summary`. Metadata only — the
-  brief's text is never stored.
+  one hand-off row and records `brief_chars = len(full_brief)` read from the
+  **required** `--brief-file` (`-` for stdin), so the brief-size advisory measures
+  the brief itself instead of falling back to the truncated `brief_summary`. The
+  read applies no newline translation, so a CRLF brief is counted as supplied, and
+  missing or unreadable input exits 2 without writing a row — an unmeasured
+  `brief_chars: 0` looks measured and is not. Metadata only — the brief's text is
+  never stored.
 - **Advisory complexity delta in `diff-audit`**: per-function cyclomatic
   complexity (stdlib `ast`, nested scopes pruned) growing by
   `diff_audit.complexity_delta` (default 5) emits an advisory line. Never

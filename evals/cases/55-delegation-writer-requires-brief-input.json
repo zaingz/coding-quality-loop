@@ -1,0 +1,18 @@
+{
+  "name": "delegation-writer-requires-brief-input",
+  "check": "delegation_writer",
+  "description": "log-delegation is invoked with every identity argument but no brief input. It must REFUSE: the whole point of the row is that the measurement was taken on the real brief, so a valid-looking row with brief_chars: 0 and exit 0 is worse than no row -- it looks measured and is not. Non-zero exit, a stderr message naming --brief-file, and no ledger written.",
+  "writer": {
+    "task_id": "t-writer-missing",
+    "role": "reviewer",
+    "host": "codex",
+    "model": "gpt-5",
+    "omit_brief_file": true
+  },
+  "expect": {
+    "must_fail": true,
+    "stderr_include": [
+      "--brief-file"
+    ]
+  }
+}
