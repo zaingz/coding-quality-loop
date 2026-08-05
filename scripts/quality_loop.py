@@ -1345,6 +1345,86 @@ def _brief_size_advisories(delegations: list[dict[str, Any]], limit: int) -> lis
     return notes
 
 
+DELEGATION_LEDGER_NAME = "delegations.jsonl"
+# Ledger rows carry metadata only, never the brief's full text. brief_summary is
+# a short human handle; brief_chars is the TRUE length of the brief that was
+# handed over, which is the only number the brief-size advisory can trust.
+BRIEF_SUMMARY_MAX = 200
+
+
+def _brief_summary_from(text: str) -> str:
+    """A one-line handle for a brief: first non-empty line, capped."""
+    for line in text.splitlines():
+        line = line.strip().lstrip("#").strip()
+        if line:
+            return line[:BRIEF_SUMMARY_MAX]
+    return ""
+
+
+def log_delegation(args: argparse.Namespace) -> int:
+    """Append one hand-off row to ``.quality-loop/delegations.jsonl``.
+
+    This is the documented producer for the ledger: it reads the brief the worker
+    actually receives (``--brief-file``, or ``-`` for stdin) and records
+    ``brief_chars = len(full brief)`` alongside a short ``brief_summary``. Without
+    a writer that measures the real brief, the brief-size advisory could only see
+    the summary's length, which is short by construction.
+
+    Append-only and stdlib-only; the ledger directory is created on demand. Exit 2
+    on unreadable input so a hand-off never proceeds with an unrecorded brief.
+    """
+    root = Path(getattr(args, "cwd", None) or ".").resolve()
+    source = getattr(args, "brief_file", None)
+    if source == "-":
+        brief = sys.stdin.read()
+    elif source:
+        try:
+            brief = Path(source).read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"log-delegation: cannot read --brief-file {source!r} ({exc.__class__.__name__})",
+                  file=sys.stderr)
+            return 2
+    else:
+        brief = ""
+
+    summary = getattr(args, "brief_summary", None) or _brief_summary_from(brief)
+    row: dict[str, Any] = {
+        "ts": getattr(args, "ts", None) or _utc_now_iso(),
+        "task_id": args.task_id,
+        "role": args.role,
+        "host": args.host,
+        "model": args.model,
+        "brief_summary": summary[:BRIEF_SUMMARY_MAX],
+        # The measurement the advisory consumes. Recorded even when the brief text
+        # itself is never stored, which is the point: metadata only.
+        "brief_chars": len(brief),
+        "expected_agent_name": getattr(args, "expected_agent_name", None) or args.role,
+    }
+    session_id = getattr(args, "session_id", None)
+    if session_id:
+        row["session_id"] = session_id
+
+    ledger_dir = root / ".quality-loop"
+    try:
+        ledger_dir.mkdir(parents=True, exist_ok=True)
+        with (ledger_dir / DELEGATION_LEDGER_NAME).open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row) + "\n")
+    except OSError as exc:
+        print(f"log-delegation: cannot append to the delegation ledger ({exc.__class__.__name__})",
+              file=sys.stderr)
+        return 2
+
+    print(json.dumps(row))
+    limit = qlcore.brief_char_limit(_nearest_gate_config(ledger_dir))
+    if row["brief_chars"] > limit:
+        print(
+            f"note: this brief is {row['brief_chars']} chars (advisory limit {limit}); "
+            f"a tighter brief keeps the sub-agent's context focused",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def _nonempty_str(value: Any) -> str | None:
     """``value`` as a stripped non-empty string, else None (shape guard)."""
     if isinstance(value, str) and value.strip():
@@ -2412,12 +2492,89 @@ def _eval_complexity_case(case: dict[str, Any], expect: dict[str, Any]) -> list[
     return mismatches
 
 
+def _eval_delegation_writer_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """End-to-end test of the ledger PRODUCER, not just the consumer.
+
+    Runs ``log-delegation`` in a throwaway repo with a brief of a known length,
+    then reads the row back and (optionally) runs the real gates against the
+    ledger the writer produced. This is what proves the advisory is operationally
+    grounded: the writer must record the brief's exact char count, so the gate
+    never has to fall back to the short ``brief_summary``.
+    """
+    import subprocess
+    import tempfile
+
+    spec = case.get("writer", {})
+    brief = spec.get("brief", "")
+    mismatches: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        brief_path = root / "brief.md"
+        brief_path.write_text(brief, encoding="utf-8")
+        cmd = [
+            sys.executable, str(Path(__file__).resolve()), "log-delegation",
+            "--task-id", spec.get("task_id", "t-writer"),
+            "--role", spec.get("role", "reviewer"),
+            "--host", spec.get("host", "codex"),
+            "--model", spec.get("model", "gpt-5"),
+            "--brief-file", str(brief_path),
+            "--cwd", str(root),
+        ]
+        if spec.get("ts"):
+            cmd += ["--ts", spec["ts"]]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            return [f"log-delegation exited {proc.returncode}: {proc.stderr.strip()}"]
+        ledger = root / ".quality-loop" / "delegations.jsonl"
+        if not ledger.is_file():
+            return ["log-delegation wrote no delegation ledger"]
+        rows = [json.loads(line) for line in ledger.read_text().splitlines() if line.strip()]
+        if len(rows) != 1:
+            return [f"expected exactly one ledger row, got {len(rows)}"]
+        row = rows[0]
+
+        if row.get("brief_chars") != len(brief):
+            mismatches.append(
+                f"brief_chars: writer recorded {row.get('brief_chars')!r}, "
+                f"brief is {len(brief)} chars"
+            )
+        if "brief_summary" in expect and row.get("brief_summary") != expect["brief_summary"]:
+            mismatches.append(
+                f"brief_summary: expected {expect['brief_summary']!r}, got {row.get('brief_summary')!r}"
+            )
+        if expect.get("summary_shorter_than_brief") and len(row.get("brief_summary") or "") >= len(brief):
+            mismatches.append("brief_summary is not shorter than the brief; the fallback would be equivalent")
+        for field in expect.get("row_fields", []):
+            if field not in row:
+                mismatches.append(f"writer omitted required ledger field {field!r}")
+        if "stderr_note" in expect and expect["stderr_note"] not in proc.stderr:
+            mismatches.append(f"expected {expect['stderr_note']!r} on stderr; got {proc.stderr.strip()!r}")
+
+        # Now run the real gates against the ledger the writer just produced.
+        record = case.get("record")
+        if record is not None:
+            rec_path = root / "agent-record.json"
+            rec_path.write_text(json.dumps(record))
+            findings, notes = collect_gate_findings(record, rec_path, against_diff=False)
+            rc = 1 if findings else 0
+            if "gates_exit" in expect and expect["gates_exit"] != rc:
+                mismatches.append(f"gates_exit: expected {expect['gates_exit']}, got {rc} ({findings})")
+            for needle in expect.get("advisories_include", []):
+                if not any(needle in n for n in notes):
+                    mismatches.append(f"expected an advisory containing {needle!r}; got {notes}")
+            for needle in expect.get("advisories_exclude", []):
+                if any(needle in n for n in notes):
+                    mismatches.append(f"unexpected advisory containing {needle!r}; got {notes}")
+    return mismatches
+
+
 # Case kinds an eval case may pin via its "check" key (default: record_gates).
 # Each handler takes (case, expect) and returns a list of mismatch strings.
 _EVAL_CASE_HANDLERS = {
     "record_gates": _eval_record_case,
     "version": _eval_version_case,
     "complexity": _eval_complexity_case,
+    "delegation_writer": _eval_delegation_writer_case,
 }
 
 
@@ -3172,6 +3329,23 @@ def main() -> int:
         help="Hard-fail on a tag/file mismatch (auto-enabled on release-framed CI events)",
     )
     p_version.set_defaults(func=check_version)
+
+    p_deleg = sub.add_parser(
+        "log-delegation",
+        help="Append one worker hand-off to .quality-loop/delegations.jsonl "
+             "(records brief_chars = the true brief length)",
+    )
+    p_deleg.add_argument("--task-id", dest="task_id", required=True, help="Task this hand-off belongs to (scopes the isolation check)")
+    p_deleg.add_argument("--role", required=True, help="Worker role, e.g. implementer / reviewer / security_reviewer")
+    p_deleg.add_argument("--host", required=True, help="Harness the worker runs on, e.g. claude-code / codex / droid")
+    p_deleg.add_argument("--model", required=True, help="Model id the worker runs")
+    p_deleg.add_argument("--brief-file", dest="brief_file", help="File holding the brief handed to the worker ('-' for stdin); its length is recorded as brief_chars")
+    p_deleg.add_argument("--brief-summary", dest="brief_summary", help="Short handle for the brief (default: its first line, capped)")
+    p_deleg.add_argument("--expected-agent-name", dest="expected_agent_name", help="Agent/profile name the worker's session will report (default: the role)")
+    p_deleg.add_argument("--session-id", dest="session_id", help="Worker session id when the spawning harness already knows it (enables a direct join)")
+    p_deleg.add_argument("--ts", help="ISO-8601 hand-off timestamp (default: now, UTC)")
+    p_deleg.add_argument("--cwd", default=".", help="Repo root holding .quality-loop/ (default: current directory)")
+    p_deleg.set_defaults(func=log_delegation)
 
     p_eval = sub.add_parser("eval-cases", help="Run static eval cases against expected gates")
     p_eval.add_argument("cases_dir", help="Directory of *.json cases or a single case file")

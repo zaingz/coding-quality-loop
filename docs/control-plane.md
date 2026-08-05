@@ -90,8 +90,12 @@ lessons file). Recognized fields:
  "session_id": "3f0c9a2e-4b7d-4c1a-9e6f-8d2b5a1c0e73"}
 ```
 
-`brief_chars` is optional: the true char length of the brief handed to the
-worker (log it even when only a truncated `brief_summary` is kept). When it
+`brief_chars` is optional but strongly recommended: the true char length of the
+brief handed to the worker (log it even when only a truncated `brief_summary` is
+kept). The documented writer, `quality_loop.py log-delegation --brief-file
+<brief>`, records it as `len(full_brief)` so the count cannot drift from the
+text; see [agentic-orchestration.md](../references/agentic-orchestration.md).
+When it
 exceeds the advisory ceiling (`delegation.brief_char_limit` in
 `quality-loop.config.json`, default 4000), `verify-gates` and `control-report`
 emit a non-blocking note — an oversized brief signals context bloat, never a

@@ -1,0 +1,63 @@
+{
+  "name": "delegation-writer-records-exact-brief-length",
+  "check": "delegation_writer",
+  "description": "End-to-end over the ledger PRODUCER: `log-delegation` is handed a real brief file, and the row it appends must carry brief_chars equal to that brief's exact char count -- not the length of the short brief_summary it also records. The gates are then run against the exact ledger the writer produced, and the oversize advisory fires from the recorded measurement. Without a shipped writer the advisory could only ever see the summary (here ~26 chars vs a ~6k brief), so an oversized hand-off would never be reported.",
+  "writer": {
+    "task_id": "t-writer",
+    "role": "reviewer",
+    "host": "codex",
+    "model": "gpt-5",
+    "brief": "# Review the reviewer slice\n\nGoal: review the diff on the isolation gate slice.\n\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\ndetail line\n",
+    "ts": "2026-08-05T10:00:00Z"
+  },
+  "record": {
+    "task_id": "t-writer",
+    "goal": "Clarify the install step in README",
+    "task_class": "tiny",
+    "risk_tier": "low",
+    "acceptance_criteria": [
+      "README install step reads correctly; no behavior change"
+    ],
+    "verification_plan": [
+      "proofread rendered markdown"
+    ],
+    "minimality_decision": {
+      "rung": "edit-in-place",
+      "reason": "single-file copy edit"
+    },
+    "plan": [
+      "edit README"
+    ],
+    "commands_run": [
+      {
+        "cmd": "markdownlint README.md",
+        "class": "lint",
+        "result": "pass",
+        "evidence": "0 issues"
+      }
+    ],
+    "open_risks": [],
+    "review_findings": [],
+    "implementer": "agent-a",
+    "status": "done"
+  },
+  "expect": {
+    "gates_exit": 0,
+    "brief_summary": "Review the reviewer slice",
+    "summary_shorter_than_brief": true,
+    "row_fields": [
+      "ts",
+      "task_id",
+      "role",
+      "host",
+      "model",
+      "brief_summary",
+      "brief_chars",
+      "expected_agent_name"
+    ],
+    "stderr_note": "advisory limit 4000",
+    "advisories_include": [
+      "chars (advisory limit 4000)"
+    ]
+  }
+}

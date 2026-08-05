@@ -81,6 +81,9 @@ malformed or half-flushed ledger is skipped, never crashing a gate.
   `delegation.brief_char_limit` (config, default 4000). Over the ceiling emits a
   non-blocking `note:` in `verify-gates` and `control-report`; it never fails a
   gate. An oversized hand-off brief signals context bloat, not a rule violation.
+  `brief_chars` has a shipped producer — `log-delegation --brief-file <brief>`
+  appends the row and records `len(full_brief)` — so the measurement comes from
+  the brief itself rather than from the truncated summary.
 - **Review isolation** (`isolation_evidence`, medium+ only) is graded, because
   the record cannot prove its own independence. Resolution is **task-scoped and
   fail-advisory**:
