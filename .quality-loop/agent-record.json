@@ -71,7 +71,8 @@
       "all 52 static cases pass after the fixes",
       "case 54 pre-fix: FAIL \u2014 brief_chars: writer recorded 11, brief is 13 chars",
       "case 55 pre-fix: FAIL \u2014 exited 0 and wrote a row with brief_chars: 0 and an empty summary",
-      "manual: --brief-file omitted -> rc=2; --brief-file '' -> rc=2; CRLF via file and via stdin -> brief_chars 13"
+      "manual: --brief-file omitted -> rc=2; --brief-file '' -> rc=2; CRLF via file and via stdin -> brief_chars 13",
+      "case 53 pre-fix (tagless clone): FAIL \u2014 latest-tag depends on the caller's cwd ('latest-tag=v9.9.9' from an unrelated repo vs 'latest-tag=None' from the repo root)"
     ],
     "result": "confirmed"
   },
@@ -91,10 +92,11 @@
       "log-delegation did not reliably record the exact delegated brief length: --brief-file was optional, so omitting it silently appended a row with brief_chars: 0 at exit 0; and Path.read_text() applied universal-newline translation, so a 13-char CRLF brief was recorded as 11."
     ],
     "evidence": "/home/user/workspace/rereview_pr10_pr11.md (round 1: 8 findings), /home/user/workspace/rereview_round2.md (round 2: 7 of 8 verified resolved, one major remaining on the brief_chars producer), /home/user/workspace/rereview_round3.md (round 3: APPROVE at exact head 217b518, zero findings \u2014 targeted probes of the writer (omitted flag, unreadable path, CRLF via file and via stdin, empty file recording an integer 0), cases 49/54/55 individually, all eight suites green at that head, and the main + #10 + #11 test merge clean with 106/106 unit tests under both discovery forms)",
-    "notes": "Three independent fresh-context rounds by a different model family than the implementer. The reviewer never patched (patched: false) \u2014 every fix is the implementer's, each verified red before green \u2014 and re-ran the checks itself each round (ran_checks: true). Round 1 raised 8 findings; round 2 verified 7 resolved and raised one remaining major on the producer's exact-length invariant; round 3 verified that fix at the exact head 217b518 with zero findings and issued the approving verdict recorded here. The verdict was only moved to 'approve' after that verdict actually existed; it sat at request_changes through rounds 1-2. diff_sha256 is re-attested against origin/main at the reviewed head, and the canonical hash excludes .quality-loop/, so recording this verdict cannot alter the reviewed diff. The one remaining note is advisory by design: review independence here is self-attested because no delegation-ledger row exists for the review hand-off in this repo.",
+    "notes": "Three independent fresh-context rounds by a different model family than the implementer. The reviewer never patched (patched: false) \u2014 every fix is the implementer's, each verified red before green \u2014 and re-ran the checks itself each round (ran_checks: true). Round 1 raised 8 findings; round 2 verified 7 resolved and raised one remaining major on the producer's exact-length invariant; round 3 verified that fix at the exact head 217b518 with zero findings and issued the approving verdict recorded here. The verdict was only moved to 'approve' after that verdict actually existed; it sat at request_changes through rounds 1-2. diff_sha256 is re-attested against origin/main at the reviewed head, and the canonical hash excludes .quality-loop/, so recording this verdict cannot alter the reviewed diff. The one remaining note is advisory by design: review independence here is self-attested because no delegation-ledger row exists for the review hand-off in this repo. Post-approval delta: see post_review_delta -- a test-fixture assertion correction plus record bookkeeping, no gate-logic change.",
     "reviewed_head": "217b51874b6521b9a08183d3ba5809e7c6913638",
-    "diff_sha256": "77c4af67e062db4d69c5b8232eb9edb0bbcfe1d720fab44145096684f7050627",
-    "attested_at": "2026-08-05T18:59:59"
+    "post_review_delta": "One commit after the approved head 217b518 touches reviewed files: eval case 53's assertion was changed from a literal 'latest-tag=v...' (a property of the checkout, which made CI's tagless evals job fail on green code) to the invariant finding 6 was actually about -- the latest-tag token and exit code must be identical whether check-version runs from the repo root, from a non-repo directory, or from an unrelated repo tagged v9.9.9. Harness and fixture only (_eval_version_tag_case plus a new _tag_token helper): no gate logic changed, _latest_git_tag / _RELEASE_TAG_RE / version_consistency_findings are byte-identical, so the behavior reviewed at 217b518 is unchanged. Proved red-before-green in a --no-tags clone. The approving verdict below was issued at 217b518 and is carried forward on that basis; this delta has not itself been re-reviewed.",
+    "diff_sha256": "65f8f3fdbd3250169535fa4f74364e7fcba47abfd363d152e5043342eb2e2fe4",
+    "attested_at": "2026-08-05T19:08:06"
   },
   "security_review": null,
   "completion_record": {
@@ -340,6 +342,12 @@
       "result": "pass",
       "class": "unit",
       "evidence": "1/1 eval cases passed (rc=2, --brief-file named on stderr, no ledger row)"
+    },
+    {
+      "cmd": "python3 scripts/quality_loop.py eval-cases evals/cases/53-version-tag-outside-repo-cwd.json",
+      "result": "pass",
+      "class": "unit",
+      "evidence": "1/1 passed in the real repo AND in a --no-tags clone (git tag | wc -l = 0); FAILS against the pre-fix cwd-inheriting lookup in that same tagless clone with \"latest-tag depends on the caller's cwd: 'latest-tag=v9.9.9' from an unrelated repo tagged v9.9.9 vs 'latest-tag=None' from the repo root\""
     }
   ],
   "open_risks": [
@@ -381,7 +389,7 @@
       "severity": "minor",
       "reviewer": "gpt-5-codex (independent, fresh context)",
       "finding": "check-version ran git in the caller's cwd and accepted any tag namespace.",
-      "resolution": "The lookup runs with _REPO_ROOT as cwd and filters to ^v?\\d+\\.\\d+\\.\\d+$. Cases 52 and 53 (both red before the fix)."
+      "resolution": "The lookup runs with _REPO_ROOT as cwd and filters to ^v?\\d+\\.\\d+\\.\\d+$. Cases 52 and 53 (both red before the fix). Case 53 now asserts the cwd-invariance itself rather than a literal tag, so it holds at any checkout depth (the literal form failed CI's tagless checkout on green code)."
     },
     {
       "severity": "major",
