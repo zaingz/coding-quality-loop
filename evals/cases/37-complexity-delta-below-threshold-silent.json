@@ -1,0 +1,20 @@
+{
+  "name": "complexity-delta-nested-scope-pruned",
+  "description": "A function gains one branch and a branch-heavy nested closure. Only the closure is flagged (as a new function, measured against a straight-line baseline of 1); the parent is NOT charged for its closure's branches, pinning the nested-scope pruning that keeps a single thicket from being reported twice.",
+  "check": "complexity",
+  "complexity": {
+    "path": "lib/router.py",
+    "threshold": 5,
+    "before": "def route(req):\n    return req.path\n",
+    "after": "def route(req):\n    if req.path:\n        return req.path\n    def check(x):\n        if x:\n            if x > 1:\n                if x > 2:\n                    if x > 3:\n                        if x > 4:\n                            return x\n        return 0\n    return check(0)\n"
+  },
+  "expect": {
+    "advisory_count": 1,
+    "advisories_include": [
+      "lib/router.py:route.check"
+    ],
+    "advisories_exclude": [
+      "lib/router.py:route ("
+    ]
+  }
+}

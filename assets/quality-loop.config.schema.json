@@ -300,6 +300,21 @@
       },
       "additionalProperties": false
     },
+    "diff_audit": {
+      "type": "object",
+      "description": "Tunes diff-audit's advisory signals. Optional; absent = defaults.",
+      "properties": {
+        "complexity_delta": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-function cyclomatic-complexity growth that earns an advisory line in diff-audit (stdlib ast). Advisory only; never blocking. Default 5."
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
     "delegation": {
       "type": "object",
       "description": "Governs the orchestrator's delegation ledger (.quality-loop/delegations.jsonl). Optional; absent = defaults.",

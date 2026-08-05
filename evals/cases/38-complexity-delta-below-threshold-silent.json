@@ -1,0 +1,14 @@
+{
+  "name": "complexity-delta-below-threshold-silent",
+  "description": "An ordinary edit adds two branches to a function -- under the advisory threshold of 5 -- so diff-audit stays silent. This pins that the signal targets material complexity growth, not everyday conditionals.",
+  "check": "complexity",
+  "complexity": {
+    "path": "lib/router.py",
+    "threshold": 5,
+    "before": "def route(req):\n    return req.path\n",
+    "after": "def route(req):\n    if not req.path:\n        return None\n    if req.path.startswith('/api'):\n        return req.path[4:]\n    return req.path\n"
+  },
+  "expect": {
+    "advisory_count": 0
+  }
+}

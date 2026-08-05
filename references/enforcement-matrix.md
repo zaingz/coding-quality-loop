@@ -55,6 +55,20 @@ already pins the same four *file* surfaces in-tree. `check-version` adds the tag
 leg, the release-event enforcement, and a portable command a consumer repo can
 run; folding the eval onto it is a follow-up, not a claim made here.
 
+## Complexity delta (advisory, `diff-audit`)
+
+`diff-audit` scores each changed `.py` file's functions with stdlib `ast`
+(cyclomatic complexity; nested functions and classes are pruned so a closure is
+not charged to its parent twice) at the base ref and in the working tree. A
+function whose score grows by at least `diff_audit.complexity_delta` (config,
+default 5) earns an **advisory** line; new functions are measured against a
+straight-line baseline of 1.
+
+Advisory only, and deliberately so: a real feature legitimately adds branches,
+and `diff-audit` does not know the risk tier. The pre-commit hook keys off the
+exit code, so this never blocks a commit. Unparsable or unreadable files are
+silent rather than guessed at.
+
 ## Delegation ledger advisories
 
 When `.quality-loop/delegations.jsonl` is present (most repos have none, so this

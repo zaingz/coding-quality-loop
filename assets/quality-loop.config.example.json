@@ -309,6 +309,10 @@
     "retention_days": 90,
     "prices": {}
   },
+  "diff_audit": {
+    "description": "Tunes diff-audit's advisory signals. complexity_delta is the per-function cyclomatic-complexity growth (stdlib ast, no radon) that earns an ADVISORY line in diff-audit's output: a flat-line-count diff can still turn a readable function into a branch thicket. Advisory only -- a real feature legitimately adds branches, and diff-audit does not know the risk tier, so this never fails a commit or the pre-commit hook.",
+    "complexity_delta": 5
+  },
   "delegation": {
     "description": "Governs the orchestrator's append-only delegation ledger (.quality-loop/delegations.jsonl). brief_char_limit is an ADVISORY ceiling on hand-off brief size: an oversized brief emits a non-blocking note in verify-gates and control-report (context bloat / unfocused hand-off) but never fails a gate. Log the true brief length as brief_chars on each ledger line even when only a truncated brief_summary is kept.",
     "brief_char_limit": 4000

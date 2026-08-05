@@ -984,6 +984,38 @@ def is_migration_path(path: str) -> bool:
     return any(left == "db" and right == "migrate" for left, right in zip(parts, parts[1:]))
 
 
+def _blob_at(ref: str, path: str) -> str:
+    """File contents at ``ref`` ('' when the path did not exist there or is binary)."""
+    try:
+        return run_git(["show", f"{ref}:{path}"])
+    except SystemExit:
+        return ""
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def _complexity_delta_advisories(
+    files: list[str], base_ref: str | None, threshold: int
+) -> list[str]:
+    """Advisory notes for Python files whose functions got materially branchier.
+
+    ``base_ref`` None means the staged path: the pre-change side is then HEAD.
+    Comparison is old blob vs the working-tree file, so an unreadable or
+    unparsable side just yields no notes — this must never fail a commit.
+    """
+    notes: list[str] = []
+    for path in files:
+        if not path.endswith(".py"):
+            continue
+        before = _blob_at(base_ref or "HEAD", path)
+        try:
+            after = Path(path).read_text(errors="replace")
+        except (OSError, ValueError):
+            continue
+        notes.extend(qlcore.complexity_delta_findings(before, after, path, threshold))
+    return notes
+
+
 def diff_audit(args: argparse.Namespace) -> int:
     # Findings split by severity. blocking = a real correctness/safety problem
     # that must stop a commit (leaked secret, silently weakened test). advisory =
@@ -1108,6 +1140,17 @@ def diff_audit(args: argparse.Namespace) -> int:
     # diff-audit does not know the risk tier; verify-gates --against-diff
     # promotes the same hits to blocking at medium+.
     advisory.extend(qlcore.test_shrinkage_hits(patch, gate_markers))
+
+    # Complexity delta: a flat-line-count diff can still turn a readable function
+    # into a branch thicket. Advisory only — a real feature legitimately adds
+    # branches, and diff-audit does not know the risk tier.
+    advisory.extend(
+        _complexity_delta_advisories(
+            files,
+            None if staged else base_label,
+            qlcore.complexity_delta_threshold(qlcore.load_gate_config()),
+        )
+    )
 
     marker_count = sum(1 for line in patch.splitlines() if _SHORTCUT_MARKER_RE.search(line))
     if marker_count:
@@ -2253,11 +2296,39 @@ def _eval_version_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str
     return mismatches
 
 
+def _eval_complexity_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """Assert the complexity-delta advisory on inline before/after sources.
+
+    Inputs are literal source strings, so the case needs no git repository and no
+    temp checkout — it pins the pure function the diff-audit advisory calls.
+    """
+    spec = case.get("complexity", {})
+    notes = qlcore.complexity_delta_findings(
+        spec.get("before", ""),
+        spec.get("after", ""),
+        spec.get("path", "module.py"),
+        int(spec.get("threshold", qlcore.COMPLEXITY_DELTA_DEFAULT)),
+    )
+    mismatches: list[str] = []
+    if "advisory_count" in expect and expect["advisory_count"] != len(notes):
+        mismatches.append(
+            f"advisory_count: expected {expect['advisory_count']}, got {len(notes)} ({notes})"
+        )
+    for needle in expect.get("advisories_include", []):
+        if not any(needle in n for n in notes):
+            mismatches.append(f"expected an advisory containing {needle!r}; got {notes}")
+    for needle in expect.get("advisories_exclude", []):
+        if any(needle in n for n in notes):
+            mismatches.append(f"unexpected advisory containing {needle!r}; got {notes}")
+    return mismatches
+
+
 # Case kinds an eval case may pin via its "check" key (default: record_gates).
 # Each handler takes (case, expect) and returns a list of mismatch strings.
 _EVAL_CASE_HANDLERS = {
     "record_gates": _eval_record_case,
     "version": _eval_version_case,
+    "complexity": _eval_complexity_case,
 }
 
 
