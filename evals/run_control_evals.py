@@ -14,7 +14,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -29,8 +28,7 @@ import quality_loop_control as ctl  # noqa: E402
 SHIM = ROOT / "hosts" / "claude-code" / "control_plane.py"
 QL = ROOT / "scripts" / "quality_loop.py"
 
-PASS = "PASS"
-FAIL = "FAIL"
+from _harness import FAIL, PASS, main_loop  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -1779,32 +1777,20 @@ CASES = [
 ]
 
 
-def main() -> int:
-    failures = 0
-    for name, fn in CASES:
-        with tempfile.TemporaryDirectory() as td:
-            # Hermetic per case: point every host-side source at the tempdir so
-            # the suite never reads the developer's real ~/.claude, ~/.codex,
-            # or ~/.factory data (cases that need a source create their own).
-            saved = {var: os.environ.get(var) for var in
-                     ("CLAUDE_CONFIG_DIR", "CODEX_SESSIONS_DIR", "DROID_WRAPPER_LOG")}
-            os.environ["CODEX_SESSIONS_DIR"] = str(Path(td) / "no-codex-sessions")
-            os.environ["DROID_WRAPPER_LOG"] = str(Path(td) / "no-droid-log.jsonl")
-            try:
-                ok, detail = fn(Path(td))
-            except Exception as exc:  # noqa: BLE001
-                ok, detail = False, f"exception: {exc!r}"
-            finally:
-                for var, value in saved.items():
-                    if value is None:
-                        os.environ.pop(var, None)
-                    else:
-                        os.environ[var] = value
-        print(f"[{PASS if ok else FAIL}] {name}\n        {detail}")
-        failures += 0 if ok else 1
-    print(f"\n{len(CASES) - failures}/{len(CASES)} control-plane eval cases passed")
-    return 1 if failures else 0
+# Hermetic per case: point every host-side source at the tempdir so the suite
+# never reads the developer's real ~/.claude, ~/.codex, or ~/.factory data
+# (cases that need a source create their own).
+def _hermetic_env(td: Path) -> dict[str, str]:
+    return {
+        "CODEX_SESSIONS_DIR": str(td / "no-codex-sessions"),
+        "DROID_WRAPPER_LOG": str(td / "no-droid-log.jsonl"),
+    }
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main_loop(
+        CASES,
+        "control-plane eval cases passed",
+        preserve_env=("CLAUDE_CONFIG_DIR", "CODEX_SESSIONS_DIR", "DROID_WRAPPER_LOG"),
+        env_for_case=_hermetic_env,
+    ))

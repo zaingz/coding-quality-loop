@@ -27,22 +27,19 @@ Cases (record↔reality verification):
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "scripts" / "quality_loop.py"
 
 sys.path.insert(0, str(ROOT / "scripts"))
 import quality_loop_core as qlcore  # noqa: E402
 import quality_loop_reality as qlreal  # noqa: E402
 
-PASS = "PASS"
-FAIL = "FAIL"
+from _harness import FAIL, PASS, main_loop  # noqa: E402
+from _harness import run_cli as _harness_run_cli  # noqa: E402
 
 
 def run_cli(
@@ -53,20 +50,9 @@ def run_cli(
 ) -> tuple[int, str, str]:
     # QUALITY_LOOP_BASE is scrubbed by default so a developer's ambient env
     # cannot change what these cases pin; pass env explicitly to test it.
-    run_env = {k: v for k, v in os.environ.items() if k != "QUALITY_LOOP_BASE"}
-    if env:
-        run_env.update(env)
-    proc = subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=cwd,
-        input=stdin,
-        env=run_env,
-        check=False,
+    return _harness_run_cli(
+        *args, cwd=cwd, stdin=stdin, env=env, scrub_env=("QUALITY_LOOP_BASE",)
     )
-    return proc.returncode, proc.stdout, proc.stderr
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -1829,22 +1815,5 @@ CASES = [
 ]
 
 
-def main() -> int:
-    failures = 0
-    for name, fn in CASES:
-        with tempfile.TemporaryDirectory() as td:
-            try:
-                ok, detail = fn(Path(td))
-            except Exception as exc:  # noqa: BLE001 - eval harness surfaces any error
-                ok, detail = False, f"exception: {exc!r}"
-        status = PASS if ok else FAIL
-        if not ok:
-            failures += 1
-        print(f"[{status}] {name}\n        {detail}")
-    total = len(CASES)
-    print(f"\n{total - failures}/{total} reality eval cases passed")
-    return 1 if failures else 0
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main_loop(CASES, "reality eval cases passed"))
