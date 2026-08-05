@@ -1,0 +1,20 @@
+{
+  "name": "version-trust-chain-consistent",
+  "description": "Every shipped version surface (npm package.json, SKILL.md frontmatter, README badge, GitHub example ref) and the latest git tag agree. The trust chain passes with no errors and no warnings, even under release-CI enforcement.",
+  "check": "version",
+  "version": {
+    "surfaces": {
+      "packages/npm/package.json": "6.6.0",
+      "SKILL.md": "6.6.0",
+      "README.md badge": "6.6.0",
+      "hosts/github/quality-loop-example.yml": "6.6.0"
+    },
+    "tag": "v6.6.0",
+    "enforce_tag": true
+  },
+  "expect": {
+    "exit": 0,
+    "errors_exclude": ["mismatch"],
+    "warnings_exclude": ["tag"]
+  }
+}

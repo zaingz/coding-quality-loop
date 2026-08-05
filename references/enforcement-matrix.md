@@ -31,6 +31,30 @@ Two SKILL.md imperatives have no deterministic owner and are **advisory** by des
 Records may carry optional `diff_sha256` (attest-review), `files_changed`
 (completion record), and `red_green` (commands_run) fields.
 
+## Version trust chain (`check-version`)
+
+A project whose brand is checkable claims must be able to prove its own release
+surface. `check-version` asserts that every shipped version surface agrees:
+`packages/npm/package.json`, the `SKILL.md` frontmatter, the README version
+badge, and the shipped GitHub example's action ref — plus the latest git tag.
+
+- **File-to-file drift is always an error** (exit 1), locally and in CI: those
+  four files ship together, and the badge and the example ref have shipped stale
+  before (caught in the v6.5.0 review).
+- **A tag that lags the files is a warning**, not an error: between releases main
+  legitimately sits ahead of the newest tag. The tag leg is hard-enforced only on
+  a release-framed CI event — a push to `main`, a tag push, or a published
+  release (`_ci_enforces_tag`) — or when `--enforce-tag` is passed explicitly.
+- **No tags at all is always a warning**: a shallow or fresh clone has none, and
+  that is a clone artifact, not a release-surface defect.
+
+`.github/workflows/version-trust.yml` runs the check on PRs (advisory tag leg)
+and on main/tag/release events (enforced), with `fetch-depth: 0` so tags exist.
+Overlap, stated plainly: `evals/run_evals.py::case_release_version_parity`
+already pins the same four *file* surfaces in-tree. `check-version` adds the tag
+leg, the release-event enforcement, and a portable command a consumer repo can
+run; folding the eval onto it is a follow-up, not a claim made here.
+
 ## Helper integrity
 
 The helper itself is a file in the workspace, and a live eval (webapp,

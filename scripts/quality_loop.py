@@ -2026,21 +2026,88 @@ def cmd_brief(args: argparse.Namespace) -> int:
 
 
 
-def _run_case_gates(record: dict[str, Any]) -> tuple[int, list[str]]:
+def _run_case_gates(record: dict[str, Any]) -> tuple[int, list[str], list[str]]:
     """Run the real gate logic on a record in-process, capturing findings.
 
     Writes the record to a temp file (artifact paths resolve relative to it) and
     consumes the structured findings ``collect_gate_findings`` returns — no
     stdout-prefix parsing, and no parallel classifier to drift from the
-    shipping gate.
+    shipping gate. Returns ``(exit_code, findings, notes)``: notes are the
+    advisory lines the CLI prints as ``note:``, so a case can pin an advisory
+    without the advisory becoming blocking.
     """
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
         rec_path = Path(tmp) / "agent-record.json"
         rec_path.write_text(json.dumps(record))
-        findings, _notes = collect_gate_findings(record, rec_path, against_diff=False)
-    return (1 if findings else 0), findings
+        findings, notes = collect_gate_findings(record, rec_path, against_diff=False)
+    return (1 if findings else 0), findings, notes
+
+
+def _eval_record_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """Assert the record gates: risk floor, gate exit, findings and advisories."""
+    record = case.get("record", {})
+    mismatches: list[str] = []
+
+    floor, markers = detect_risk_floor(record)
+    gates_rc, findings, advisories = _run_case_gates(record)
+
+    if "risk_floor" in expect and expect["risk_floor"] != floor:
+        mismatches.append(f"risk_floor: expected {expect['risk_floor']!r}, got {floor!r}")
+    for marker in expect.get("floor_markers", []):
+        if marker not in markers:
+            mismatches.append(f"floor_markers missing {marker!r} (got {markers})")
+    if "gates_exit" in expect and expect["gates_exit"] != gates_rc:
+        mismatches.append(f"gates_exit: expected {expect['gates_exit']}, got {gates_rc}")
+    for needle in expect.get("findings_include", []):
+        if not any(needle in f for f in findings):
+            mismatches.append(f"expected a finding containing {needle!r}; got {findings}")
+    for needle in expect.get("findings_exclude", []):
+        if any(needle in f for f in findings):
+            mismatches.append(f"unexpected finding containing {needle!r}; got {findings}")
+    for needle in expect.get("advisories_include", []):
+        if not any(needle in a for a in advisories):
+            mismatches.append(f"expected an advisory containing {needle!r}; got {advisories}")
+    for needle in expect.get("advisories_exclude", []):
+        if any(needle in a for a in advisories):
+            mismatches.append(f"unexpected advisory containing {needle!r}; got {advisories}")
+    return mismatches
+
+
+def _eval_version_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """Assert the version trust chain against explicit inputs (no git, no env)."""
+    spec = case.get("version", {})
+    errors, warnings = version_consistency_findings(
+        spec.get("surfaces", {}),
+        spec.get("tag"),
+        enforce_tag=bool(spec.get("enforce_tag")),
+    )
+    rc = 1 if errors else 0
+    mismatches: list[str] = []
+    if "exit" in expect and expect["exit"] != rc:
+        mismatches.append(f"exit: expected {expect['exit']}, got {rc} (errors={errors})")
+    for needle in expect.get("errors_include", []):
+        if not any(needle in e for e in errors):
+            mismatches.append(f"expected an error containing {needle!r}; got {errors}")
+    for needle in expect.get("errors_exclude", []):
+        if any(needle in e for e in errors):
+            mismatches.append(f"unexpected error containing {needle!r}; got {errors}")
+    for needle in expect.get("warnings_include", []):
+        if not any(needle in w for w in warnings):
+            mismatches.append(f"expected a warning containing {needle!r}; got {warnings}")
+    for needle in expect.get("warnings_exclude", []):
+        if any(needle in w for w in warnings):
+            mismatches.append(f"unexpected warning containing {needle!r}; got {warnings}")
+    return mismatches
+
+
+# Case kinds an eval case may pin via its "check" key (default: record_gates).
+# Each handler takes (case, expect) and returns a list of mismatch strings.
+_EVAL_CASE_HANDLERS = {
+    "record_gates": _eval_record_case,
+    "version": _eval_version_case,
+}
 
 
 def eval_cases(args: argparse.Namespace) -> int:
@@ -2064,26 +2131,16 @@ def eval_cases(args: argparse.Namespace) -> int:
     for case_file in case_files:
         case = load_json(case_file)
         name = case.get("name", case_file.stem)
-        record = case.get("record", {})
         expect = case.get("expect", {})
-        mismatches: list[str] = []
-
-        floor, markers = detect_risk_floor(record)
-        gates_rc, findings = _run_case_gates(record)
-
-        if "risk_floor" in expect and expect["risk_floor"] != floor:
-            mismatches.append(f"risk_floor: expected {expect['risk_floor']!r}, got {floor!r}")
-        for marker in expect.get("floor_markers", []):
-            if marker not in markers:
-                mismatches.append(f"floor_markers missing {marker!r} (got {markers})")
-        if "gates_exit" in expect and expect["gates_exit"] != gates_rc:
-            mismatches.append(f"gates_exit: expected {expect['gates_exit']}, got {gates_rc}")
-        for needle in expect.get("findings_include", []):
-            if not any(needle in f for f in findings):
-                mismatches.append(f"expected a finding containing {needle!r}; got {findings}")
-        for needle in expect.get("findings_exclude", []):
-            if any(needle in f for f in findings):
-                mismatches.append(f"unexpected finding containing {needle!r}; got {findings}")
+        kind = case.get("check", "record_gates")
+        handler = _EVAL_CASE_HANDLERS.get(kind)
+        if handler is None:
+            mismatches: list[str] = [
+                f"unknown case check kind: {kind!r} "
+                f"(known: {sorted(_EVAL_CASE_HANDLERS)})"
+            ]
+        else:
+            mismatches = handler(case, expect)
 
         total += 1
         if mismatches:
@@ -2180,6 +2237,149 @@ def helper_integrity() -> dict[str, str]:
         except OSError:
             out[name] = "missing"
     return out
+
+
+# ---------------------------------------------------------------------------
+# Version trust chain
+# ---------------------------------------------------------------------------
+# For a project whose brand is checkable claims, the release surface itself must
+# pass a gate: every shipped version surface (npm package.json, SKILL.md
+# frontmatter, the README badge, the shipped GitHub example's action ref) and the
+# latest git tag must agree. File-to-file drift is a hard failure everywhere
+# (those files ship together). A tag that lags the files is normal BETWEEN
+# releases, so it is a local warning, hard-failed only on a release-framed CI
+# event (a push to main, a tag push, or a published release) where the tag is
+# supposed to have caught up.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_SKILL_VERSION_RE = re.compile(r"^\s*version:\s*\"?([0-9][^\"\n]*?)\"?\s*$", re.MULTILINE)
+_BADGE_VERSION_RE = re.compile(r"badge/version-([0-9][0-9.]*)-")
+_GH_EXAMPLE_REF_RE = re.compile(r"coding-quality-loop@v([0-9][0-9.]*)")
+
+
+def _read_json_version(path: Path) -> str | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    version = data.get("version") if isinstance(data, dict) else None
+    return version if isinstance(version, str) and version.strip() else None
+
+
+def _read_matched_version(path: Path, pattern: re.Pattern[str], *, frontmatter: bool = False) -> str | None:
+    """First capture group of ``pattern`` in ``path``, or None when unreadable.
+
+    ``frontmatter=True`` restricts the search to the leading YAML block so a
+    ``version:`` line in the body can never be mistaken for the shipped version.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if frontmatter and text.startswith("---"):
+        end = text.find("\n---", 3)
+        text = text[: end if end != -1 else len(text)]
+    match = pattern.search(text)
+    return match.group(1).strip() if match else None
+
+
+def version_surfaces(root: Path) -> dict[str, str | None]:
+    """Every shipped version surface, keyed by label (None = unreadable/absent)."""
+    return {
+        "packages/npm/package.json": _read_json_version(root / "packages" / "npm" / "package.json"),
+        "SKILL.md": _read_matched_version(root / "SKILL.md", _SKILL_VERSION_RE, frontmatter=True),
+        "README.md badge": _read_matched_version(root / "README.md", _BADGE_VERSION_RE),
+        "hosts/github/quality-loop-example.yml": _read_matched_version(
+            root / "hosts" / "github" / "quality-loop-example.yml", _GH_EXAMPLE_REF_RE
+        ),
+    }
+
+
+def _latest_git_tag() -> str | None:
+    """Most recent semver-ish tag, or None when the repo has no tags.
+
+    A shallow or fresh clone legitimately has no tags, so None is never itself an
+    error — the caller downgrades it to a warning.
+    """
+    code, out, _ = qlcore.git_capture(["tag", "--sort=-v:refname"])
+    if code != 0:
+        return None
+    for line in out.splitlines():
+        tag = line.strip()
+        if tag:
+            return tag
+    return None
+
+
+def _ci_enforces_tag() -> bool:
+    """True on a release-framed CI event, where the tag must match the files.
+
+    A push to main, a tag push, or a published release is where the tag is
+    expected to have caught up. Ordinary PR CI only warns, so a tag that
+    intentionally lags the files does not block a feature PR.
+    """
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return False
+    if os.environ.get("GITHUB_EVENT_NAME") == "release":
+        return True
+    ref = os.environ.get("GITHUB_REF", "")
+    return ref == "refs/heads/main" or ref.startswith("refs/tags/")
+
+
+def version_consistency_findings(
+    surfaces: dict[str, str | None],
+    tag: str | None,
+    *,
+    enforce_tag: bool,
+) -> tuple[list[str], list[str]]:
+    """Pure version trust-chain check. Returns ``(errors, warnings)``.
+
+    - An unreadable surface, or any surface disagreeing with the reference (the
+      first readable surface, in insertion order), is always an error: these
+      files ship together.
+    - Tag vs files is an error only when ``enforce_tag`` (a release-framed CI
+      event), otherwise a warning. A missing tag is always a warning.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    reference_label = next((k for k, v in surfaces.items() if v is not None), None)
+    reference = surfaces.get(reference_label) if reference_label else None
+    for label, value in surfaces.items():
+        if value is None:
+            errors.append(f"could not read a version from {label}")
+        elif reference is not None and value != reference:
+            errors.append(
+                f"version mismatch: {label} is {value!r} but {reference_label} is "
+                f"{reference!r} (they ship together and must match)"
+            )
+
+    tag_version = tag[1:] if isinstance(tag, str) and tag.startswith("v") else tag
+    if tag is None:
+        warnings.append("no git tags found; skipping the tag leg of the trust chain")
+    elif reference is not None and tag_version != reference:
+        msg = f"latest git tag {tag!r} does not match the file version {reference!r}"
+        (errors if enforce_tag else warnings).append(
+            msg + ("" if enforce_tag else " (warning locally; enforced on release CI)")
+        )
+    return errors, warnings
+
+
+def check_version(args: argparse.Namespace) -> int:
+    surfaces = version_surfaces(_REPO_ROOT)
+    tag = _latest_git_tag()
+    enforce_tag = bool(getattr(args, "enforce_tag", False)) or _ci_enforces_tag()
+
+    errors, warnings = version_consistency_findings(surfaces, tag, enforce_tag=enforce_tag)
+    rendered = " ".join(f"{label}={value}" for label, value in surfaces.items())
+    print(
+        "versions: %s latest-tag=%s (tag %s)"
+        % (rendered, tag, "enforced" if enforce_tag else "advisory")
+    )
+    for warning in warnings:
+        print(f"warning: {warning}")
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    return 1 if errors else 0
 
 
 # File suffixes that never count as the "one new source file" of an
@@ -2650,6 +2850,17 @@ def main() -> int:
     p_config = sub.add_parser("check-config", help="Validate an orchestration config")
     p_config.add_argument("config")
     p_config.set_defaults(func=check_config)
+
+    p_version = sub.add_parser(
+        "check-version",
+        help="Assert every shipped version surface and the latest git tag agree",
+    )
+    p_version.add_argument(
+        "--enforce-tag",
+        action="store_true",
+        help="Hard-fail on a tag/file mismatch (auto-enabled on release-framed CI events)",
+    )
+    p_version.set_defaults(func=check_version)
 
     p_eval = sub.add_parser("eval-cases", help="Run static eval cases against expected gates")
     p_eval.add_argument("cases_dir", help="Directory of *.json cases or a single case file")

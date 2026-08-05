@@ -1,0 +1,33 @@
+name: version trust chain
+
+# The release surface gets its own gate: every shipped version surface (npm
+# package.json, SKILL.md frontmatter, the README badge, the shipped GitHub
+# example's action ref) plus the latest git tag must agree.
+#
+# This is a separate workflow rather than a step in evals.yml on purpose: it
+# needs `fetch-depth: 0` (tags), and the tag leg is enforced only on release-
+# framed events, so it has a different checkout and a different meaning from the
+# eval matrix.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  release:
+    types: [published]
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags are needed for the tag leg of the trust chain. PR builds only
+          # warn on a lagging tag; main / tag pushes / releases enforce it (see
+          # check_version._ci_enforces_tag).
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Version trust chain (all shipped surfaces == latest tag)
+        run: python3 scripts/quality_loop.py check-version
