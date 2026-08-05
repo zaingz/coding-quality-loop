@@ -2690,6 +2690,19 @@ def _eval_diff_audit_cli_case(case: dict[str, Any], expect: dict[str, Any]) -> l
     return mismatches
 
 
+def _tag_token(stdout: str) -> str | None:
+    """The ``latest-tag=<value>`` token of a ``check-version`` run, or None.
+
+    Used to compare two runs by the only field the caller's cwd could have
+    influenced, without pinning the test to whatever tag this checkout happens to
+    carry.
+    """
+    for word in stdout.split():
+        if word.startswith("latest-tag="):
+            return word
+    return None
+
+
 def _eval_version_tag_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
     """Exercise the tag leg of ``check-version`` against real git tags.
 
@@ -2699,8 +2712,13 @@ def _eval_version_tag_case(case: dict[str, Any], expect: dict[str, Any]) -> list
     * ``tags``: build a throwaway repo carrying those tags and assert which one
       ``_latest_git_tag`` selects (release tags only).
     * ``outside_repo``: run the ``check-version`` CLI from a directory that is not
-      a git repo at all and assert it still reports this repo's tag, because the
-      lookup is pinned to the repo the file surfaces are read from.
+      a git repo at all and assert its answer is *identical* to the same command
+      run from the repo root, because the lookup is pinned to the repo the file
+      surfaces are read from rather than to the caller's cwd. The assertion is
+      deliberately an invariance, not a literal tag: a shallow or tagless checkout
+      (CI's ``actions/checkout`` without ``fetch-depth: 0``) legitimately reports
+      ``latest-tag=None``, and the property under test — cwd cannot change the
+      answer — holds there too.
     """
     import subprocess
     import tempfile
@@ -2712,15 +2730,50 @@ def _eval_version_tag_case(case: dict[str, Any], expect: dict[str, Any]) -> list
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         if spec.get("outside_repo"):
-            proc = subprocess.run(
-                [sys.executable, str(Path(__file__).resolve()), "check-version"],
-                cwd=root, env=env, capture_output=True, text=True,
-            )
+            cmd = [sys.executable, str(Path(__file__).resolve()), "check-version"]
+            proc = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
             if "exit_code" in expect and proc.returncode != expect["exit_code"]:
                 mismatches.append(
                     f"exit_code: expected {expect['exit_code']}, got {proc.returncode} "
                     f"({proc.stdout.strip()} | {proc.stderr.strip()})"
                 )
+            if expect.get("same_answer_from_repo_root"):
+                inside = subprocess.run(cmd, cwd=_REPO_ROOT, env=env,
+                                        capture_output=True, text=True)
+                reference = _tag_token(inside.stdout)
+                runs = [("a directory that is not a git repo", proc)]
+                decoy = spec.get("decoy_tag")
+                if decoy:
+                    # A second caller cwd that IS a repo, carrying a tag this repo
+                    # cannot legitimately report. Without it the case cannot fail in
+                    # a tagless checkout (None == None); with it, a lookup that
+                    # inherits the caller's cwd reports the decoy and is caught at
+                    # any checkout depth.
+                    other = root / "unrelated"
+                    other.mkdir()
+                    for args in (["init", "-q", "-b", "main", "."],
+                                 ["config", "user.email", "eval@example.com"],
+                                 ["config", "user.name", "eval"]):
+                        subprocess.run(["git", *args], cwd=other, env=env, check=True,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    (other / "seed.txt").write_text("seed\n", encoding="utf-8")
+                    for args in (["add", "-A"], ["commit", "-qm", "base"], ["tag", decoy]):
+                        subprocess.run(["git", *args], cwd=other, env=env, check=True,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    runs.append((f"an unrelated repo tagged {decoy}",
+                                 subprocess.run(cmd, cwd=other, env=env,
+                                                capture_output=True, text=True)))
+                for where, run in runs:
+                    if _tag_token(run.stdout) != reference:
+                        mismatches.append(
+                            f"latest-tag depends on the caller's cwd: {_tag_token(run.stdout)!r} "
+                            f"from {where} vs {reference!r} from the repo root"
+                        )
+                    if run.returncode != inside.returncode:
+                        mismatches.append(
+                            f"exit code depends on the caller's cwd: {run.returncode} from "
+                            f"{where} vs {inside.returncode} from the repo root"
+                        )
             for needle in expect.get("stdout_exclude", []):
                 if needle in proc.stdout:
                     mismatches.append(f"unexpected {needle!r} in stdout; got {proc.stdout.strip()!r}")
