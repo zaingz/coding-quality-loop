@@ -47,6 +47,13 @@ badge, and the shipped GitHub example's action ref — plus the latest git tag.
   release (`_ci_enforces_tag`) — or when `--enforce-tag` is passed explicitly.
 - **No tags at all is always a warning**: a shallow or fresh clone has none, and
   that is a clone artifact, not a release-surface defect.
+- **The tag is read from the repo the files are read from.** File surfaces come
+  from the CQL repo root, so `git tag` runs with that root as cwd: invoked from
+  another directory the check no longer reports the caller's tags (or, outside any
+  repo, a spurious "no tags").
+- **Only release tags count** (`^v?\d+\.\d+\.\d+$`). `--sort=-v:refname` ranks
+  `v6.7.0-rc1` and foreign namespaces like `skill-v9.9.9` above the real latest
+  release; comparing shipped files against one of those is a false mismatch.
 
 `.github/workflows/version-trust.yml` runs the check on PRs (advisory tag leg)
 and on main/tag/release events (enforced), with `fetch-depth: 0` so tags exist.

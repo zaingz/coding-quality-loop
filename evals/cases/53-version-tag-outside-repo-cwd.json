@@ -1,0 +1,17 @@
+{
+  "name": "version-tag-outside-repo-cwd",
+  "check": "version_tag",
+  "description": "check-version is invoked from a directory that is not a git repo. It reads its file surfaces from the CQL repo root, so the tag lookup runs with that same root as cwd and still reports the repo's tag. Before the fix the lookup inherited the caller's cwd: outside a repo it reported latest-tag=None (a spurious 'no tags' warning), and inside an unrelated repo it compared that repo's tags against these files.",
+  "repo": {
+    "outside_repo": true
+  },
+  "expect": {
+    "exit_code": 0,
+    "stdout_exclude": [
+      "latest-tag=None"
+    ],
+    "stdout_include": [
+      "latest-tag=v"
+    ]
+  }
+}

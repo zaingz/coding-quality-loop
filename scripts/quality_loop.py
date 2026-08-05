@@ -2651,6 +2651,63 @@ def _eval_diff_audit_cli_case(case: dict[str, Any], expect: dict[str, Any]) -> l
     return mismatches
 
 
+def _eval_version_tag_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]:
+    """Exercise the tag leg of ``check-version`` against real git tags.
+
+    Two shapes, both about *where the tag comes from* — neither is reachable from
+    the pure ``version_consistency_findings`` cases:
+
+    * ``tags``: build a throwaway repo carrying those tags and assert which one
+      ``_latest_git_tag`` selects (release tags only).
+    * ``outside_repo``: run the ``check-version`` CLI from a directory that is not
+      a git repo at all and assert it still reports this repo's tag, because the
+      lookup is pinned to the repo the file surfaces are read from.
+    """
+    import subprocess
+    import tempfile
+
+    spec = case.get("repo", {})
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    mismatches: list[str] = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        if spec.get("outside_repo"):
+            proc = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve()), "check-version"],
+                cwd=root, env=env, capture_output=True, text=True,
+            )
+            if "exit_code" in expect and proc.returncode != expect["exit_code"]:
+                mismatches.append(
+                    f"exit_code: expected {expect['exit_code']}, got {proc.returncode} "
+                    f"({proc.stdout.strip()} | {proc.stderr.strip()})"
+                )
+            for needle in expect.get("stdout_exclude", []):
+                if needle in proc.stdout:
+                    mismatches.append(f"unexpected {needle!r} in stdout; got {proc.stdout.strip()!r}")
+            for needle in expect.get("stdout_include", []):
+                if needle not in proc.stdout:
+                    mismatches.append(f"expected {needle!r} in stdout; got {proc.stdout.strip()!r}")
+            return mismatches
+
+        def git(args: list[str]) -> None:
+            subprocess.run(["git", *args], cwd=root, env=env, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        git(["init", "-q", "-b", "main", "."])
+        git(["config", "user.email", "eval@example.com"])
+        git(["config", "user.name", "eval"])
+        (root / "seed.txt").write_text("seed\n", encoding="utf-8")
+        git(["add", "-A"])
+        git(["commit", "-qm", "base"])
+        for tag in spec.get("tags", []):
+            git(["tag", tag])
+        found = _latest_git_tag(root)
+        if found != expect.get("tag"):
+            mismatches.append(f"tag: expected {expect.get('tag')!r}, got {found!r}")
+    return mismatches
+
+
 # Case kinds an eval case may pin via its "check" key (default: record_gates).
 # Each handler takes (case, expect) and returns a list of mismatch strings.
 _EVAL_CASE_HANDLERS = {
@@ -2659,6 +2716,7 @@ _EVAL_CASE_HANDLERS = {
     "complexity": _eval_complexity_case,
     "delegation_writer": _eval_delegation_writer_case,
     "diff_audit_cli": _eval_diff_audit_cli_case,
+    "version_tag": _eval_version_tag_case,
 }
 
 
@@ -2846,18 +2904,32 @@ def version_surfaces(root: Path) -> dict[str, str | None]:
     }
 
 
-def _latest_git_tag() -> str | None:
-    """Most recent semver-ish tag, or None when the repo has no tags.
+# A release tag, and nothing else. Docs tags, rc/beta markers and vendored
+# third-party tags sort into the same namespace, and `--sort=-v:refname` happily
+# ranks "v6.6.0-rc1" or "skill-v2" above the real latest release; comparing the
+# shipped files against one of those is a false mismatch.
+_RELEASE_TAG_RE = re.compile(r"^v?\d+\.\d+\.\d+$")
 
-    A shallow or fresh clone legitimately has no tags, so None is never itself an
-    error — the caller downgrades it to a warning.
+
+def _latest_git_tag(root: Path | None = None) -> str | None:
+    """Most recent release tag, or None when the repo has none.
+
+    Run with the **repo root** as cwd: ``check-version`` reads its file surfaces
+    from ``_REPO_ROOT``, so the tag must come from that same repo. Invoked from
+    another directory (or from outside any repo) the old call read whatever repo
+    the caller happened to stand in — or nothing at all — and compared its tags
+    against this repo's files.
+
+    Only ``vX.Y.Z``/``X.Y.Z`` tags are considered; a shallow or fresh clone
+    legitimately has none, so None is never itself an error — the caller
+    downgrades it to a warning.
     """
-    code, out, _ = qlcore.git_capture(["tag", "--sort=-v:refname"])
+    code, out, _ = qlcore.git_capture(["tag", "--sort=-v:refname"], cwd=root or _REPO_ROOT)
     if code != 0:
         return None
     for line in out.splitlines():
         tag = line.strip()
-        if tag:
+        if tag and _RELEASE_TAG_RE.match(tag):
             return tag
     return None
 

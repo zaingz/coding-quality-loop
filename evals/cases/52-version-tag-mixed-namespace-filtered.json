@@ -1,0 +1,17 @@
+{
+  "name": "version-tag-mixed-namespace-filtered",
+  "check": "version_tag",
+  "description": "The repo carries prerelease and non-release tags that -v:refname ranks ABOVE the real latest release (v6.7.0-rc1, skill-v9.9.9, docs-2026-08-01). The tag leg must consider only vX.Y.Z / X.Y.Z tags, so it selects v6.6.1 and the shipped files are never compared against a release candidate or a vendored tag namespace.",
+  "repo": {
+    "tags": [
+      "v6.6.0",
+      "v6.6.1",
+      "v6.7.0-rc1",
+      "skill-v9.9.9",
+      "docs-2026-08-01"
+    ]
+  },
+  "expect": {
+    "tag": "v6.6.1"
+  }
+}
