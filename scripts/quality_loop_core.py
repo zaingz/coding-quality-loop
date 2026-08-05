@@ -578,3 +578,79 @@ def _nonempty(value: Any) -> bool:
     if isinstance(value, (int, float)):
         return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Field-shape validators
+# ---------------------------------------------------------------------------
+# The record checker and the routing checker repeat the same
+# isinstance -> errors.append idiom dozens of times each (record_validation_issues
+# alone graded F). These collapse the recurring shapes into one call apiece. Each
+# returns whether the field was valid, so a caller can gate nested validation on
+# it, and each appends the SAME message the hand-rolled check emitted — the eval
+# suites pin those strings byte-for-byte, so a new call site must pick a label
+# that reads correctly in the fixed sentence.
+
+def require_str(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is a non-empty string; else append the standard error."""
+    if isinstance(value, str) and value.strip():
+        return True
+    errors.append(f"{label} must be a non-empty string")
+    return False
+
+
+def require_list(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is a list; else append the standard "must be an array" error."""
+    if isinstance(value, list):
+        return True
+    errors.append(f"{label} must be an array")
+    return False
+
+
+def require_dict(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is a dict; else append the standard "must be an object" error."""
+    if isinstance(value, dict):
+        return True
+    errors.append(f"{label} must be an object")
+    return False
+
+
+def require_number(
+    errors: list[str], value: Any, label: str, *, minimum: float = 0, integer: bool = False
+) -> bool:
+    """True iff ``value`` is a real number (or int, when ``integer``) >= ``minimum``.
+
+    Booleans are rejected: ``True`` is not a count. Emits "must be a number" /
+    "must be an integer" for the wrong type and "must be >= {minimum}" below range.
+    """
+    if isinstance(value, bool) or not isinstance(value, int if integer else (int, float)):
+        errors.append(f"{label} must be an integer" if integer else f"{label} must be a number")
+        return False
+    if value < minimum:
+        errors.append(f"{label} must be >= {minimum}")
+        return False
+    return True
+
+
+def require_bool(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is a bool; else append "{label} must be a boolean"."""
+    if isinstance(value, bool):
+        return True
+    errors.append(f"{label} must be a boolean")
+    return False
+
+
+def require_bool_or_null(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is None or a bool; else append "{label} must be a boolean"."""
+    if value is None or isinstance(value, bool):
+        return True
+    errors.append(f"{label} must be a boolean")
+    return False
+
+
+def require_str_or_null(errors: list[str], value: Any, label: str) -> bool:
+    """True iff ``value`` is None or a str; else append "{label} must be a string or null"."""
+    if value is None or isinstance(value, str):
+        return True
+    errors.append(f"{label} must be a string or null")
+    return False

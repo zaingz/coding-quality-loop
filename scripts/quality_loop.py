@@ -63,6 +63,11 @@ from quality_loop_core import (  # noqa: E402
     load_gate_config,
     load_json,
     redact,
+    require_bool,
+    require_dict,
+    require_list,
+    require_number,
+    require_str,
     run_git,
     write_json,
 )
@@ -645,10 +650,8 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         if key not in record:
             errors.append(f"missing required field: {key}")
 
-    if not isinstance(record.get("task_id"), str) or not record.get("task_id", "").strip():
-        errors.append("task_id must be a non-empty string")
-    if not isinstance(record.get("goal"), str) or not record.get("goal", "").strip():
-        errors.append("goal must be a non-empty string")
+    require_str(errors, record.get("task_id"), "task_id")
+    require_str(errors, record.get("goal"), "goal")
     if record.get("risk_tier") not in RISK_TIERS:
         errors.append("risk_tier must be one of: low, medium, high")
     status = record.get("status")
@@ -659,9 +662,7 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
 
     minimality = record.get("minimality_decision")
     if minimality is not None:
-        if not isinstance(minimality, dict):
-            errors.append("minimality_decision must be an object")
-        else:
+        if require_dict(errors, minimality, "minimality_decision"):
             if minimality.get("rung") not in MINIMALITY_RUNGS:
                 errors.append("minimality_decision.rung is invalid")
             if not minimality.get("reason"):
@@ -680,17 +681,15 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         "open_risks",
         "review_findings",
     ]:
-        if array_key in record and not isinstance(record[array_key], list):
-            errors.append(f"{array_key} must be an array")
+        if array_key in record:
+            require_list(errors, record[array_key], array_key)
 
     commands = record.get("commands_run")
     if isinstance(commands, list):
         for idx, cmd in enumerate(commands):
-            if not isinstance(cmd, dict):
-                errors.append(f"commands_run[{idx}] must be an object")
+            if not require_dict(errors, cmd, f"commands_run[{idx}]"):
                 continue
-            if not isinstance(cmd.get("cmd"), str) or not cmd.get("cmd", "").strip():
-                errors.append(f"commands_run[{idx}].cmd must be a non-empty string")
+            require_str(errors, cmd.get("cmd"), f"commands_run[{idx}].cmd")
             if cmd.get("result") not in COMMAND_RESULTS:
                 errors.append(f"commands_run[{idx}].result must be one of: pass, fail, blocked")
             cls = cmd.get("class")
@@ -725,28 +724,21 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
 
     repair_attempts = record.get("repair_attempts")
     if repair_attempts is not None:
-        if isinstance(repair_attempts, bool) or not isinstance(repair_attempts, int):
-            errors.append("repair_attempts must be an integer")
-        elif repair_attempts < 0:
-            errors.append("repair_attempts must be >= 0")
-    if "repeated_failure" in record and not isinstance(record.get("repeated_failure"), bool):
-        errors.append("repeated_failure must be a boolean")
+        require_number(errors, repair_attempts, "repair_attempts", integer=True)
+    if "repeated_failure" in record:
+        require_bool(errors, record.get("repeated_failure"), "repeated_failure")
 
     # Optional run_metrics (R3 process-tax instrumentation). Absent is fine; when
     # present, every value must be a non-negative number and no unknown keys are
     # allowed inside the object.
     run_metrics = record.get("run_metrics")
     if run_metrics is not None:
-        if not isinstance(run_metrics, dict):
-            errors.append("run_metrics must be an object")
-        else:
+        if require_dict(errors, run_metrics, "run_metrics"):
             for key, value in run_metrics.items():
                 if key not in RUN_METRICS_FIELDS:
                     errors.append(f"run_metrics has unknown key: {key!r}")
-                elif isinstance(value, bool) or not isinstance(value, (int, float)):
-                    errors.append(f"run_metrics.{key} must be a number")
-                elif value < 0:
-                    errors.append(f"run_metrics.{key} must be >= 0")
+                else:
+                    require_number(errors, value, f"run_metrics.{key}")
 
     # Optional shipped-work outcome (v6.2): {verdict, note, recorded_at}, set by
     # `record outcome`. Absence is valid and no gate requires it; when present
@@ -754,9 +746,7 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
     # tally stay machine-readable.
     outcome = record.get("outcome")
     if outcome is not None:
-        if not isinstance(outcome, dict):
-            errors.append("outcome must be an object")
-        else:
+        if require_dict(errors, outcome, "outcome"):
             if outcome.get("verdict") not in qlmem.OUTCOMES:
                 errors.append(
                     "outcome.verdict must be one of: " + ", ".join(qlmem.OUTCOMES)
@@ -766,25 +756,19 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
                     errors.append(f"outcome.{key} must be a string")
 
     if "implementer" in record and record["implementer"] is not None:
-        if not isinstance(record["implementer"], str) or not record["implementer"].strip():
-            errors.append("implementer must be a non-empty string")
+        require_str(errors, record["implementer"], "implementer")
 
     # Optional multi-model routing evidence (v4.2): per-role model attribution
     # and escalation events. Absent is fine; when present the shape must hold so
     # the R5 evidence base stays machine-readable.
     models_used = record.get("models_used")
     if models_used is not None:
-        if not isinstance(models_used, list):
-            errors.append("models_used must be an array")
-        else:
+        if require_list(errors, models_used, "models_used"):
             for idx, entry in enumerate(models_used):
-                if not isinstance(entry, dict):
-                    errors.append(f"models_used[{idx}] must be an object")
+                if not require_dict(errors, entry, f"models_used[{idx}]"):
                     continue
                 for req in ("role", "model"):
-                    val = entry.get(req)
-                    if not isinstance(val, str) or not val.strip():
-                        errors.append(f"models_used[{idx}].{req} must be a non-empty string")
+                    require_str(errors, entry.get(req), f"models_used[{idx}].{req}")
                 attempts = entry.get("attempts")
                 if attempts is not None and (
                     isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1
@@ -798,17 +782,12 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
                         errors.append(f"models_used[{idx}].{num_key} must be a non-negative number")
     escalations = record.get("escalations")
     if escalations is not None:
-        if not isinstance(escalations, list):
-            errors.append("escalations must be an array")
-        else:
+        if require_list(errors, escalations, "escalations"):
             for idx, entry in enumerate(escalations):
-                if not isinstance(entry, dict):
-                    errors.append(f"escalations[{idx}] must be an object")
+                if not require_dict(errors, entry, f"escalations[{idx}]"):
                     continue
                 for req in ("step", "from_model", "to_model"):
-                    val = entry.get(req)
-                    if not isinstance(val, str) or not val.strip():
-                        errors.append(f"escalations[{idx}].{req} must be a non-empty string")
+                    require_str(errors, entry.get(req), f"escalations[{idx}].{req}")
                 if entry.get("trigger") != "verified_failure":
                     errors.append(
                         f"escalations[{idx}].trigger must be 'verified_failure' -- the only "
@@ -841,8 +820,7 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         review = record.get(review_key)
         if review is None:
             continue
-        if not isinstance(review, dict):
-            errors.append(f"{review_key} must be an object")
+        if not require_dict(errors, review, review_key):
             continue
         verdict = str(review.get("verdict", "")).lower()
         if verdict not in REVIEW_VERDICTS:
