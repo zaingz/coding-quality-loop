@@ -1,0 +1,142 @@
+{
+  "name": "isolation-evidence-historical-rows-ignored",
+  "description": "The append-only ledger opens with an OLDER, unrelated task whose implementer ran on codex/gpt-5 and whose reviewer ran on claude-code/opus. The current task's implementer is claude-code/opus and its reviewer is codex/gpt-5 -- genuinely independent. Resolution is scoped to the record's own task_id, so the historical rows are never compared: the gate is silent. Before the fix, the first role-matching row in the whole ledger was taken and this valid record was falsely blocked.",
+  "record": {
+    "task_id": "t-39",
+    "goal": "Ship a multi-feature library (tokenizer, parser, ranker, serializer) behind one query entry point",
+    "task_class": "medium",
+    "risk_tier": "medium",
+    "acceptance_criteria": [
+      {
+        "criterion": "Query returns ranked snippets across all feature paths",
+        "proving_command": "pytest tests/test_lib.py"
+      }
+    ],
+    "constraints": [
+      "stdlib only"
+    ],
+    "non_goals": [
+      "no network access"
+    ],
+    "assumptions": [
+      "single-process use"
+    ],
+    "verification_plan": [
+      "unit tests per feature"
+    ],
+    "minimality_decision": {
+      "rung": "build",
+      "reason": "new library; fan out per feature module"
+    },
+    "plan": [
+      "tokenizer",
+      "parser",
+      "ranker",
+      "serializer"
+    ],
+    "commands_run": [
+      {
+        "cmd": "pytest tests/test_lib.py",
+        "class": "unit",
+        "result": "pass",
+        "evidence": "11 passed"
+      }
+    ],
+    "open_risks": [],
+    "review_findings": [
+      "fresh-context review: approved"
+    ],
+    "repo_map": {
+      "entry_points": [
+        "lib/query.py:run"
+      ],
+      "likely_files": [
+        "lib/query.py"
+      ],
+      "callers_checked": [
+        "app/search.py:call"
+      ],
+      "tests": [
+        "tests/test_lib.py"
+      ]
+    },
+    "implementer": "agent-a",
+    "validation_contract": {
+      "goal": "Search library",
+      "acceptance_criteria": [
+        "ranked snippets"
+      ],
+      "evidence": [
+        "pytest -> pass"
+      ]
+    },
+    "independent_review": {
+      "reviewer": "agent-b",
+      "verdict": "approve",
+      "fresh_context": true,
+      "patched": false,
+      "findings": []
+    },
+    "security_review": null,
+    "completion_record": {
+      "goal": "Search library",
+      "acceptance_criteria": [
+        "ranked snippets"
+      ],
+      "evidence": [
+        "pytest -> passed",
+        "review: approve"
+      ]
+    },
+    "security_sensitive": false,
+    "status": "done",
+    "isolation_evidence": {
+      "role": "reviewer"
+    }
+  },
+  "delegations": [
+    {
+      "ts": "2026-06-01T09:00:00Z",
+      "task_id": "t-01-old",
+      "role": "implementer",
+      "host": "codex",
+      "model": "gpt-5",
+      "expected_agent_name": "implementer"
+    },
+    {
+      "ts": "2026-06-01T09:05:00Z",
+      "task_id": "t-01-old",
+      "role": "reviewer",
+      "host": "claude-code",
+      "model": "claude-opus-4-8",
+      "expected_agent_name": "reviewer"
+    },
+    {
+      "ts": "2026-08-05T10:00:00Z",
+      "task_id": "t-39",
+      "role": "implementer",
+      "host": "claude-code",
+      "model": "claude-opus-4-8",
+      "expected_agent_name": "implementer"
+    },
+    {
+      "ts": "2026-08-05T10:00:00Z",
+      "task_id": "t-39",
+      "role": "reviewer",
+      "host": "codex",
+      "model": "gpt-5",
+      "expected_agent_name": "reviewer"
+    }
+  ],
+  "expect": {
+    "risk_floor": "low",
+    "gates_exit": 0,
+    "advisories_exclude": [
+      "self-attested",
+      "unconfirmed"
+    ],
+    "findings_exclude": [
+      "does not ground the review as isolated"
+    ]
+  }
+}

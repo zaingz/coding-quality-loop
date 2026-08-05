@@ -1345,27 +1345,82 @@ def _brief_size_advisories(delegations: list[dict[str, Any]], limit: int) -> lis
     return notes
 
 
-def _implementer_identity(
-    record: dict[str, Any], delegations: list[dict[str, Any]]
-) -> tuple[Any, Any] | None:
-    """Best-effort ``(host, model)`` for the implementer, for isolation comparison.
+def _nonempty_str(value: Any) -> str | None:
+    """``value`` as a stripped non-empty string, else None (shape guard)."""
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
 
-    Prefers a ledger entry whose role names the implementer (host + model), then
-    falls back to a ``models_used`` implementer entry (model, maybe host).
-    Returns None when no model can be attributed — the isolation check then
-    cannot confirm independence and downgrades to an advisory, never an error.
+
+def _ledger_rows_for_task(
+    delegations: list[dict[str, Any]], task_id: str
+) -> list[dict[str, Any]]:
+    """Ledger rows recorded for exactly ``task_id``.
+
+    The ledger is append-only, so it normally holds many unrelated historical
+    tasks. Every isolation lookup is scoped to one task id first — comparing a
+    current reviewer against some older task's implementer is meaningless and was
+    a false-block path.
     """
-    for entry in delegations:
-        if "implement" in str(entry.get("role", "")).lower():
-            if entry.get("model") is not None or entry.get("host") is not None:
-                return entry.get("host"), entry.get("model")
+    return [e for e in delegations if _nonempty_str(e.get("task_id")) == task_id]
+
+
+def _identity_of(entry: dict[str, Any]) -> tuple[str | None, str | None]:
+    """``(host, model)`` of a ledger row, normalized to non-empty strings or None."""
+    return _nonempty_str(entry.get("host")), _nonempty_str(entry.get("model"))
+
+
+def _unique_identity(rows: list[dict[str, Any]]) -> tuple[str | None, str | None] | str:
+    """One ``(host, model)`` shared by ``rows``, or a reason string when it is not unique.
+
+    Duplicate rows for the same worker (fix rounds append one row each) are
+    normal, so identical identities collapse. Genuinely conflicting identities
+    are *ambiguous* and must never be resolved by picking one — the caller turns
+    the reason into an advisory instead.
+    """
+    identities = {_identity_of(row) for row in rows}
+    if not identities:
+        return "no matching ledger row"
+    if len(identities) > 1:
+        return "multiple ledger rows with conflicting host/model"
+    return identities.pop()
+
+
+def _implementer_identity(
+    record: dict[str, Any], task_rows: list[dict[str, Any]]
+) -> tuple[str | None, str | None] | str:
+    """Implementer ``(host, model)`` for one task, or a reason string when unresolved.
+
+    Looks only at ``task_rows`` (already scoped to the record's task), preferring
+    a ledger row whose role names the implementer and falling back to a
+    ``models_used`` implementer entry. Ambiguity and absence both return a reason,
+    which the caller downgrades to an advisory — never a block.
+    """
+    rows = [e for e in task_rows if "implement" in str(e.get("role", "")).lower()]
+    rows = [e for e in rows if any(_identity_of(e))]
+    if rows:
+        return _unique_identity(rows)
     models_used = record.get("models_used")
     if isinstance(models_used, list):
-        for entry in models_used:
-            if isinstance(entry, dict) and entry.get("role") == "implementer":
-                if entry.get("model") is not None:
-                    return entry.get("host"), entry.get("model")
-    return None
+        entries = [
+            e for e in models_used
+            if isinstance(e, dict) and e.get("role") == "implementer"
+            and _nonempty_str(e.get("model"))
+        ]
+        identities = {
+            (_nonempty_str(e.get("host")), _nonempty_str(e.get("model"))) for e in entries
+        }
+        if len(identities) == 1:
+            return identities.pop()
+        if len(identities) > 1:
+            return "multiple models_used implementer entries with conflicting models"
+    return "the implementer's host/model is unrecorded for this task"
+
+
+_ISO_SELF_ATTESTED = (
+    "review independence is self-attested: no isolation_evidence links a "
+    "fresh-context reviewer to a delegation-ledger entry on a different host/model"
+)
 
 
 def _isolation_evidence_findings(
@@ -1376,11 +1431,20 @@ def _isolation_evidence_findings(
     Only medium+ (``non_trivial``) work is checked, and only when a ledger exists
     (the caller gates on that): a repo without one is completely silent.
     ``isolation_evidence`` is an optional record field ``{task_id?, role}``
-    pointing at the fresh-context reviewer's ledger entry. Resolving to an entry
-    whose RECORDED host or model family differs from the implementer's grounds
-    independence (silent). Resolving to the same host AND family means the ledger
-    refutes it -> blocking finding. Absent evidence, an unfindable reference, or
-    an unattributable implementer -> advisory only.
+    pointing at the fresh-context reviewer's ledger row.
+
+    Resolution is **task-scoped and fail-advisory**:
+
+    * the task id comes from ``isolation_evidence.task_id`` or, absent that, the
+      record's own ``task_id``; both reviewer and implementer must be resolved
+      from rows carrying that id, so unrelated append-only history can never be
+      compared against;
+    * ``role`` must be a non-empty string (and ``task_id``, when supplied, too);
+    * a reviewer or implementer that is missing, or ambiguous across conflicting
+      rows, yields an **advisory**;
+    * the **only** blocking outcome is an affirmative refutation: both hosts are
+      recorded and equal **and** both model families resolve and are equal.
+      Anything unknown stays advisory.
 
     What this verifies is recorded identity, not runtime process isolation.
     """
@@ -1388,47 +1452,72 @@ def _isolation_evidence_findings(
         return [], []
     iso = record.get("isolation_evidence")
     if iso is None:
-        return (
-            ["review independence is self-attested: no isolation_evidence links a "
-             "fresh-context reviewer to a delegation-ledger entry on a different host/model"],
-            [],
-        )
+        return [_ISO_SELF_ATTESTED], []
     if not isinstance(iso, dict):
         return (["isolation_evidence must be an object {task_id?, role}; "
                  "independence remains self-attested"], [])
-    ref_role = iso.get("role")
-    ref_task = iso.get("task_id")
-    reviewer = None
-    for entry in delegations:
-        if ref_role is not None and str(entry.get("role", "")).lower() != str(ref_role).lower():
-            continue
-        if ref_task is not None and entry.get("task_id") != ref_task:
-            continue
-        reviewer = entry
-        break
-    if reviewer is None:
-        return (["isolation_evidence references a delegation entry not found in the ledger; "
+
+    ref_role = _nonempty_str(iso.get("role"))
+    if ref_role is None:
+        return (["isolation_evidence.role must be a non-empty string naming the reviewer's "
+                 "delegation role; independence remains self-attested"], [])
+    if "task_id" in iso and _nonempty_str(iso.get("task_id")) is None:
+        return (["isolation_evidence.task_id must be a non-empty string when present; "
                  "independence remains self-attested"], [])
-    impl = _implementer_identity(record, delegations)
-    if impl is None:
-        return (["isolation_evidence found, but the implementer's host/model is unrecorded; "
-                 "cannot confirm review independence"], [])
+
+    task_id = _nonempty_str(iso.get("task_id")) or _nonempty_str(record.get("task_id"))
+    if task_id is None:
+        return (["isolation_evidence cannot be scoped to a task (no task_id on the evidence "
+                 "or the record); independence remains self-attested"], [])
+
+    task_rows = _ledger_rows_for_task(delegations, task_id)
+    if not task_rows:
+        return ([f"isolation_evidence references task {task_id!r}, which has no rows in the "
+                 f"delegation ledger; independence remains self-attested"], [])
+
+    reviewer_rows = [
+        e for e in task_rows if str(e.get("role", "")).strip().lower() == ref_role.lower()
+    ]
+    reviewer = _unique_identity(reviewer_rows)
+    if isinstance(reviewer, str):
+        return ([f"isolation_evidence role {ref_role!r} on task {task_id!r} is unresolvable "
+                 f"({reviewer}); independence remains self-attested"], [])
+
+    impl = _implementer_identity(record, task_rows)
+    if isinstance(impl, str):
+        return ([f"isolation_evidence found, but {impl}; "
+                 f"cannot confirm review independence"], [])
+
     impl_host, impl_model = impl
-    rev_host, rev_model = reviewer.get("host"), reviewer.get("model")
-    host_differs = bool(rev_host) and bool(impl_host) and rev_host != impl_host
-    fam_rev = qlroute.model_family(rev_model)
-    fam_impl = qlroute.model_family(impl_model)
-    model_differs = fam_rev is not None and fam_impl is not None and fam_rev != fam_impl
-    if host_differs or model_differs:
+    rev_host, rev_model = reviewer
+    fam_rev = qlroute.model_family(rev_model) if rev_model else None
+    fam_impl = qlroute.model_family(impl_model) if impl_model else None
+
+    # Grounded: something recorded on both sides genuinely differs.
+    if impl_host and rev_host and impl_host != rev_host:
         return [], []
-    if fam_rev is not None and fam_impl is not None and fam_rev == fam_impl:
+    if fam_rev and fam_impl and fam_rev != fam_impl:
+        return [], []
+
+    # Blocking only on affirmative sameness of BOTH axes. An unknown host or an
+    # unknown family is NOT "the same" — it is unknown, and unknown is advisory.
+    if impl_host and rev_host and impl_host == rev_host and fam_rev and fam_impl \
+            and fam_rev == fam_impl:
         return (
             [],
-            ["isolation_evidence resolves to a ledger entry whose recorded host and model "
-             "family match the implementer's; the ledger does not ground the review as isolated"],
+            [f"isolation_evidence resolves to a ledger entry (task {task_id!r}, role "
+             f"{ref_role!r}) whose recorded host and model family match the implementer's "
+             f"({rev_host}/{fam_rev}); the ledger does not ground the review as isolated"],
         )
-    return (["isolation_evidence present but does not demonstrate a different host or model "
-             "than the implementer; independence unconfirmed"], [])
+
+    missing = []
+    if not (impl_host and rev_host):
+        missing.append("host")
+    if not (fam_rev and fam_impl):
+        missing.append("model family")
+    detail = " and ".join(missing) if missing else "identity"
+    return ([f"isolation_evidence present but the recorded {detail} is unknown on at least one "
+             f"side, so independence is unconfirmed; independence remains self-attested"], [])
 
 
 def collect_gate_findings(

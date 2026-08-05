@@ -82,18 +82,30 @@ malformed or half-flushed ledger is skipped, never crashing a gate.
   non-blocking `note:` in `verify-gates` and `control-report`; it never fails a
   gate. An oversized hand-off brief signals context bloat, not a rule violation.
 - **Review isolation** (`isolation_evidence`, medium+ only) is graded, because
-  the record cannot prove its own independence:
-  - resolves to a ledger entry whose **recorded** host or model family differs
+  the record cannot prove its own independence. Resolution is **task-scoped and
+  fail-advisory**:
+  - the task id is `isolation_evidence.task_id`, or the **record's own
+    `task_id`** when the evidence omits it. Reviewer *and* implementer are
+    resolved only from ledger rows carrying that id — the ledger is append-only,
+    so unrelated historical tasks must never be compared against;
+  - `role` must be a **non-empty string** (and `task_id`, when present, likewise).
+    Shape is validated **before** any lookup, so malformed evidence can never
+    resolve to an arbitrary row;
+  - resolves to a same-task row whose **recorded** host or model family differs
     from the implementer's -> **silent** (independence is grounded);
-  - resolves to an entry with the **same host AND model family** -> **blocking
+  - resolves to a same-task row where **both hosts are recorded and equal AND
+    both model families resolve and are equal** -> the **only blocking
     finding**: the ledger does not ground the review as isolated;
-  - **absent**, malformed, unresolvable, or implementer identity unrecorded ->
-    **advisory** ("self-attested"), never blocking.
+  - everything else -> **advisory**, never blocking: evidence absent, non-object,
+    blank/wrong-typed selectors, an unknown task, no matching role row, several
+    rows with conflicting host/model for the same role (ambiguity is never
+    resolved by picking one), an unrecorded implementer, or a host/family that is
+    **unknown on either side** (unknown is not "the same").
 
   Scope honestly stated: this compares *recorded identities in the ledger*, not
   runtime process isolation. It raises the cost of a false independence claim
-  from zero to "forge a matching ledger line"; it is not proof of a fresh
-  context.
+  from zero to "forge a matching same-task ledger line"; it is not proof of a
+  fresh context.
 
 ## Helper integrity
 
