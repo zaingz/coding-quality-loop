@@ -1244,6 +1244,64 @@ def verify_gates(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_delegation_ledger(base_dir: Path) -> list[dict[str, Any]]:
+    """Load ``.quality-loop/delegations.jsonl`` near ``base_dir`` (best-effort).
+
+    The ledger is written by the orchestrator, so a half-flushed or malformed
+    line must never break a gate: an unreadable file yields ``[]`` and bad lines
+    are skipped. An absent ledger (most repos) also yields ``[]``, which makes
+    every ledger-grounded check no-op.
+    """
+    ledger = base_dir / ".quality-loop" / "delegations.jsonl"
+    if not ledger.is_file() and base_dir.name == ".quality-loop":
+        ledger = base_dir / "delegations.jsonl"
+    entries: list[dict[str, Any]] = []
+    try:
+        raw_text = ledger.read_text(encoding="utf-8")
+    except OSError:
+        return entries
+    for raw in raw_text.splitlines():
+        if not raw.strip():
+            continue
+        try:
+            obj = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(obj, dict):
+            entries.append(obj)
+    return entries
+
+
+def _nearest_gate_config(base_dir: Path) -> dict[str, Any]:
+    """Nearest ``quality-loop.config.json`` walking up from ``base_dir``.
+
+    ``qlcore.load_gate_config`` reads one directory; the record usually lives in
+    ``<repo>/.quality-loop/``, so the config is a level or two up. Bounded walk,
+    and {} on absence or any parse error — the config only tunes advisory
+    thresholds here, so a broken config falls back to defaults, never a crash.
+    """
+    start = base_dir.resolve()
+    for directory in [start, *list(start.parents)[:6]]:
+        config = qlcore.load_gate_config(directory)
+        if config:
+            return config
+    return {}
+
+
+def _brief_size_advisories(delegations: list[dict[str, Any]], limit: int) -> list[str]:
+    """Advisory notes for delegation briefs exceeding ``limit`` chars (never blocking)."""
+    notes: list[str] = []
+    for entry in delegations:
+        chars = qlcore.brief_entry_chars(entry)
+        if chars > limit:
+            who = entry.get("task_id") or entry.get("role") or "?"
+            notes.append(
+                f"delegation brief for {who!r} is {chars} chars (advisory limit {limit}); "
+                f"a tighter brief keeps the sub-agent's context focused"
+            )
+    return notes
+
+
 def collect_gate_findings(
     record: dict[str, Any],
     record_path: Path,
@@ -1453,6 +1511,15 @@ def collect_gate_findings(
     ac_findings, ac_warnings = _check_ac_coverage(record, non_trivial)
     findings.extend(ac_findings)
     soft_warnings.extend(ac_warnings)
+
+    # Ledger-grounded advisories (the orchestrator's delegation ledger, when
+    # present). Brief size is purely advisory: an oversized hand-off brief signals
+    # context bloat, not a rule violation, so it never blocks a ship. A repo
+    # without a ledger — most repos — is completely silent here.
+    delegations = _read_delegation_ledger(base_dir)
+    if delegations:
+        limit = qlcore.brief_char_limit(_nearest_gate_config(base_dir))
+        soft_warnings.extend(_brief_size_advisories(delegations, limit))
 
     # Reality layer: ground the record in the real git diff when --against-diff
     # is requested. This catches phantom completion, unmapped scope, a diff-
@@ -2004,7 +2071,9 @@ def cmd_brief(args: argparse.Namespace) -> int:
 
 
 
-def _run_case_gates(record: dict[str, Any]) -> tuple[int, list[str], list[str]]:
+def _run_case_gates(
+    record: dict[str, Any], delegations: list[dict[str, Any]] | None = None
+) -> tuple[int, list[str], list[str]]:
     """Run the real gate logic on a record in-process, capturing findings.
 
     Writes the record to a temp file (artifact paths resolve relative to it) and
@@ -2013,12 +2082,23 @@ def _run_case_gates(record: dict[str, Any]) -> tuple[int, list[str], list[str]]:
     shipping gate. Returns ``(exit_code, findings, notes)``: notes are the
     advisory lines the CLI prints as ``note:``, so a case can pin an advisory
     without the advisory becoming blocking.
+
+    When ``delegations`` is given they are written to a temp
+    ``.quality-loop/delegations.jsonl`` beside the record, so ledger-grounded
+    checks run against a real ledger. Omitting them exercises the ledger-less
+    path every consumer repo without an orchestrator ledger is on.
     """
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
         rec_path = Path(tmp) / "agent-record.json"
         rec_path.write_text(json.dumps(record))
+        if delegations:
+            ledger_dir = Path(tmp) / ".quality-loop"
+            ledger_dir.mkdir(parents=True, exist_ok=True)
+            (ledger_dir / "delegations.jsonl").write_text(
+                "\n".join(json.dumps(d) for d in delegations) + "\n"
+            )
         findings, notes = collect_gate_findings(record, rec_path, against_diff=False)
     return (1 if findings else 0), findings, notes
 
@@ -2029,7 +2109,7 @@ def _eval_record_case(case: dict[str, Any], expect: dict[str, Any]) -> list[str]
     mismatches: list[str] = []
 
     floor, markers = detect_risk_floor(record)
-    gates_rc, findings, advisories = _run_case_gates(record)
+    gates_rc, findings, advisories = _run_case_gates(record, delegations=case.get("delegations"))
 
     if "risk_floor" in expect and expect["risk_floor"] != floor:
         mismatches.append(f"risk_floor: expected {expect['risk_floor']!r}, got {floor!r}")

@@ -55,6 +55,19 @@ already pins the same four *file* surfaces in-tree. `check-version` adds the tag
 leg, the release-event enforcement, and a portable command a consumer repo can
 run; folding the eval onto it is a follow-up, not a claim made here.
 
+## Delegation ledger advisories
+
+When `.quality-loop/delegations.jsonl` is present (most repos have none, so this
+no-ops), ledger-grounded checks run inside `collect_gate_findings`, the same
+structured entry point `verify-gates`, `verify`, and `eval-cases` all consume. A
+malformed or half-flushed ledger is skipped, never crashing a gate.
+
+- **Brief size** is **advisory only**. Each ledger entry's brief size
+  (`brief_chars` if logged, else `len(brief_summary)`) is compared to
+  `delegation.brief_char_limit` (config, default 4000). Over the ceiling emits a
+  non-blocking `note:` in `verify-gates` and `control-report`; it never fails a
+  gate. An oversized hand-off brief signals context bloat, not a rule violation.
+
 ## Helper integrity
 
 The helper itself is a file in the workspace, and a live eval (webapp,
