@@ -4,15 +4,18 @@
 
 Enforcement gates (PR #11), rebased onto 6.6.0. No version bump: the release
 surfaces stay at 6.6.0 until a release is cut.
-Suites: 37 static + 64 behavioral + 33 memory + 52 reality + 30 routing +
-56 hook = **272 core gate cases** (+40 control add-on).
+Suites: 52 static + 64 behavioral + 33 memory + 52 reality + 30 routing +
+56 hook = **287 core gate cases** (+40 control add-on).
 
 - **Version trust chain (`check-version`)**: one portable command pins the four
   release surfaces (npm `package.json`, `SKILL.md`, README badge,
   `hosts/github/quality-loop-example.yml`) and, with `--enforce-tag`, the latest
   git tag. Enforced in CI by `.github/workflows/version-trust.yml`
   (`fetch-depth: 0`). A tag that lags the surfaces is advisory by default and
-  blocking under `--enforce-tag`; a repo with no tags is advisory only.
+  blocking under `--enforce-tag`; a repo with no tags is advisory only. The tag is
+  read from the repo the file surfaces come from (not the caller's cwd) and only
+  release tags (`^v?\d+\.\d+\.\d+$`) are considered, so a prerelease or a foreign
+  tag namespace cannot masquerade as the latest release.
 - **`require_*` validators** (`quality_loop_core`): `require_str`, `require_list`,
   `require_dict`, `require_number`, `require_bool`, `require_bool_or_null`,
   `require_str_or_null` replace hand-rolled shape checks in
@@ -23,14 +26,26 @@ Suites: 37 static + 64 behavioral + 33 memory + 52 reality + 30 routing +
   non-blocking note in `verify-gates` and `control-report`. Silent without a
   ledger.
 - **`isolation_evidence`**: an optional record pointer to the fresh-context
-  reviewer's delegation-ledger entry. On medium+ work with a ledger present, a
-  reviewer entry on a different recorded host or model family is silent; the same
-  host *and* family is a blocking finding; absent or unresolvable is advisory.
-  Compares recorded identities, not runtime process isolation.
+  reviewer's delegation-ledger entry. On medium+ work with a ledger present,
+  reviewer and implementer are resolved as a **task-scoped pair** (the evidence's
+  `task_id`, else the record's), so unrelated rows in the append-only ledger are
+  never compared. A different recorded host or model family is silent; the **only**
+  blocking outcome is both hosts recorded-and-equal *and* both model families
+  equal. Malformed selectors, ambiguity, an unknown task and an unknown host or
+  family all stay advisory. Compares recorded identities, not runtime process
+  isolation.
+- **`log-delegation`**: the documented producer for the delegation ledger. Appends
+  one hand-off row and records `brief_chars = len(full_brief)` read from
+  `--brief-file` (or stdin), so the brief-size advisory measures the brief itself
+  instead of falling back to the truncated `brief_summary`. Metadata only — the
+  brief's text is never stored.
 - **Advisory complexity delta in `diff-audit`**: per-function cyclomatic
   complexity (stdlib `ast`, nested scopes pruned) growing by
   `diff_audit.complexity_delta` (default 5) emits an advisory line. Never
-  blocking, so the pre-commit hook is unaffected.
+  blocking, so the pre-commit hook is unaffected. `--base REF` compares the base
+  blob against the working tree; `--staged` compares `HEAD` against the **index**
+  blob, so pre-commit mode audits exactly what is being committed. A path absent at
+  the base (any new file) reads as empty **quietly**.
 
 ## 6.6.0
 
