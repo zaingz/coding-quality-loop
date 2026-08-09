@@ -1,5 +1,29 @@
 # Changelog
 
+## 6.7.0
+
+The test-integrity release: green must distinguish old behavior from new
+behavior, without another model pass. Suites: 22 static + 65 behavioral +
+33 memory + 56 reality + 30 routing + 56 hook = **262 core gate cases**
+(+40 control add-on).
+
+- **Fix-revert replay.** For medium+ work with changed test files, `verify`
+  overlays the proposed tests onto a temporary worktree at the base ref and
+  runs every acceptance criterion's proving command. Old source plus new tests
+  must fail; the current source must pass. Worktree failure is "not proven,"
+  never a silent pass.
+- **Warn-first tamper signals.** `diff-audit` now points reviewers at edited
+  expected values, weaker matchers, lower coverage thresholds, and added test
+  declarations with no added assertion. They remain advisory because legitimate
+  behavior changes can produce each shape; deterministic replay is the blocker.
+- **Honest common paths.** A precommitted failing test is accepted only when
+  git confirms its path at the base and `run-evidence` proves RED→GREEN. A
+  same-family reviewer can be recorded as a loud degraded fallback at medium
+  risk with a reason; high-risk work still requires independent review.
+- **Standalone wedge.** `skills/test-integrity-gate/` ships the replay as a
+  zero-dependency Agent Skill and Claude Code plugin, with a repository-local
+  marketplace manifest and a self-contained animated demo.
+
 ## 6.6.0
 
 Adaptive-depth Wave 1 (validated before implementation: prototype backtests on the

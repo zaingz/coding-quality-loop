@@ -10,10 +10,10 @@
 [![npm](https://img.shields.io/npm/v/coding-quality-loop?style=flat-square&color=111111&label=npm)](https://www.npmjs.com/package/coding-quality-loop)
 [![npm downloads](https://img.shields.io/npm/dm/coding-quality-loop?style=flat-square&color=111111&label=downloads)](https://www.npmjs.com/package/coding-quality-loop)
 [![signed provenance](https://img.shields.io/badge/provenance-signed-111111?style=flat-square&logo=sigstore&logoColor=white)](https://search.sigstore.dev/?logIndex=2050768324)
-[![version](https://img.shields.io/badge/version-6.6.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-6.7.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-257%20core%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-262%20core%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-routed-111111?style=flat-square)](#install--use-matrix)
@@ -30,6 +30,23 @@ AI coding agents are fast. Point one at a vague ticket and it can refactor thing
 **Coding Quality Loop makes the agent work like a careful engineer instead.** It pins down what "done" means before writing code, changes as little as possible, proves the change with a test you can see, and has a *separate* agent review the work before it reaches you. What comes back is small, checked, and reversible: something you can read, trust, and merge in minutes.
 
 It is a portable [Agent Skill](https://agentskills.io/specification). The loop **routes across two frontier hosts** — Claude Code plans and implements, Codex reviews in a different model family — and it still **installs into more** (Droid, git, GitHub) as instruction and hook targets outside that routed loop. Cursor and Pi get advisory rules recipes in [`examples/`](examples/), not a runtime install. Use it as a copy-paste prompt, a loadable skill, or a multi-agent config. No new tools, no lock-in.
+
+### New: green tests have to prove they test something
+
+For medium+ changes with proposed tests, `verify` now runs each acceptance
+criterion's proving command against **old source plus the proposed tests**. The
+command must fail there and pass on the current source. A hollow test that stays
+green on both sides blocks the change.
+
+Want only that gate? Install the standalone, zero-dependency skill:
+
+```bash
+npx skills add zaingz/coding-quality-loop --skill test-integrity-gate
+```
+
+Claude Code users can also install it from this repo's plugin marketplace:
+`/plugin marketplace add zaingz/coding-quality-loop`, then
+`/plugin install test-integrity-gate@coding-quality-loop`.
 
 ---
 
@@ -197,7 +214,7 @@ python3 evals/run_control_evals.py                                              
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 10. bench fixture smoke
 ```
 
-Current result: **22/22 static** + **64/64 behavioral** + **33/33 memory** + **52/52 reality** + **30/30 routing** + **56/56 hook** = **257 gate cases** across the six core suites, plus **40 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
+Current result: **22/22 static** + **65/65 behavioral** + **33/33 memory** + **56/56 reality** + **30/30 routing** + **56/56 hook** = **262 gate cases** across the six core suites, plus **40 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -278,14 +295,14 @@ Most tools hide this table. Ours is one of the best marketing artifacts in the r
 | Enforced today | Not enforced by design, to stay portable |
 |---|---|
 | Non-trivial work, meaning medium/mission or any medium/high-risk or security-sensitive task, requires a named implementer, a real **validation contract**, an approving **independent review** by someone *other than* the implementer, and, at ship, a **completion record** with evidence. Required fields must be present and non-empty; bare booleans, empty strings, and nonexistent paths are rejected. It checks *shape*, not whether the content is substantive. A small low-risk task ships with handoff evidence, not a formal completion record. | `run-evidence` re-executes allowlisted commands but is **not a sandbox**. The trust model is repo-defined commands, same as CI. Commands not on the `.quality-loop/allowed-commands` allowlist are skipped and reported as `not_allowed`, not run. |
-| **Reality layer.** `verify-gates --against-diff` reads the real git diff and catches **phantom completion**, **scope integrity**, a **diff-derived risk floor**, **bugfix-test co-presence**, and **stale review hashes**. `run-evidence` **re-executes** recorded pass commands; `--red-green` replays a red_green command in a worktree at base and HEAD. Worktree unavailable means "not proven", never a silent pass. `attest-review` embeds the recomputed diff hash. | Reviewer/implementer separation is compared as trimmed strings and fresh context is self-attested. `attest-review` plus `--against-diff` make review *freshness* checkable, but cannot prove the reviewer *read* the diff. The merge-base the diff is computed against is a **CI-anchored** guarantee, not a local one: locally, an agent that rewrites refs can move the base, and no gate reads the reflog to catch it — commit-first evasion is CI's job. |
+| **Reality layer.** `verify-gates --against-diff` reads the real git diff and catches **phantom completion**, **scope integrity**, a **diff-derived risk floor**, **bugfix-test co-presence**, and **stale review hashes**. `run-evidence` re-executes recorded pass commands; for medium+ changes with proposed tests, fix-revert replay requires each AC command to fail on old source plus new tests and pass now. `--red-green` covers precommitted failing tests. Worktree unavailable means "not proven", never a silent pass. | Reviewer/implementer names and any recorded model families are compared, while session identity and fresh context remain self-attested. `attest-review` plus `--against-diff` make review *freshness* checkable, but cannot prove the reviewer *read* the diff. The merge-base is a **CI-anchored** guarantee, not a local one: locally, rewritten refs can move the base; commit-first evasion is CI's job. |
 | **Detected-risk floor.** The record goal, criteria, and plan are scanned for auth/authz, secrets, crypto, payments, migrations, destructive, concurrency, data-loss, PII, and infra boundaries. Any hit forces high-risk plus security-review gates regardless of the declared tier. | The detected-risk floor is a curated heuristic. It catches honest mis-tiering, not an agent deliberately phrasing around it. **Deterministic policy hooks** remain the backstop for anything you cannot afford an agent to get wrong. |
 | **UNDERSTAND is gated.** Non-trivial work must carry a substantive context map with entry points or likely files plus callers or tests. | **`verify-gates` without `--against-diff` reads the record, not the diff.** It confirms recorded evidence is present and well-formed; `--against-diff` adds diff-grounded checks. `diff-audit` and CI remain the blocking layer. |
 | Every `pass` command carries a verifiable evidence handle and known `class`; a recorded minimality decision; and `diff-audit` flags secrets, including **untracked files** and **test-weakening**, dependency edits, migrations, and oversized diffs. `diff-audit --staged` covers the pre-commit diff; `scan-text --stdin` is a secret-scan-as-a-service for hook shims. | The helper is not a hosted agent service. Authentication, model cost, and production rollout remain the caller's responsibility. |
 | **Repeated failure -> durable change.** A recurring mistake must become a rule/test/hook/checklist/template, so a clean final record cannot bury a mistake corrected only in chat. | Host hooks are advisory unless the host or repo chooses to trust and enable them. Git hooks and CI are the portable backstop. |
 | **Helper-integrity reporting.** `verify` prints the sha256 of each helper module so a hook or CI can catch a locally modified gate script. Motivated by the [gate-gaming incident](#the-gate-gaming-story). | Helper-integrity is a *report*, not an enforcement action by itself — pair it with a CI check that compares against a known-good sha to make it blocking. |
 
-The runtime entry points are `verify` (the umbrella: record gates + diff audit + evidence re-execution + AC coverage), `verify-gates`, `verify-gates --against-diff`, `check-record`, `diff-audit`, `run-evidence`, `attest-review`, `render-prompt`, and `scan-text --stdin`, pinned by [evals](evals/). On Claude Code, the Stop hook runs the full `verify` umbrella (evidence re-execution included) at terminal statuses — fabricated pass rows no longer clear the local gate. The honest caveat: *truthful-but-vacuous* rows still clear it — an allowlisted no-op (e.g. `true`) named as the proving command for every acceptance criterion re-executes and passes, and >=3 criteria sharing one proving command is warn-only, even at medium+. The gate checks that evidence exists and re-runs, not that it is substantive.
+The runtime entry points are `verify` (the umbrella: record gates + diff audit + evidence re-execution + AC coverage), `verify-gates`, `verify-gates --against-diff`, `check-record`, `diff-audit`, `run-evidence`, `attest-review`, `render-prompt`, and `scan-text --stdin`, pinned by [evals](evals/). On Claude Code, the Stop hook runs the full `verify` umbrella (evidence re-execution included) at terminal statuses — fabricated pass rows no longer clear the local gate. For medium+ changes with proposed tests, a truthful-but-vacuous proving command is also caught when it passes against old source plus the new tests. The remaining honest caveat: when no test file changed, an allowlisted no-op can still re-execute and pass; >=3 criteria sharing one proving command also remains warn-only.
 
 **Reviewer heterogeneity.** `check-config` now hard-fails when the implementer and fresh_reviewer resolve to the same model on medium+ tasks. **Tool-using evaluator.** The reviewer must execute tests and benchmarks when available, not just read the diff; the verdict records `ran_checks: true|false`. **Communication-bridge rule.** After the reviewer produces findings, the implementer filters them against the contract: in-scope findings become fix tasks, out-of-scope findings become follow-ups. This prevents review loops.
 
@@ -472,9 +489,9 @@ For a longer, per-feature comparison (with explicit non-goals and a migration pa
 
 **Does this slow the agent down?** Only where slowness buys trust. Ceremony scales with risk: a typo runs the smallest possible loop with no mission artifacts; the full loop is reserved for work whose blast radius justifies it.
 
-**Does it actually run my tests?** No, and it says so. It checks that the *evidence* of a test run is present and well-formed, not that the run happened. Pair it with CI and real scanners; the loop makes the agent *record* proof, it does not *be* your test runner.
+**Does it actually run my tests?** Yes, when you allowlist the exact recorded command. `verify` re-executes pass-labeled commands, and for medium+ changes with proposed tests it also requires the proving command to fail against old source plus those tests. It is not a sandbox or a replacement for CI; it runs repo-defined commands with your local permissions.
 
-**Is the independent review really independent?** The checker enforces a distinct, named reviewer in fresh context who did not patch the code. Identity is string-compared and freshness is self-attested: strong as a discipline, not a cryptographic guarantee. For production, wire the reviewer to a genuinely separate session or model.
+**Is the independent review really independent?** The checker enforces a distinct, named reviewer in fresh context who did not patch the code, and it rejects a same-family review when actual model-family evidence is recorded. A medium task may declare a loud `REVIEW NOT INDEPENDENT` fallback with a reason when only one family is available; high-risk work may not. Session identity and freshness are still self-attested, not cryptographic.
 
 **Do I need the Python helper?** No. The loop works as pure instructions. The helper is an optional, stdlib-only accelerator for teams that want runnable record gates.
 
@@ -522,7 +539,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all suites green: 22 static + 64 behavioral + 33 memory + 52 reality + 30 routing + 56 hook = 257 gate cases, plus 40 add-on cases for the control plane).
+     and the full eval suite (all suites green: 22 static + 65 behavioral + 33 memory + 56 reality + 30 routing + 56 hook = 262 gate cases, plus 40 add-on cases for the control plane).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules

@@ -26,6 +26,8 @@ evidence are advisory. Run available checks yourself when possible and report wh
 
 Return JSON:
 - reviewer: your name/identity
+- model: the actual model id, when the host exposes it
+- family: the model family, when known
 - verdict: approve | request_changes | needs_discussion | reject
 - fresh_context: true
 - patched: false

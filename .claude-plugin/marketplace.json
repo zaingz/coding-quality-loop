@@ -1,0 +1,29 @@
+{
+  "name": "coding-quality-loop",
+  "owner": {
+    "name": "Zain Zafar",
+    "url": "https://github.com/zaingz"
+  },
+  "description": "Deterministic quality gates for AI-written code.",
+  "plugins": [
+    {
+      "name": "test-integrity-gate",
+      "source": "./skills/test-integrity-gate",
+      "description": "Prove a new test fails against the old code before trusting green.",
+      "version": "6.7.0",
+      "author": {
+        "name": "Zain Zafar",
+        "url": "https://github.com/zaingz"
+      },
+      "homepage": "https://github.com/zaingz/coding-quality-loop",
+      "repository": "https://github.com/zaingz/coding-quality-loop",
+      "license": "MIT",
+      "keywords": [
+        "test-integrity",
+        "ai-coding",
+        "verification",
+        "quality-gate"
+      ]
+    }
+  ]
+}

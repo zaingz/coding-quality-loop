@@ -1,0 +1,19 @@
+{
+  "name": "test-integrity-gate",
+  "displayName": "Test Integrity Gate",
+  "version": "6.7.0",
+  "description": "Prove a new test fails against the old code before trusting green.",
+  "author": {
+    "name": "Zain Zafar",
+    "url": "https://github.com/zaingz"
+  },
+  "homepage": "https://github.com/zaingz/coding-quality-loop",
+  "repository": "https://github.com/zaingz/coding-quality-loop",
+  "license": "MIT",
+  "keywords": [
+    "test-integrity",
+    "ai-coding",
+    "verification",
+    "quality-gate"
+  ]
+}

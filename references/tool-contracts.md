@@ -83,11 +83,19 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
   one new source file.
 - `diff-audit` separates **blocking** findings (secrets, test-weakening — exit 1) from
   **advisory** ones (dependency bump, migration touch, large diff, untracked notes, unreadable
-  file, `cql:` shortcut markers, test shrinkage — exit 0).
+  file, `cql:` shortcut markers, test shrinkage, edited expected values, weaker matchers,
+  lower coverage thresholds, assertion-free added tests — exit 0).
 - `run-evidence` re-executes recorded pass commands from the allowlist file
   `.quality-loop/allowed-commands`: **one command per line, matched exactly against the
   recorded `cmd` string; `#` lines are comments; glob (fnmatch) patterns are allowed.** A
-  command not on the allowlist is reported, never silently run.
+  command not on the allowlist is reported, never silently run. For medium+ work with changed
+  test files, each acceptance criterion's proving command also runs against the base source
+  with the proposed tests overlaid. It must fail there and pass in the current tree; this
+  fix-revert replay is the blocking proof that the new test distinguishes the change.
+- A bugfix whose failing test was already committed may record
+  `{"bugfix_test": {"path": "tests/test_bug.py", "precommitted": true}}`. The path must
+  exist at the base ref and a pass-labeled `commands_run` row must carry `red_green: true`;
+  `run-evidence` then replays RED at base and GREEN at HEAD automatically.
 - `render-prompt --role reviewer|security-reviewer --record <record.json> [--base REF]`
   substitutes `{contract}`/`{diff}`/`{evidence}` into `assets/prompts/<role>.md` and prints to
   stdout — pipe it to the reviewing CLI (see `docs/cross-cli-recipe.md`).

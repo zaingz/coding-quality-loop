@@ -1012,12 +1012,20 @@ def _doc_count_mismatches(
 
 
 def case_release_version_parity(tmp: Path) -> tuple[bool, str]:
-    """Release surfaces share ONE version: npm package.json, SKILL.md
-    frontmatter, the README version badge, and the shipped GitHub example's
-    action ref. Version drift is a repeated field mistake (the schema-version
-    pin drifted before v6.1.0; the README badge and GitHub example shipped
-    stale into the v6.5.0 review) — so parity is a gate, not a checklist."""
+    """Release surfaces share ONE version; parity is a gate, not a checklist."""
     pkg = json.loads((ROOT / "packages" / "npm" / "package.json").read_text(encoding="utf-8"))["version"]
+    marketplace = json.loads(
+        (ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
+    )
+    plugin = json.loads(
+        (
+            ROOT
+            / "skills"
+            / "test-integrity-gate"
+            / ".claude-plugin"
+            / "plugin.json"
+        ).read_text(encoding="utf-8")
+    )
     skill_m = re.search(r'^\s*version:\s*"([^"]+)"',
                         (ROOT / "SKILL.md").read_text(encoding="utf-8"), re.MULTILINE)
     badge_m = re.search(r"badge/version-([0-9.]+)-",
@@ -1026,7 +1034,9 @@ def case_release_version_parity(tmp: Path) -> tuple[bool, str]:
                      (ROOT / "hosts" / "github" / "quality-loop-example.yml").read_text(encoding="utf-8"))
     vals = {"npm": pkg, "skill": skill_m.group(1) if skill_m else None,
             "readme_badge": badge_m.group(1) if badge_m else None,
-            "gh_example": gh_m.group(1) if gh_m else None}
+            "gh_example": gh_m.group(1) if gh_m else None,
+            "marketplace": marketplace.get("plugins", [{}])[0].get("version"),
+            "plugin": plugin.get("version")}
     ok = all(v == pkg for v in vals.values())
     return ok, f"versions={vals}"
 
@@ -1550,6 +1560,139 @@ def case_ran_checks_warns_not_fails(tmp: Path) -> tuple[bool, str]:
 
     ok = warned and silent
     return ok, f"without(exit={code_w},warned={warned}); with(exit={code_f},silent={silent})"
+
+
+def case_same_family_fallback_is_loud_and_bounded(tmp: Path) -> tuple[bool, str]:
+    same_family_models = [
+        {"role": "implementer", "model": "claude-sonnet-5", "family": "claude"},
+        {"role": "fresh_reviewer", "model": "claude-fable-5", "family": "claude"},
+    ]
+    same_family_review = {
+        "reviewer": "agent-b",
+        "model": "claude-fable-5",
+        "family": "claude",
+        "verdict": "approve",
+        "fresh_context": True,
+        "patched": False,
+        "ran_checks": True,
+        "findings": [],
+    }
+    silent_record = passing_medium(
+        models_used=same_family_models,
+        independent_review=same_family_review,
+    )
+    code_s, out_s = verify_gates(tmp, silent_record)
+    silent_blocked = code_s == 1 and "uses the implementer model family" in out_s
+
+    fallback_review = dict(
+        same_family_review,
+        same_family_fallback=True,
+        same_family_fallback_reason="only one provider is available in this CLI",
+    )
+    fallback_record = passing_medium(
+        models_used=same_family_models,
+        independent_review=fallback_review,
+    )
+    code_f, out_f = verify_gates(tmp, fallback_record)
+    fallback_loud = (
+        code_f == 0
+        and "REVIEW NOT INDEPENDENT — same-family fallback" in out_f
+    )
+
+    high_record = passing_medium(
+        risk_tier="high",
+        task_class="mission",
+        models_used=same_family_models,
+        independent_review=fallback_review,
+        commands_run=[
+            {"cmd": "pytest", "class": "unit", "result": "pass", "evidence": "12 passed"},
+            {"cmd": "scan", "class": "security", "result": "pass", "evidence": "clean"},
+        ],
+        security_review={
+            "reviewer": "security-agent",
+            "model": "gpt-5.6-terra",
+            "family": "gpt",
+            "verdict": "approve",
+            "fresh_context": True,
+            "patched": False,
+            "ran_checks": True,
+            "findings": [],
+        },
+    )
+    code_h, out_h = verify_gates(tmp, high_record)
+    high_blocked = code_h == 1 and "cannot use same_family_fallback" in out_h
+
+    cross_review = dict(same_family_review, model="gpt-5.6-terra")
+    cross_review.pop("family")
+    code_c, out_c = verify_gates(
+        tmp,
+        passing_medium(
+            models_used=same_family_models,
+            independent_review=cross_review,
+        ),
+    )
+    explicit_model_wins = (
+        code_c == 0 and "uses the implementer model family" not in out_c
+    )
+
+    stale_family_models = [
+        {"role": "implementer", "model": "claude-sonnet-5", "family": "claude"},
+        {"role": "fresh_reviewer", "model": "gpt-5.6-terra", "family": "gpt"},
+    ]
+    actual_same_review = dict(same_family_review, model="claude-fable-5")
+    actual_same_review.pop("family")
+    code_a, out_a = verify_gates(
+        tmp,
+        passing_medium(
+            models_used=stale_family_models,
+            independent_review=actual_same_review,
+        ),
+    )
+    actual_same_blocked = (
+        code_a == 1 and "uses the implementer model family (claude)" in out_a
+    )
+
+    security_findings, _ = quality_loop._review_fallback_findings(
+        {"models_used": same_family_models},
+        same_family_review,
+        "security_review",
+        high_risk=True,
+    )
+    security_message_honest = (
+        bool(security_findings)
+        and "same_family_fallback at medium risk" not in security_findings[0]
+    )
+
+    schema_code, schema_out = check_record(
+        tmp,
+        base_record(
+            bugfix_test={
+                "path": "tests/test_bug.py",
+                "precommitted": True,
+                "note": "unexpected",
+            }
+        ),
+    )
+    schema_rejects_extra = (
+        schema_code == 1 and "bugfix_test has unknown key: 'note'" in schema_out
+    )
+
+    ok = all((
+        silent_blocked,
+        fallback_loud,
+        high_blocked,
+        explicit_model_wins,
+        actual_same_blocked,
+        security_message_honest,
+        schema_rejects_extra,
+    ))
+    return ok, (
+        f"silent(exit={code_s},blocked={silent_blocked}); "
+        f"fallback(exit={code_f},loud={fallback_loud}); "
+        f"high(exit={code_h},blocked={high_blocked}); "
+        f"precedence=(cross={explicit_model_wins},same={actual_same_blocked}); "
+        f"security_message={security_message_honest}; schema={schema_rejects_extra}"
+    )
 
 
 def case_brief_caps_over_budget_lesson(tmp: Path) -> tuple[bool, str]:
@@ -2146,12 +2289,13 @@ CASES = [
     ("reviewer contract (verdict enum + ran_checks) agrees across prompt/agents/schema", case_reviewer_contract_surfaces_agree),
     ("paper trail is four artifacts (contract/plan/record/progress)", case_paper_trail_is_four_artifacts),
     ("approving review without ran_checks draws a note at medium+ (never blocking)", case_ran_checks_warns_not_fails),
+    ("same-family fallback is loud at medium and forbidden at high risk", case_same_family_fallback_is_loud_and_bounded),
     ("brief caps an over-budget recalled lesson in text and --json output", case_brief_caps_over_budget_lesson),
     ("control_plane shape is validated in core even without the add-on installed", case_check_config_core_control_plane_shape),
     ("check-config prints heterogeneity_status even without model_routing (SKIPPED)", case_check_config_always_prints_heterogeneity),
     ("check-config accepts a gate-config-only shape (no profiles/steps); bad types still fail", case_check_config_gate_config_only),
     ("config schema version is pinned three ways (engine == schema const == example)", case_config_schema_version_pinned),
-    ("release surfaces share one version (npm == SKILL == README badge == gh example)", case_release_version_parity),
+    ("release surfaces share one version (core + plugin manifests)", case_release_version_parity),
     ("record set-status/add-evidence/add-ac round-trip; mutated record passes check-record", case_record_mutation_roundtrip),
     ("malformed record-mutation input errors cleanly (no traceback, no write)", case_record_mutation_malformed_errors),
     ("record mutation refuses to write a newly-invalid record", case_record_mutation_refuses_invalid_result),

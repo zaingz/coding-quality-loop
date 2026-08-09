@@ -313,6 +313,28 @@ def is_scaffolding_path(path: str, manifest: frozenset[str] | None = None) -> bo
 # e.g. Rust #[cfg(test)] modules inside src/ stay uncovered (documented in
 # references/enforcement-matrix.md).
 TEST_PATH_MARKERS = ("test", "spec", "__tests__")
+
+
+def is_test_path(
+    path: str,
+    markers: tuple[str, ...] | None = None,
+) -> bool:
+    """Match conventional test path tokens without substring false positives."""
+    markers = markers or TEST_PATH_MARKERS
+    normalized_markers = {marker.lower() for marker in markers}
+    parts = path.replace("\\", "/").lower().split("/")
+    if normalized_markers.intersection(TEST_PATH_MARKERS):
+        for part in parts:
+            tokens = {token for token in re.split(r"[._-]+", part) if token}
+            if tokens.intersection({"test", "tests", "spec", "specs", "testdata"}):
+                return True
+    return any(
+        marker not in TEST_PATH_MARKERS
+        and marker in path.lower()
+        for marker in normalized_markers
+    )
+
+
 TEST_WEAKENING_PATTERNS = [
     # Python: @skip / @pytest.mark.skip / @mark.skipif / @unittest.skip etc.
     re.compile(r"^\+.*@(?:[\w.]*\.)?(?:skipif|xfail|skip)\b"),
@@ -396,7 +418,7 @@ def test_shrinkage_hits(
             if new_path.startswith(("a/", "b/")):
                 new_path = new_path[2:]
             current = new_path if new_path != "/dev/null" else old_path
-            in_test_file = any(m in current.lower() for m in markers)
+            in_test_file = is_test_path(current, markers)
             if in_test_file and current not in files:
                 files.append(current)
             continue
@@ -449,12 +471,176 @@ def test_weakening_hits(
             if path.startswith(("a/", "b/")):
                 path = path[2:]
             current = path
-            in_test_file = any(m in path.lower() for m in markers)
+            in_test_file = is_test_path(path, markers)
             continue
         if in_test_file and line.startswith("+") and not line.startswith("+++"):
             if any(p.search(line) for p in TEST_WEAKENING_PATTERNS) and current not in hits:
                 hits.append(current)
     return hits
+
+
+_LITERAL_RE = re.compile(
+    r"""(?x)
+    (?:["'][^"'\\]*(?:\\.[^"'\\]*)*["'])
+    |(?:\b(?:true|false|null|none)\b)
+    |(?:\b-?\d+(?:\.\d+)?\b)
+    """,
+    re.IGNORECASE,
+)
+_STRONG_MATCHER_RE = re.compile(
+    r"\b(?:toEqual|toStrictEqual|toBe|assertEqual|assertEquals|assertRaises|"
+    r"assertThrows|assertThatThrownBy|toThrow|rejects|AreEqual)\b"
+)
+_WEAK_MATCHER_RE = re.compile(
+    r"\b(?:toBeTruthy|toBeDefined|toBePresent|assertTrue|assertNotNull|"
+    r"assertDoesNotThrow|IsNotNull|IsTrue)\b"
+)
+_COVERAGE_KEY_RE = re.compile(
+    r"(?P<key>coverageThreshold|cov-fail-under|min(?:imum)?[_-]?coverage|"
+    r"lines|branches|functions|statements)"
+    r"[\"']?\s*[:=]\s*(?P<value>\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+_TEST_CONTAINER_RE = re.compile(
+    r"^\s*describe(?:\.each\b[^(]*)?\s*\("
+    r"|^\s*(?:describe|context)\s+['\"]"
+)
+
+
+def _test_file_changes(
+    patch: str, markers: tuple[str, ...]
+) -> dict[str, dict[str, list[str]]]:
+    """Added/removed lines grouped by changed test file."""
+    changes: dict[str, dict[str, list[str]]] = {}
+    current = ""
+    in_test_file = False
+    for line in patch.splitlines():
+        if line.startswith("+++ "):
+            path = line[4:].strip()
+            if path.startswith(("a/", "b/")):
+                path = path[2:]
+            current = path
+            in_test_file = path != "/dev/null" and is_test_path(path, markers)
+            if in_test_file:
+                changes.setdefault(current, {"added": [], "removed": []})
+            continue
+        if not in_test_file or line.startswith(("+++", "---")):
+            continue
+        if line.startswith("+"):
+            changes[current]["added"].append(line[1:])
+        elif line.startswith("-"):
+            changes[current]["removed"].append(line[1:])
+    return changes
+
+
+def _literal_skeleton(line: str) -> str:
+    return re.sub(r"\s+", "", _LITERAL_RE.sub("<literal>", line)).lower()
+
+
+def test_tamper_advisories(
+    patch: str, markers: tuple[str, ...] | None = None
+) -> list[str]:
+    """Warn-first signals for suspicious test-oracle changes.
+
+    These deliberately stay advisory: legitimate behavior changes often update
+    expected values or matcher shape. The deterministic replay gate, not these
+    heuristics, decides whether the new test actually distinguishes old code
+    from new code.
+    """
+    markers = markers or TEST_PATH_MARKERS
+    findings: list[str] = []
+    for path, sides in _test_file_changes(patch, markers).items():
+        added = sides["added"]
+        removed = sides["removed"]
+
+        removed_assertions = [line for line in removed if _ASSERTION_LINE_RE.search(line)]
+        added_assertions = [line for line in added if _ASSERTION_LINE_RE.search(line)]
+        removed_shapes = [
+            (_literal_skeleton(line), _LITERAL_RE.findall(line))
+            for line in removed_assertions
+        ]
+        added_shapes = [
+            (_literal_skeleton(line), _LITERAL_RE.findall(line))
+            for line in added_assertions
+        ]
+        changed_literal = any(
+            old_skeleton == new_skeleton and old_literals != new_literals
+            for old_skeleton, old_literals in removed_shapes
+            for new_skeleton, new_literals in added_shapes
+        )
+        if changed_literal:
+            findings.append(
+                f"test expected value changed in {path} — confirm the new value comes "
+                "from the contract, not the implementation"
+            )
+
+        if (
+            any(_STRONG_MATCHER_RE.search(line) for line in removed)
+            and any(_WEAK_MATCHER_RE.search(line) for line in added)
+        ):
+            findings.append(
+                f"test matcher may be weaker in {path} — a precise equality/exception "
+                "check was replaced by a broad truthiness/presence check"
+            )
+
+        added_declarations = [
+            line
+            for line in added
+            if _TEST_DECL_RE.search(line) and not _TEST_CONTAINER_RE.search(line)
+        ]
+        if added_declarations and not added_assertions:
+            findings.append(
+                f"added test declaration has no added assertion in {path} — confirm it "
+                "fails when the behavior is wrong"
+            )
+
+    current = ""
+    file_removed: list[str] = []
+    file_added: list[str] = []
+    for line in patch.splitlines() + ["+++ /dev/null"]:
+        if line.startswith("+++ "):
+            if current:
+                removed_values: dict[str, list[float]] = {}
+                added_values: dict[str, list[float]] = {}
+                for old in file_removed:
+                    for match in _COVERAGE_KEY_RE.finditer(old):
+                        removed_values.setdefault(
+                            match.group("key").lower(), []
+                        ).append(float(match.group("value")))
+                for new in file_added:
+                    for match in _COVERAGE_KEY_RE.finditer(new):
+                        added_values.setdefault(
+                            match.group("key").lower(), []
+                        ).append(float(match.group("value")))
+                lowered = []
+                for key in sorted(removed_values.keys() & added_values.keys()):
+                    pairs = [
+                        (old_value, new_value)
+                        for old_value, new_value in zip(
+                            removed_values[key], added_values[key]
+                        )
+                        if new_value < old_value
+                    ]
+                    if pairs:
+                        old_value, new_value = max(
+                            pairs, key=lambda pair: pair[0] - pair[1]
+                        )
+                        lowered.append((key, old_value, new_value))
+                for key, old_value, new_value in lowered:
+                    findings.append(
+                        f"coverage threshold may be lower in {current} ({key}): "
+                        f"{old_value:g} -> {new_value:g}"
+                    )
+            current = line[4:].strip()
+            if current.startswith(("a/", "b/")):
+                current = current[2:]
+            file_removed, file_added = [], []
+            continue
+        if line.startswith("-") and not line.startswith("---"):
+            file_removed.append(line[1:])
+        elif line.startswith("+") and not line.startswith("+++"):
+            file_added.append(line[1:])
+    return findings
 
 
 # ---------------------------------------------------------------------------

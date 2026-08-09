@@ -4,7 +4,8 @@
 //
 // Copies only what the CLI needs at runtime: scripts/, hosts/, assets/,
 // examples/{claude-code,codex,cursor,droid,pi,standalone}/, .claude/,
-// SKILL.md, README.md, LICENSE. The evals and the optional control plane
+// the standalone test-integrity skill/marketplace, SKILL.md, README.md,
+// LICENSE. The evals and the optional control plane
 // (assets/control-plane/, scripts/quality_loop_control.py) stay out of the
 // tarball — the control plane is an in-repo opt-in add-on.
 import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -23,6 +24,8 @@ const INCLUDE = [
   "assets",
   "references",
   ".claude",
+  ".claude-plugin",
+  "skills/test-integrity-gate",
   "SKILL.md",
   "LICENSE",
   "examples/claude-code",

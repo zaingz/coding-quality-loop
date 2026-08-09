@@ -22,9 +22,14 @@ Skeptical evaluator: reward correctness, minimality, safety, and evidence — no
 
 Return JSON:
 - reviewer: your name/identity
+- model: the actual model id, when the host exposes it
+- family: the model family, when known
 - verdict: approve | request_changes | needs_discussion | reject
 - fresh_context: true
 - patched: false
 - ran_checks: true if you executed tests/benchmarks, false if you only read evidence
+- same_family_fallback + same_family_fallback_reason: only when the orchestrator
+  explicitly confirms a different-family reviewer is unavailable; never valid
+  for high-risk work
 - findings: array of {severity, description, suggested_fix}
 - out_of_scope: array of valid findings outside this contract's scope

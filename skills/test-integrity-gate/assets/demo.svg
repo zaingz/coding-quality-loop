@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="360" viewBox="0 0 900 360" role="img" aria-label="Test Integrity Gate terminal demo">
+  <rect width="900" height="360" rx="18" fill="#0d1117"/>
+  <circle cx="28" cy="27" r="6" fill="#ff5f57"/>
+  <circle cx="48" cy="27" r="6" fill="#febc2e"/>
+  <circle cx="68" cy="27" r="6" fill="#28c840"/>
+  <text x="450" y="32" fill="#8b949e" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, monospace" font-size="14">test-integrity-gate</text>
+  <line x1="0" y1="49" x2="900" y2="49" stroke="#30363d"/>
+
+  <style>
+    .line { opacity: 0; animation: show 8s infinite; }
+    .l1 { animation-delay: .4s; }
+    .l2 { animation-delay: 1.8s; }
+    .l3 { animation-delay: 3.1s; }
+    .l4 { animation-delay: 4.4s; }
+    .l5 { animation-delay: 5.7s; }
+    @keyframes show {
+      0%, 8% { opacity: 0; }
+      14%, 82% { opacity: 1; }
+      94%, 100% { opacity: 0; }
+    }
+  </style>
+
+  <g font-family="ui-monospace, SFMono-Regular, monospace" font-size="17">
+    <text class="line l1" x="28" y="88" fill="#c9d1d9">$ python3 test_integrity.py --base origin/main \</text>
+    <text class="line l1" x="48" y="116" fill="#c9d1d9">--command "pytest tests/test_retry.py::test_retries_once"</text>
+    <text class="line l2" x="28" y="160" fill="#8b949e">Overlaying 1 proposed test file onto old source...</text>
+    <text class="line l3" x="28" y="202" fill="#3fb950">OLD SOURCE + NEW TEST</text>
+    <text class="line l3" x="300" y="202" fill="#f85149">FAIL (expected)</text>
+    <text class="line l4" x="28" y="244" fill="#3fb950">CURRENT SOURCE + NEW TEST</text>
+    <text class="line l4" x="320" y="244" fill="#3fb950">PASS</text>
+    <rect class="line l5" x="24" y="278" width="852" height="48" rx="8" fill="#12261c" stroke="#238636"/>
+    <text class="line l5" x="44" y="309" fill="#56d364" font-weight="700">PROVEN: this test distinguishes old behavior from new behavior.</text>
+  </g>
+</svg>

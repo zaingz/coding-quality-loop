@@ -210,6 +210,14 @@ def case_auth_path_low_tier(tmp: Path) -> tuple[bool, str]:
     auth = repo / "src" / "auth"
     auth.mkdir(parents=True)
     (auth / "login.py").write_text("def login(): pass\n")
+    tests = repo / "tests"
+    tests.mkdir()
+    (tests / "test_login.py").write_text(
+        "from pathlib import Path\n"
+        "assert (Path(__file__).parents[1] / 'src/auth/login.py').is_file()\n"
+    )
+    command = f"{sys.executable} tests/test_login.py"
+    write_allowlist(repo, [command])
     # Goal deliberately avoids boundary keywords so the TEXT floor does not fire;
     # only the DIFF-derived floor should catch the auth/ path.
     record = passing_record(
@@ -218,7 +226,15 @@ def case_auth_path_low_tier(tmp: Path) -> tuple[bool, str]:
         risk_tier="low",
         task_class="small",
         status="done",
-        commands_run=[{"cmd": "read", "class": "lint", "result": "pass", "evidence": "looks good"}],
+        acceptance_criteria=[
+            {"criterion": "renamed helper file exists", "proving_command": command}
+        ],
+        commands_run=[{
+            "cmd": command,
+            "class": "unit",
+            "result": "pass",
+            "evidence": "process exited 0",
+        }],
         validation_contract=None,
         independent_review=None,
         completion_record=None,
@@ -228,8 +244,23 @@ def case_auth_path_low_tier(tmp: Path) -> tuple[bool, str]:
     )
     path = write_record(repo, record)
     code, out, err = run_cli("verify-gates", str(path), "--against-diff", "--base", "HEAD", cwd=str(repo))
-    ok = code == 1 and "diff-derived risk floor" in (out + err).lower()
-    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+    replay_code, replay_out, _ = run_cli(
+        "run-evidence", str(path), "--base", "HEAD", cwd=str(repo)
+    )
+    replay = json.loads(replay_out)
+    replay_ran = (
+        replay_code == 0
+        and replay.get("test_integrity_checks") == 1
+    )
+    ok = (
+        code == 1
+        and "diff-derived risk floor" in (out + err).lower()
+        and replay_ran
+    )
+    return ok, (
+        f"verify_exit={code}; replay_exit={replay_code}; "
+        f"diff_floor_replay={replay_ran}; output={(out + err).strip()[:140]!r}"
+    )
 
 
 def case_high_tier_path_forces_high_from_medium(tmp: Path) -> tuple[bool, str]:
@@ -383,8 +414,35 @@ def case_run_evidence_allowlist(tmp: Path) -> tuple[bool, str]:
     )
     path = write_record(repo, record)
     code, out, err = run_cli("run-evidence", str(path), cwd=str(repo))
-    ok = code == 1 and "not on allowlist" in (out + err).lower()
-    return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+    refused = code == 1 and "not on allowlist" in (out + err).lower()
+
+    bad_code, bad_out, bad_err = run_cli(
+        "run-evidence",
+        str(path),
+        "--base",
+        "missing-base-ref",
+        cwd=str(repo),
+    )
+    try:
+        bad_summary = json.loads(bad_out)
+    except json.JSONDecodeError:
+        bad_summary = {}
+    sidecar = repo / ".quality-loop" / "rerun-t-reality.json"
+    bad_base_reported = (
+        bad_code == 1
+        and not bad_err
+        and bad_summary.get("test_integrity_checks") == 1
+        and any(
+            "could not inspect changed files" in finding
+            for finding in bad_summary.get("findings", [])
+        )
+        and sidecar.is_file()
+    )
+    ok = refused and bad_base_reported
+    return ok, (
+        f"allowlist(exit={code},refused={refused}); "
+        f"bad_base(exit={bad_code},reported={bad_base_reported})"
+    )
 
 
 def case_verify_umbrella_fails_when_section_fails(tmp: Path) -> tuple[bool, str]:
@@ -1773,6 +1831,366 @@ def case_canonical_diff_sha256_single_source(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; same_impl={same_impl}; stales_on_new_content={stales}"
 
 
+def _behavior_record(repo: Path, command: str, goal: str) -> dict:
+    return passing_record(
+        repo,
+        goal=goal,
+        acceptance_criteria=[
+            {"criterion": "value returns two", "proving_command": command}
+        ],
+        commands_run=[
+            {
+                "cmd": command,
+                "class": "unit",
+                "result": "pass",
+                "evidence": "process exited 0",
+            }
+        ],
+        plan=["change calc.py and verify the focused behavior"],
+        repo_map={
+            "entry_points": ["calc.py:value"],
+            "likely_files": ["calc.py"],
+            "callers_checked": [],
+            "tests": ["tests/test_calc.py"],
+            "patterns_to_follow": [],
+        },
+        completion_record=_completion(files=["calc.py", "tests/test_calc.py"]),
+    )
+
+
+def case_test_integrity_fix_revert_replay(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    (repo / "calc.py").write_text("def value():\n    return 1\n")
+    _git(repo, "add", "calc.py")
+    _git(repo, "commit", "-m", "add broken behavior")
+    (repo / "calc.py").write_text("def value():\n    return 2\n")
+    tests = repo / "tests"
+    tests.mkdir()
+    test_path = tests / "test_calc.py"
+    test_path.write_text(
+        "import pathlib, sys\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
+        "from calc import value\n"
+        "sys.stdout.buffer.write(b'\\xff\\n')\n"
+        "assert value() == 2\n"
+    )
+    command = f"{sys.executable} tests/test_calc.py"
+    write_allowlist(repo, [command])
+    record = _behavior_record(repo, command, "Fix the broken value behavior")
+    write_record(repo, record)
+    pass_code, pass_out, _ = run_cli(
+        "verify", "agent-record.json", "--base", "HEAD", cwd=str(repo)
+    )
+    honest_passes = (
+        pass_code == 0
+        and "[PASS] run-evidence" in pass_out
+        and "Overall: PASS" in pass_out
+    )
+
+    test_path.write_text(
+        "import pathlib, sys\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
+        "from calc import value\n"
+        "assert value() in {1, 2}\n"
+    )
+    record = _behavior_record(repo, command, "Fix the broken value behavior")
+    write_record(repo, record)
+    fail_code, fail_out, _ = run_cli(
+        "verify", "agent-record.json", "--base", "HEAD", cwd=str(repo)
+    )
+    hollow_blocked = (
+        fail_code == 1
+        and "test-integrity replay" in fail_out
+        and "old source with the proposed tests" in fail_out
+    )
+
+    unrecorded = f"{sys.executable} ./tests/test_calc.py"
+    write_allowlist(repo, [command, unrecorded])
+    record["acceptance_criteria"][0]["proving_command"] = unrecorded
+    write_record(repo, record)
+    missing_code, missing_out, _ = run_cli(
+        "verify", "agent-record.json", "--base", "HEAD", cwd=str(repo)
+    )
+    unrecorded_blocked = (
+        missing_code == 1
+        and "proving command is not a pass-labeled commands_run entry" in missing_out
+    )
+
+    path_classifier_clean = (
+        qlcore.is_test_path("tests/test_calc.py")
+        and qlcore.is_test_path("src/widget.spec.ts")
+        and not qlcore.is_test_path("src/latest.py")
+        and not qlcore.is_test_path("src/inspector.ts")
+    )
+
+    test_path.unlink()
+    test_path.symlink_to("missing.py")
+    overlay_results, overlay_findings = qlreal._test_integrity_replay(
+        ["tests/test_calc.py"],
+        [command],
+        "HEAD",
+        repo,
+        30,
+        [command],
+        {
+            command: {
+                "exit_code": 0,
+                "stdout": "",
+                "stderr": "",
+                "timed_out": False,
+            }
+        },
+    )
+    overlay_failure_reported = (
+        len(overlay_results) == 1
+        and overlay_results[0]["old_code_with_new_tests"] == "not_proven"
+        and "symlink" in overlay_results[0]["reason"]
+        and any("not proven" in finding for finding in overlay_findings)
+    )
+
+    ok = all((
+        honest_passes,
+        hollow_blocked,
+        unrecorded_blocked,
+        path_classifier_clean,
+        overlay_failure_reported,
+    ))
+    return ok, (
+        f"honest(exit={pass_code},passes={honest_passes}); "
+        f"hollow(exit={fail_code},blocked={hollow_blocked}); "
+        f"unrecorded(exit={missing_code},blocked={unrecorded_blocked}); "
+        f"paths={path_classifier_clean}; overlay={overlay_failure_reported}"
+    )
+
+
+def case_precommitted_bugfix_test(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    (repo / "calc.py").write_text("def value():\n    return 1\n")
+    tests = repo / "tests"
+    tests.mkdir()
+    (tests / "test_calc.py").write_text(
+        "import pathlib, sys\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
+        "from calc import value\n"
+        "sys.stdout.buffer.write(b'\\xff\\n')\n"
+        "assert value() == 2\n"
+    )
+    _git(repo, "add", "calc.py", "tests/test_calc.py")
+    _git(repo, "commit", "-m", "commit known failing test")
+    (repo / "calc.py").write_text("def value():\n    return 2\n")
+    command = f"{sys.executable} tests/test_calc.py"
+    write_allowlist(repo, [command])
+    record = _behavior_record(repo, command, "Fix the broken value behavior")
+    record["commands_run"][0]["red_green"] = True
+    record["bugfix_test"] = {
+        "path": "tests/test_calc.py",
+        "precommitted": True,
+    }
+    write_record(repo, record)
+    code, out, _ = run_cli(
+        "verify", "agent-record.json", "--base", "HEAD", cwd=str(repo)
+    )
+    sidecar = json.loads(
+        (repo / ".quality-loop" / "rerun-t-reality.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    red_green = sidecar.get("red_green", [])
+    honest_passes = (
+        code == 0
+        and '"red_green_checks": 1' in out
+        and len(red_green) == 1
+        and red_green[0].get("red") == "fail"
+        and red_green[0].get("green") == "pass"
+        and "Overall: PASS" in out
+        and "bugfix-test co-presence" not in out
+    )
+
+    record["bugfix_test"]["path"] = "tests/missing.py"
+    write_record(repo, record)
+    bad_code, bad_out, _ = run_cli(
+        "verify-gates",
+        "agent-record.json",
+        "--against-diff",
+        "--base",
+        "HEAD",
+        cwd=str(repo),
+    )
+    fake_blocked = (
+        bad_code == 1
+        and "declared precommitted test is not proven" in bad_out
+    )
+    ok = honest_passes and fake_blocked
+    return ok, (
+        f"honest(exit={code},passes={honest_passes}); "
+        f"fake(exit={bad_code},blocked={fake_blocked})"
+    )
+
+
+def case_test_tamper_signals_are_advisory(tmp: Path) -> tuple[bool, str]:
+    repo = make_repo(tmp)
+    tests = repo / "tests"
+    tests.mkdir()
+    (tests / "test_values.js").write_text(
+        'test("exact", () => expect(total()).toEqual(3));\n'
+        'test("weak", () => expect(total()).toEqual(3));\n'
+    )
+    (tests / "test_empty.js").write_text("// no tests yet\n")
+    specs = repo / "spec"
+    specs.mkdir()
+    (specs / "widget_spec.rb").write_text("# shared examples live elsewhere\n")
+    (repo / "coverage.config.js").write_text(
+        "module.exports = { branches: 80, lines: 90 };\n"
+    )
+    (repo / "jest.config.js").write_text(
+        "module.exports = {\n"
+        "  './src/**': { lines: 100 },\n"
+        "  global: { lines: 90 },\n"
+        "};\n"
+    )
+    _git(repo, "add", "tests", "spec", "coverage.config.js", "jest.config.js")
+    _git(repo, "commit", "-m", "add strict tests")
+    (tests / "test_values.js").write_text(
+        'test("exact", () => expect(total()).toEqual(4));\n'
+        'test("weak", () => expect(total()).toBeTruthy());\n'
+    )
+    (tests / "test_empty.js").write_text(
+        '// no tests yet\n'
+        'test("empty", () => helper());\n'
+    )
+    (specs / "widget_spec.rb").write_text(
+        "# shared examples live elsewhere\n"
+        'context "as admin" do\n'
+        '  it_behaves_like "an authorized endpoint"\n'
+        "end\n"
+    )
+    (repo / "coverage.config.js").write_text(
+        "module.exports = { branches: 80, lines: 50 };\n"
+    )
+    (repo / "jest.config.js").write_text(
+        "module.exports = {\n"
+        "  './src/**': { lines: 60 },\n"
+        "  global: { lines: 95 },\n"
+        "};\n"
+    )
+    code, out, _ = run_cli("diff-audit", "--base", "HEAD", cwd=str(repo))
+    data = json.loads(out)
+    advisory = "\n".join(data.get("advisory", []))
+    signals = {
+        "expected": "expected value changed" in advisory,
+        "matcher": "matcher may be weaker" in advisory,
+        "coverage_multi_key": (
+            "coverage.config.js (lines): 90 -> 50" in advisory
+        ),
+        "coverage_duplicate_key": (
+            "jest.config.js (lines): 100 -> 60" in advisory
+        ),
+        "empty": "has no added assertion" in advisory,
+        "rspec_container_clean": (
+            "has no added assertion in spec/widget_spec.rb" not in advisory
+        ),
+    }
+    ok = code == 0 and all(signals.values()) and not data.get("blocking")
+    return ok, f"exit={code}; signals={signals}; blocking={data.get('blocking')}"
+
+
+def case_standalone_test_integrity_skill(tmp: Path) -> tuple[bool, str]:
+    marketplace = json.loads(
+        (ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
+    )
+    source = marketplace["plugins"][0]["source"]
+    plugin_root = ROOT / source.removeprefix("./")
+    plugin = json.loads(
+        (plugin_root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+    )
+    script = plugin_root / "scripts" / "test_integrity.py"
+    manifests_ok = (
+        marketplace.get("name") == "coding-quality-loop"
+        and source == "./skills/test-integrity-gate"
+        and plugin.get("name") == "test-integrity-gate"
+        and (plugin_root / "SKILL.md").is_file()
+        and script.is_file()
+    )
+
+    repo = make_repo(tmp)
+    (repo / "calc.py").write_text("def value():\n    return 1\n")
+    _git(repo, "add", "calc.py")
+    _git(repo, "commit", "-m", "add broken behavior")
+    (repo / "calc.py").write_text("def value():\n    return 2\n")
+    source_dir = repo / "src"
+    source_dir.mkdir()
+    (source_dir / "latest.py").write_text("VALUE = 2\n")
+    tests = repo / "tests"
+    tests.mkdir()
+    (tests / "test_calc.py").write_text(
+        "import pathlib, sys\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
+        "from calc import value\n"
+        "sys.stdout.buffer.write(b'\\xff\\n')\n"
+        "assert value() == 2\n"
+    )
+    command = f"{sys.executable} tests/test_calc.py"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--base",
+            "HEAD",
+            "--command",
+            command,
+        ],
+        cwd=repo,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    try:
+        result = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        result = {}
+    replay_ok = (
+        proc.returncode == 0
+        and result.get("status") == "pass"
+        and result.get("reason") == ""
+        and result.get("old_code_with_proposed_tests", {}).get("state") == "fail"
+        and "stderr_tail" in result.get("old_code_with_proposed_tests", {})
+        and result.get("current_code", {}).get("state") == "pass"
+        and "stdout_tail" in result.get("current_code", {})
+        and result.get("test_files_overlaid") == ["tests/test_calc.py"]
+    )
+    _git(repo, "add", "calc.py", "src/latest.py", "tests/test_calc.py")
+    _git(repo, "commit", "-m", "land fix and test")
+    empty = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--base",
+            "HEAD",
+            "--command",
+            command,
+        ],
+        cwd=repo,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    empty_result = json.loads(empty.stdout)
+    empty_blocks = (
+        empty.returncode == 1
+        and empty_result.get("status") == "not_proven"
+        and empty_result.get("test_files_overlaid") == []
+        and "no changed test files" in empty_result.get("reason", "")
+    )
+    ok = manifests_ok and replay_ok and empty_blocks
+    return ok, (
+        f"manifests={manifests_ok}; replay(exit={proc.returncode},ok={replay_ok}); "
+        f"empty(exit={empty.returncode},blocked={empty_blocks}); "
+        f"stderr={proc.stderr.strip()[:100]!r}"
+    )
+
+
 CASES = [
     ("action.yml python invocations all run the pinned copy", case_action_invocations_are_pinned),
     ("phantom completion (done + empty diff) is caught", case_phantom_completion),
@@ -1780,6 +2198,10 @@ CASES = [
     ("auth path under a low tier is caught (diff-derived risk floor)", case_auth_path_low_tier),
     ("high-tier changed path forces high gates even from medium", case_high_tier_path_forces_high_from_medium),
     ("missing bugfix test is caught (bugfix-test co-presence)", case_missing_bugfix_test),
+    ("fix-revert replay accepts a real test and blocks a hollow one", case_test_integrity_fix_revert_replay),
+    ("precommitted failing test is accepted only when git and RED→GREEN prove it", case_precommitted_bugfix_test),
+    ("new test-tamper signals are advisory, not heuristic blockers", case_test_tamper_signals_are_advisory),
+    ("standalone test-integrity skill manifest and replay script work", case_standalone_test_integrity_skill),
     ("stale review hash is caught (review freshness)", case_stale_review_hash),
     ("lying evidence (recorded pass fails on rerun) is caught", case_lying_evidence),
     ("faked RED (command passes at base) is caught by --red-green", case_red_green_catch),

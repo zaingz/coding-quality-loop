@@ -28,12 +28,14 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import quality_loop_core as qlc
 
@@ -86,6 +88,23 @@ def changed_files(base: str = "HEAD", cwd: Path | None = None) -> list[str]:
             seen.add(f)
             files.append(f)
     return files
+
+
+def _changed_files_for_replay(base: str, cwd: Path) -> tuple[list[str], str]:
+    """Read changed paths without aborting evidence reporting on git failure."""
+    code, tracked, error = _git(["diff", "--name-only", base], cwd)
+    if code != 0:
+        return [], qlc.redact(error.strip() or f"could not diff {base}")
+    code, untracked, error = _git(
+        ["ls-files", "--others", "--exclude-standard"], cwd
+    )
+    if code != 0:
+        return [], qlc.redact(error.strip() or "could not list untracked files")
+    return list(dict.fromkeys([
+        path.strip()
+        for path in [*tracked.splitlines(), *untracked.splitlines()]
+        if path.strip()
+    ])), ""
 
 
 # Loop scaffolding (the record, .quality-loop/, caches) is process output, not
@@ -265,6 +284,52 @@ def _waiver_status(record: dict[str, Any]) -> tuple[bool, bool]:
     return True, cited
 
 
+def _precommitted_bugfix_test_status(
+    record: dict[str, Any],
+    base: str,
+    cwd: Path,
+    markers: tuple[str, ...],
+) -> tuple[bool, bool, str]:
+    """Validate the explicit precommitted-test escape for bugfix co-presence."""
+    value = record.get("bugfix_test")
+    if value is None:
+        return False, False, ""
+    if not isinstance(value, dict):
+        return True, False, "bugfix_test must be an object"
+    if value.get("precommitted") is not True:
+        return True, False, "bugfix_test.precommitted must be true"
+    path = value.get("path")
+    if not isinstance(path, str) or not path.strip():
+        return True, False, "bugfix_test.path must name the existing failing test file"
+    path = path.strip().replace("\\", "/")
+    parts = Path(path).parts
+    if Path(path).is_absolute() or ".." in parts:
+        return True, False, "bugfix_test.path must stay inside the repository"
+    if not qlc.is_test_path(path, markers):
+        return True, False, "bugfix_test.path must match a configured test path marker"
+    code, object_type, _ = _git(["cat-file", "-t", f"{base}:{path}"], cwd)
+    if code != 0 or object_type.strip() != "blob":
+        return True, False, f"bugfix_test.path {path!r} does not exist at base {base}"
+    commands = record.get("commands_run")
+    red_green_commands = [
+        command
+        for command in (commands if isinstance(commands, list) else [])
+        if isinstance(command, dict)
+        and command.get("result") == "pass"
+        and command.get("red_green") is True
+        and isinstance(command.get("cmd"), str)
+        and command.get("cmd", "").strip()
+    ]
+    if not red_green_commands:
+        return (
+            True,
+            False,
+            "bugfix_test requires a pass-labeled commands_run entry marked "
+            "red_green: true so failure at the base can be replayed",
+        )
+    return True, True, ""
+
+
 def _diff_audit_blocking_warnings(
     base: str, cwd: Path, markers: tuple[str, ...] = qlc.TEST_PATH_MARKERS
 ) -> list[str]:
@@ -370,21 +435,28 @@ def verify_gates_against_diff(
             % ", ".join(forced[:5])
         )
 
-    # 4. Bugfix-test co-presence: bugfix + no test in diff + no valid waiver →
-    # fail. A waiver counts only when it cites a pass-labeled commands_run cmd;
-    # an uncited waiver blocks at medium+ and degrades to a warning below.
+    # 4. Bugfix-test co-presence: bugfix + no test in diff + no valid waiver or
+    # git-verified precommitted failing test → fail.
     goal = str(record.get("goal", "")).lower()
     is_bugfix = any(p.search(goal) for p in _BUGFIX_GOAL_PATTERNS)
     if is_bugfix and files:
-        tests_in_diff = [
-            f for f in files if any(m in f.lower() for m in markers)
-        ]
+        tests_in_diff = [f for f in files if qlc.is_test_path(f, markers)]
         waiver_present, waiver_cited = _waiver_status(record)
-        if not tests_in_diff and not (waiver_present and waiver_cited):
-            if not waiver_present:
+        precommitted_present, precommitted_valid, precommitted_reason = (
+            _precommitted_bugfix_test_status(record, base, cwd, markers)
+        )
+        if not tests_in_diff and not (
+            (waiver_present and waiver_cited) or precommitted_valid
+        ):
+            if precommitted_present:
+                findings.append(
+                    "bugfix-test co-presence: declared precommitted test is not proven: "
+                    + precommitted_reason
+                )
+            elif not waiver_present:
                 findings.append(
                     "bugfix-test co-presence: goal mentions a bug/fix but no test file is "
-                    "present in the diff and no waiver is recorded"
+                    "present in the diff and no verified precommitted test or waiver is recorded"
                 )
             else:
                 uncited = (
@@ -506,6 +578,7 @@ def _run_command(cmd: str, cwd: Path, timeout: int) -> dict[str, Any]:
             cmd,
             shell=True,
             text=True,
+            errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=str(cwd),
@@ -529,6 +602,183 @@ def _run_command(cmd: str, cwd: Path, timeout: int) -> dict[str, Any]:
         return {"exit_code": None, "stdout": "", "stderr": str(exc), "timed_out": False}
 
 
+def _acceptance_proving_commands(record: dict[str, Any]) -> list[str]:
+    commands: list[str] = []
+    for criterion in record.get("acceptance_criteria", []) or []:
+        if not isinstance(criterion, dict):
+            continue
+        command = criterion.get("proving_command")
+        if isinstance(command, str) and command.strip() and command.strip() not in commands:
+            commands.append(command.strip())
+    return commands
+
+
+def _changed_test_paths(
+    files: list[str],
+    markers: tuple[str, ...],
+) -> list[str]:
+    return [
+        path
+        for path in files
+        if not path.startswith(".quality-loop/")
+        and qlc.is_test_path(path, markers)
+    ]
+
+
+def _overlay_current_tests(
+    source: Path,
+    worktree: Path,
+    paths: list[str],
+) -> str | None:
+    for rel in paths:
+        src = source / rel
+        dest = worktree / rel
+        try:
+            cursor = source
+            for part in Path(rel).parts:
+                cursor /= part
+                if cursor.is_symlink():
+                    return f"refusing to follow test path through a symlink: {rel!r}"
+            if src.is_file():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+            elif src.exists():
+                return f"test path {rel!r} is not a regular file"
+            else:
+                dest.unlink(missing_ok=True)
+        except OSError as exc:
+            return f"could not overlay test file {rel!r}: {exc}"
+    return None
+
+
+@contextmanager
+def _base_worktree(
+    base: str,
+    cwd: Path,
+    prefix: str,
+) -> Iterator[tuple[Path | None, str]]:
+    """Yield a detached base worktree, or an explicit failure reason."""
+    worktree = Path(tempfile.mkdtemp(prefix=prefix))
+    code, _, err = _git(["worktree", "add", "--detach", str(worktree), base], cwd)
+    if code != 0:
+        try:
+            worktree.rmdir()
+        except OSError:
+            pass
+        yield None, "worktree unavailable: " + qlc.redact(err.strip())
+        return
+    try:
+        yield worktree, ""
+    finally:
+        _git(["worktree", "remove", "--force", str(worktree)], cwd)
+
+
+def _test_integrity_replay(
+    test_paths: list[str],
+    proving_commands: list[str],
+    base: str,
+    cwd: Path,
+    timeout: int,
+    allowlist: list[str],
+    head_outcomes: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Run AC commands against base source plus the proposed test files."""
+    if not test_paths or not proving_commands:
+        return [], []
+
+    results: list[dict[str, Any]] = []
+    findings: list[str] = []
+
+    runnable: list[str] = []
+    for cmd in proving_commands:
+        reason = ""
+        if not _command_allowed(cmd, allowlist):
+            reason = "proving command is not on the run-evidence allowlist"
+        elif cmd not in head_outcomes:
+            reason = "proving command is not a pass-labeled commands_run entry"
+        if reason:
+            results.append({
+                "cmd": qlc.redact(cmd),
+                "old_code_with_new_tests": "not_proven",
+                "reason": reason,
+                "green": "not_proven",
+                "test_files": test_paths,
+            })
+            findings.append(
+                f"test-integrity replay not proven for {qlc.redact(cmd)}: {reason}"
+            )
+        else:
+            runnable.append(cmd)
+    if not runnable:
+        return results, findings
+
+    with _base_worktree(base, cwd, "ql-ti-") as (worktree, worktree_error):
+        if worktree is None:
+            for cmd in runnable:
+                results.append({
+                    "cmd": qlc.redact(cmd),
+                    "old_code_with_new_tests": "not_proven",
+                    "reason": worktree_error,
+                    "green": "not_proven",
+                    "test_files": test_paths,
+                })
+            findings.append(
+                "test-integrity replay not proven: could not create a base worktree"
+            )
+            return results, findings
+
+        overlay_error = _overlay_current_tests(cwd, worktree, test_paths)
+        if overlay_error:
+            reason = qlc.redact(overlay_error)
+            for cmd in runnable:
+                results.append({
+                    "cmd": qlc.redact(cmd),
+                    "old_code_with_new_tests": "not_proven",
+                    "reason": reason,
+                    "green": "not_proven",
+                    "test_files": test_paths,
+                })
+            findings.append("test-integrity replay not proven: " + reason)
+            return results, findings
+
+        for cmd in runnable:
+            old_result = _run_command(cmd, worktree, timeout)
+            head_result = head_outcomes[cmd]
+            old_state = (
+                "timeout"
+                if old_result["timed_out"]
+                else ("pass" if old_result["exit_code"] == 0 else "fail")
+            )
+            green = (
+                "timeout"
+                if head_result["timed_out"]
+                else ("pass" if head_result["exit_code"] == 0 else "fail")
+            )
+            result = {
+                "cmd": qlc.redact(cmd),
+                "old_code_with_new_tests": old_state,
+                "green": green,
+                "test_files": test_paths,
+                "reason": "",
+            }
+            results.append(result)
+            if old_state != "fail":
+                detail = (
+                    "command timed out"
+                    if old_state == "timeout"
+                    else "command passed against old source with the proposed tests"
+                )
+                findings.append(
+                    "test-integrity replay: %s — %s; the proving command does not "
+                    "distinguish the change" % (qlc.redact(cmd), detail)
+                )
+            if green != "pass":
+                findings.append(
+                    "test-integrity replay: %s did not pass at HEAD" % qlc.redact(cmd)
+                )
+    return results, findings
+
+
 def run_evidence(
     record: dict[str, Any],
     base: str = "HEAD",
@@ -550,6 +800,7 @@ def run_evidence(
     allowlist, allowlist_warnings = _load_allowlist(cwd)
     findings: list[str] = []
     reruns: list[dict[str, Any]] = []
+    head_outcomes: dict[str, dict[str, Any]] = {}
 
     for cmd_entry in commands:
         cmd = str(cmd_entry.get("cmd", "")).strip()
@@ -568,6 +819,7 @@ def run_evidence(
             })
             continue
         result = _run_command(cmd, cwd, timeout)
+        head_outcomes[cmd] = result
         passed = result["exit_code"] == 0 and not result["timed_out"]
         reruns.append({
             "cmd": qlc.redact(cmd),
@@ -589,13 +841,26 @@ def run_evidence(
             )
 
     red_green_results: list[dict[str, Any]] = []
-    if red_green:
+    precommitted = record.get("bugfix_test")
+    precommitted_replay = (
+        isinstance(precommitted, dict) and precommitted.get("precommitted") is True
+    )
+    if red_green or precommitted_replay:
         rg_commands = [c for c in commands if c.get("red_green")]
         if not rg_commands:
-            findings.append("run-evidence --red-green: no commands_run entry marked red_green: true")
+            findings.append(
+                "run-evidence: no commands_run entry marked red_green: true for "
+                "the requested RED→GREEN proof"
+            )
         for cmd_entry in rg_commands:
             cmd = str(cmd_entry.get("cmd", "")).strip()
-            rg = _red_green_check(cmd, base, cwd, timeout)
+            rg = _red_green_check(
+                cmd,
+                base,
+                cwd,
+                timeout,
+                head_outcomes.get(cmd),
+            )
             red_green_results.append(rg)
             if rg["red"] != "fail":
                 findings.append(
@@ -608,12 +873,63 @@ def run_evidence(
                     % (qlc.redact(cmd), rg["green_reason"])
                 )
 
+    gate_cfg = qlc.load_gate_config(cwd)
+    changed: list[str] = []
+    changed_error = ""
+    if record.get("status") in qlc.POST_IMPLEMENT_STATUSES:
+        changed, changed_error = _changed_files_for_replay(base, cwd)
+        changed = [
+            path
+            for path in changed
+            if not path.startswith(".quality-loop/")
+        ]
+        if changed_error:
+            findings.append(
+                "test-integrity replay not proven: could not inspect changed files: "
+                + changed_error
+            )
+    diff_forces_high = any(
+        _path_matches_high_tier(path, qlc.high_risk_path_extras(gate_cfg))
+        for path in changed
+    )
+    non_trivial = (
+        record.get("task_class") in {"medium", "mission"}
+        or record.get("risk_tier") in {"medium", "high"}
+        or bool(record.get("security_sensitive"))
+        or diff_forces_high
+    )
+    proving_commands = _acceptance_proving_commands(record)
+    test_integrity_results: list[dict[str, Any]] = []
+    if changed_error:
+        test_integrity_results = [
+            {
+                "cmd": qlc.redact(cmd),
+                "old_code_with_new_tests": "not_proven",
+                "reason": changed_error,
+                "green": "not_proven",
+                "test_files": [],
+            }
+            for cmd in proving_commands
+        ]
+    elif non_trivial and record.get("status") in qlc.POST_IMPLEMENT_STATUSES:
+        test_integrity_results, integrity_findings = _test_integrity_replay(
+            _changed_test_paths(changed, qlc.test_path_markers(gate_cfg)),
+            proving_commands,
+            base,
+            cwd,
+            timeout,
+            allowlist,
+            head_outcomes,
+        )
+        findings.extend(integrity_findings)
+
     result = {
         "task_id": task_id,
         "base": base,
         "rerun_at": datetime.now().isoformat(timespec="seconds"),
         "commands": reruns,
         "red_green": red_green_results,
+        "test_integrity": test_integrity_results,
         "findings": findings,
         # Advisory only (never exit-affecting): degenerate allowlist lines.
         "warnings": allowlist_warnings,
@@ -628,7 +944,13 @@ def run_evidence(
     return result
 
 
-def _red_green_check(cmd: str, base: str, cwd: Path, timeout: int) -> dict[str, Any]:
+def _red_green_check(
+    cmd: str,
+    base: str,
+    cwd: Path,
+    timeout: int,
+    green_result: dict[str, Any] | None,
+) -> dict[str, Any]:
     """Replay a command at base (expect fail) and HEAD (expect pass).
 
     Worktree unavailable → explicit "not proven", never a silent pass.
@@ -640,19 +962,18 @@ def _red_green_check(cmd: str, base: str, cwd: Path, timeout: int) -> dict[str, 
         "green": "not_proven",
         "green_reason": "",
     }
-    worktree_dir = tempfile.mkdtemp(prefix="ql-rg-")
-    code, _, err = _git(["worktree", "add", "--detach", worktree_dir, base], cwd)
-    if code != 0:
-        out["red_reason"] = "worktree unavailable: %s" % qlc.redact(err.strip())
-        out["green_reason"] = "worktree unavailable (RED unproven)"
-        # best-effort cleanup of the empty temp dir
-        try:
-            os.rmdir(worktree_dir)
-        except OSError:
-            pass
+    if green_result is None:
+        out["red_reason"] = "command was not authorized and rerun at HEAD"
+        out["green_reason"] = "HEAD result is not proven"
         return out
-    try:
-        red_result = _run_command(cmd, Path(worktree_dir), timeout)
+
+    with _base_worktree(base, cwd, "ql-rg-") as (worktree, worktree_error):
+        if worktree is None:
+            out["red_reason"] = worktree_error
+            out["green_reason"] = "worktree unavailable (RED unproven)"
+            return out
+
+        red_result = _run_command(cmd, worktree, timeout)
         if red_result["timed_out"]:
             out["red"] = "timeout"
             out["red_reason"] = "command timed out at base"
@@ -662,8 +983,6 @@ def _red_green_check(cmd: str, base: str, cwd: Path, timeout: int) -> dict[str, 
         else:
             out["red"] = "fail"
             out["red_reason"] = "command failed at base as expected (RED proven)"
-        # GREEN: run in the current working tree (HEAD = current state).
-        green_result = _run_command(cmd, cwd, timeout)
         if green_result["timed_out"]:
             out["green"] = "timeout"
             out["green_reason"] = "command timed out at HEAD"
@@ -673,8 +992,6 @@ def _red_green_check(cmd: str, base: str, cwd: Path, timeout: int) -> dict[str, 
         else:
             out["green"] = "fail"
             out["green_reason"] = "command failed at HEAD (GREEN not real)"
-    finally:
-        _git(["worktree", "remove", "--force", worktree_dir], cwd)
     return out
 
 
@@ -738,6 +1055,7 @@ def cmd_run_evidence(args: Any) -> int:
         "task_id": result["task_id"],
         "commands_rerun": len(result["commands"]),
         "red_green_checks": len(result["red_green"]),
+        "test_integrity_checks": len(result["test_integrity"]),
         "findings": findings,
         "warnings": result.get("warnings", []),
         "sidecar": str(Path.cwd() / ".quality-loop" / f"rerun-{result['task_id']}.json"),

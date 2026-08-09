@@ -19,6 +19,16 @@
     "task_class": {"type": ["string", "null"], "enum": ["tiny", "small", "medium", "mission", null]},
     "implementer": {"type": ["string", "null"]},
     "security_sensitive": {"type": "boolean"},
+    "bugfix_test": {
+      "type": ["object", "null"],
+      "description": "Explicit escape for a bugfix whose failing test was already committed at the base ref. verify confirms path exists at base and requires a pass-labeled commands_run row marked red_green: true; run-evidence replays that command at base and HEAD.",
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "precommitted": {"const": true}
+      },
+      "required": ["path", "precommitted"],
+      "additionalProperties": false
+    },
     "validation_contract": {"type": ["string", "object", "null"], "minLength": 1, "description": "Inline object or path to the contract artifact. Needs a goal and the evidence/checks that will prove it. Acceptance criteria live ONLY in the record's top-level acceptance_criteria list — gates read no copy inside this artifact, so do not duplicate them here."},
     "completion_record": {"type": ["string", "object", "null"], "minLength": 1, "description": "Inline object (with optional files_changed array) or a path to a completion-record file"},
     "repair_attempts": {"type": "integer", "minimum": 0},
@@ -92,6 +102,10 @@
         "fresh_context": {"type": "boolean"},
         "patched": {"type": "boolean"},
         "ran_checks": {"type": "boolean", "description": "true when the reviewer executed tests/benchmarks themselves (e.g. via run-evidence); false when they only read the recorded evidence"},
+        "model": {"type": "string", "description": "Optional actual reviewer model id; used with models_used to detect a same-family review leg"},
+        "family": {"type": "string", "description": "Optional explicit reviewer model family"},
+        "same_family_fallback": {"type": "boolean", "description": "Honest degraded mode when a different-family reviewer is structurally unavailable. Allowed only below high risk and only with same_family_fallback_reason."},
+        "same_family_fallback_reason": {"type": "string", "minLength": 1},
         "verdict": {"type": "string", "enum": ["approve", "request_changes", "needs_discussion", "reject"]},
         "diff_sha256": {"type": "string", "description": "sha256 of the git diff at review time (attest-review); checked for freshness by verify-gates --against-diff"},
         "attested_at": {"type": "string"},
@@ -107,6 +121,10 @@
         "fresh_context": {"type": "boolean"},
         "patched": {"type": "boolean"},
         "ran_checks": {"type": "boolean", "description": "true when the reviewer executed tests/benchmarks themselves (e.g. via run-evidence); false when they only read the recorded evidence"},
+        "model": {"type": "string", "description": "Optional actual reviewer model id; used with models_used to detect a same-family review leg"},
+        "family": {"type": "string", "description": "Optional explicit reviewer model family"},
+        "same_family_fallback": {"type": "boolean", "description": "Disclosure field only; same-family fallback is always blocked for security review."},
+        "same_family_fallback_reason": {"type": "string", "minLength": 1},
         "verdict": {"type": "string", "enum": ["approve", "request_changes", "needs_discussion", "reject"]},
         "diff_sha256": {"type": "string", "description": "sha256 of the git diff at review time (attest-review)"},
         "attested_at": {"type": "string"},

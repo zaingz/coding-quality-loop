@@ -310,6 +310,113 @@ def review_findings(review: Any, label: str, implementer: Any) -> list[str]:
     return findings
 
 
+def _role_model(
+    models_used: Any,
+    roles: set[str],
+) -> tuple[str | None, str | None]:
+    if not isinstance(models_used, list):
+        return None, None
+    for entry in reversed(models_used):
+        if not isinstance(entry, dict):
+            continue
+        role = str(entry.get("role", "")).strip().lower().replace("-", "_")
+        if role not in roles:
+            continue
+        model = entry.get("model")
+        family = entry.get("family")
+        return (
+            model.strip() if isinstance(model, str) and model.strip() else None,
+            family.strip() if isinstance(family, str) and family.strip() else None,
+        )
+    return None, None
+
+
+def _resolved_review_families(
+    record: dict[str, Any],
+    review: dict[str, Any],
+    label: str,
+) -> tuple[str | None, str | None]:
+    impl_model, impl_declared = _role_model(
+        record.get("models_used"), {"implementer", "main_session"}
+    )
+    reviewer_roles = (
+        {"security_reviewer"}
+        if label == "security_review"
+        else {"fresh_reviewer", "independent_reviewer", "reviewer"}
+    )
+    review_model, review_declared = _role_model(record.get("models_used"), reviewer_roles)
+    explicit_model = review.get("model")
+    explicit_family = review.get("family")
+    if isinstance(explicit_model, str) and explicit_model.strip():
+        review_model = explicit_model.strip()
+        review_declared = None
+    if isinstance(explicit_family, str) and explicit_family.strip():
+        review_declared = explicit_family.strip()
+    impl_family = (
+        qlroute.model_family(impl_model, impl_declared) if impl_model else impl_declared
+    )
+    reviewer_family = (
+        qlroute.model_family(review_model, review_declared)
+        if review_model
+        else review_declared
+    )
+    return (
+        impl_family.lower() if isinstance(impl_family, str) else None,
+        reviewer_family.lower() if isinstance(reviewer_family, str) else None,
+    )
+
+
+def _review_fallback_findings(
+    record: dict[str, Any],
+    review: Any,
+    label: str,
+    *,
+    high_risk: bool,
+) -> tuple[list[str], list[str]]:
+    if not isinstance(review, dict):
+        return [], []
+    findings: list[str] = []
+    warnings: list[str] = []
+    fallback = review.get("same_family_fallback") is True
+    reason = review.get("same_family_fallback_reason")
+    reason_ok = isinstance(reason, str) and bool(reason.strip())
+    impl_family, reviewer_family = _resolved_review_families(record, review, label)
+    same_family = bool(
+        impl_family and reviewer_family and impl_family == reviewer_family
+    )
+
+    if fallback:
+        if not reason_ok:
+            findings.append(
+                f"{label}.same_family_fallback requires a non-empty "
+                "same_family_fallback_reason"
+            )
+        elif impl_family and reviewer_family and not same_family:
+            findings.append(
+                f"{label}.same_family_fallback contradicts the recorded model families "
+                f"({impl_family} vs {reviewer_family})"
+            )
+        elif high_risk:
+            findings.append(
+                f"{label} cannot use same_family_fallback at a high-risk boundary"
+            )
+        else:
+            warnings.append(
+                "REVIEW NOT INDEPENDENT — same-family fallback: " + reason.strip()
+            )
+    elif same_family:
+        fallback_hint = (
+            ""
+            if high_risk
+            else " or record an explicit same_family_fallback at medium risk"
+        )
+        findings.append(
+            f"{label} uses the implementer model family ({impl_family}); use a "
+            f"different family{fallback_hint}"
+        )
+    return findings, warnings
+
+
 def detect_risk_floor(record: dict[str, Any]) -> tuple[str, list[str]]:
     """Ground-truth boundary detection from the record's own text.
 
@@ -769,6 +876,20 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         if not isinstance(record["implementer"], str) or not record["implementer"].strip():
             errors.append("implementer must be a non-empty string")
 
+    bugfix_test = record.get("bugfix_test")
+    if bugfix_test is not None:
+        if not isinstance(bugfix_test, dict):
+            errors.append("bugfix_test must be an object")
+        else:
+            unknown = sorted(set(bugfix_test) - {"path", "precommitted"})
+            for key in unknown:
+                errors.append(f"bugfix_test has unknown key: {key!r}")
+            path = bugfix_test.get("path")
+            if not isinstance(path, str) or not path.strip():
+                errors.append("bugfix_test.path must be a non-empty string")
+            if bugfix_test.get("precommitted") is not True:
+                errors.append("bugfix_test.precommitted must be true")
+
     # Optional multi-model routing evidence (v4.2): per-role model attribution
     # and escalation events. Absent is fine; when present the shape must hold so
     # the R5 evidence base stays machine-readable.
@@ -785,6 +906,13 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
                     val = entry.get(req)
                     if not isinstance(val, str) or not val.strip():
                         errors.append(f"models_used[{idx}].{req} must be a non-empty string")
+                family = entry.get("family")
+                if family is not None and (
+                    not isinstance(family, str) or not family.strip()
+                ):
+                    errors.append(
+                        f"models_used[{idx}].family must be a non-empty string when present"
+                    )
                 attempts = entry.get("attempts")
                 if attempts is not None and (
                     isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1
@@ -850,6 +978,18 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
                 f"{review_key}.verdict must be one of "
                 f"{sorted(REVIEW_VERDICTS)} (got {review.get('verdict')!r})"
             )
+        for key in ("model", "family", "same_family_fallback_reason"):
+            value = review.get(key)
+            if value is not None and (
+                not isinstance(value, str) or not value.strip()
+            ):
+                errors.append(
+                    f"{review_key}.{key} must be a non-empty string when present"
+                )
+        if "same_family_fallback" in review and not isinstance(
+            review.get("same_family_fallback"), bool
+        ):
+            errors.append(f"{review_key}.same_family_fallback must be a boolean")
 
     if status in POST_INTAKE_STATUSES:
         if not record.get("acceptance_criteria"):
@@ -1130,6 +1270,7 @@ def diff_audit(args: argparse.Namespace) -> int:
     # diff-audit does not know the risk tier; verify-gates --against-diff
     # promotes the same hits to blocking at medium+.
     advisory.extend(qlcore.test_shrinkage_hits(patch, gate_markers))
+    advisory.extend(qlcore.test_tamper_advisories(patch, gate_markers))
 
     marker_count = sum(1 for line in patch.splitlines() if _SHORTCUT_MARKER_RE.search(line))
     if marker_count:
@@ -1362,6 +1503,14 @@ def collect_gate_findings(
         findings.extend(
             review_findings(record.get("independent_review"), "independent_review", implementer)
         )
+        fallback_findings, fallback_warnings = _review_fallback_findings(
+            record,
+            record.get("independent_review"),
+            "independent_review",
+            high_risk=security_sensitive or risk == "high",
+        )
+        findings.extend(fallback_findings)
+        soft_warnings.extend(fallback_warnings)
         # make-ran-checks-real: an approving review that never says it executed
         # the checks is flagged as advisory (WARN, not fail) so "I read the
         # evidence" cannot silently stand in for "I ran the checks".
@@ -1402,6 +1551,14 @@ def collect_gate_findings(
         findings.extend(
             review_findings(record.get("security_review"), "security_review", implementer)
         )
+        fallback_findings, fallback_warnings = _review_fallback_findings(
+            record,
+            record.get("security_review"),
+            "security_review",
+            high_risk=True,
+        )
+        findings.extend(fallback_findings)
+        soft_warnings.extend(fallback_warnings)
 
     repair_attempts = record.get("repair_attempts")
     repeated = bool(record.get("repeated_failure")) or (
