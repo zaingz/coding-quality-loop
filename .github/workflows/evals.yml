@@ -13,8 +13,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Byte-compile helper and eval harness
-        run: python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py
+      - name: Byte-compile helper, eval harness, and unit tests
+        run: python3 -m py_compile scripts/*.py evals/*.py hosts/claude-code/*.py tests/*.py
+      - name: Run unit tests
+        run: python3 -m unittest discover -s tests
       - name: Validate example orchestration config
         run: python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
       - name: Validate dogfood orchestration config (routing + heterogeneity)

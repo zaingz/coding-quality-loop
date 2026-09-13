@@ -8,7 +8,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,8 +22,7 @@ INSTALL = ROOT / "scripts" / "install.py"
 sys.path.insert(0, str(STOP.parent))
 import stop_gate  # noqa: E402
 
-PASS = "PASS"
-FAIL = "FAIL"
+from _harness import FAIL, PASS, main_loop  # noqa: E402
 
 
 def run_script(path: Path, payload: dict, cwd: Path, env: dict | None = None) -> tuple[int, str, str]:
@@ -1107,19 +1105,5 @@ CASES = [
 ]
 
 
-def main() -> int:
-    failures = 0
-    for name, fn in CASES:
-        with tempfile.TemporaryDirectory() as td:
-            try:
-                ok, detail = fn(Path(td))
-            except Exception as exc:  # noqa: BLE001
-                ok, detail = False, f"exception: {exc!r}"
-        print(f"[{PASS if ok else FAIL}] {name}\n        {detail}")
-        failures += 0 if ok else 1
-    print(f"\n{len(CASES) - failures}/{len(CASES)} hook eval cases passed")
-    return 1 if failures else 0
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main_loop(CASES, "hook eval cases passed"))

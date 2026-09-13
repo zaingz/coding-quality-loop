@@ -26,7 +26,10 @@ the repo stays trustable.
 - [ ] The full local verification suite passes:
 
       ```bash
-      python3 -m py_compile scripts/*.py evals/*.py
+      python3 -m py_compile scripts/*.py evals/*.py tests/*.py
+      python3 -m unittest discover -s tests   # unit tests for the pure helpers
+                                              # (bare `discover` from the root works too:
+                                              #  tests/ is a package)
       python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json
       python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-loop.config.example.json
       python3 evals/run_evals.py            # behavioral gate cases (includes the doc-count lint)
