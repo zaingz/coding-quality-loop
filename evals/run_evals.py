@@ -33,6 +33,7 @@ Cases (safety-hardening behaviors enforced on actual records):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -908,6 +909,30 @@ def case_brief_json_valid(tmp: Path) -> tuple[bool, str]:
         and (qdir / "command-count").read_text() == "1"
         and snapshot == {p.name: p.read_bytes() for p in qdir.iterdir() if p.is_file()}
     )
+    # The record and marker are writable together. Their matching forged
+    # review hash must not stand in for the freshly computed actual diff.
+    record_path = qdir / "agent-record.json"
+    original_record = record_path.read_bytes()
+    original_marker = marker.read_bytes()
+    stale_hash = "f" * 64
+    assert stale_hash != quality_loop.qlreal.canonical_diff_sha256("HEAD", repo)
+    forged_record = json.loads(original_record)
+    forged_record["independent_review"]["diff_sha256"] = stale_hash
+    record_path.write_text(json.dumps(forged_record))
+    forged_marker = json.loads(original_marker)
+    forged_marker["diff_sha256"] = stale_hash
+    forged_marker["record_sha256"] = hashlib.sha256(record_path.read_bytes()).hexdigest()
+    marker.write_text(json.dumps(forged_marker))
+    forged_code, forged_out, _ = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
+    forged_payload = json.loads(forged_out) if forged_code == 0 else {}
+    forged_review_stale = (
+        forged_code == 0
+        and forged_payload.get("recovery", {}).get("local_verification") == "unchanged_since_pass"
+        and forged_payload.get("recovery", {}).get("review_diff") == "stale"
+        and (qdir / "command-count").read_text() == "1"
+    )
+    record_path.write_bytes(original_record)
+    marker.write_bytes(original_marker)
     (qdir / "allowed-commands").unlink()
     allow_code, allow_out, _ = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
     allow_payload = json.loads(allow_out) if allow_code == 0 else {}
@@ -970,9 +995,11 @@ def case_brief_json_valid(tmp: Path) -> tuple[bool, str]:
     _git(repo, "config", "diff.probe.textconv", str(textconv))
     _git(repo, "config", "core.fsmonitor", str(fsmonitor))
     _git(repo, "config", "filter.probe.clean", str(clean))
-    helper_code, _, _ = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
+    helper_code, helper_out, _ = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
+    helper_payload = json.loads(helper_out) if helper_code == 0 else {}
     no_git_helpers = (helper_code == 0 and not textconv_hit.exists()
-                      and not fsmonitor_hit.exists() and not clean_hit.exists())
+                      and not fsmonitor_hit.exists() and not clean_hit.exists()
+                      and helper_payload.get("recovery", {}).get("review_diff") == "unknown")
 
     # A marker is local data; never let its base become a Git --output option.
     marker_data = json.loads(marker.read_text())
@@ -1003,10 +1030,11 @@ def case_brief_json_valid(tmp: Path) -> tuple[bool, str]:
         alt_code == path_code == 0
         and path_payload.get("recovery", {}).get("local_verification") == "unknown"
     )
-    ok = all((restart_ok, allowlist_stale, diff_stale, record_stale,
+    ok = all((restart_ok, forged_review_stale, allowlist_stale, diff_stale, record_stale,
               no_git_helpers, invalid_base_safe, record_path_bound))
     return ok, (
-        f"restart={restart_ok}; allowlist_stale={allowlist_stale}; "
+        f"restart={restart_ok}; forged_review_stale={forged_review_stale}; "
+        f"allowlist_stale={allowlist_stale}; "
         f"changed_diff={diff_stale}; changed_record={record_stale}; "
         f"no_git_helpers={no_git_helpers}; invalid_base_safe={invalid_base_safe}; "
         f"record_path_bound={record_path_bound}"

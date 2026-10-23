@@ -628,12 +628,13 @@ def case_stop_gate_allows_committed_teardown_removal(tmp: Path) -> tuple[bool, s
 def case_stop_gate_closes_merged_clone_record(tmp: Path) -> tuple[bool, str]:
     # Cloned-repo teardown trap: a committed, merged `done` record (byte-
     # identical to base, nothing in flight) is CLOSED — the stop is allowed and
-    # the verify umbrella is NOT re-executed. The stub gate prints ARGS on every
-    # invocation, so its absence from the output proves no re-execution.
+    # the verify umbrella is NOT re-executed. The stub permits the new
+    # check-record preflight and prints ARGS only if verify was invoked.
     repo = make_repo(tmp)
     (repo / "scripts").mkdir()
     (repo / "scripts" / "quality_loop.py").write_text(
-        "import sys\nprint('ARGS: ' + ' '.join(sys.argv[1:]))\nsys.exit(1)\n")
+        "import sys\nif sys.argv[1:2] == ['check-record']: sys.exit(0)\n"
+        "print('ARGS: ' + ' '.join(sys.argv[1:]))\nsys.exit(1)\n")
     qdir = repo / ".quality-loop"
     qdir.mkdir()
     (qdir / "agent-record.json").write_text(json.dumps(done_record()))
@@ -643,7 +644,22 @@ def case_stop_gate_closes_merged_clone_record(tmp: Path) -> tuple[bool, str]:
     env = {k: v for k, v in os.environ.items() if k != "QUALITY_LOOP_BASE"}
     code, out, err = _stop(repo, env=env)
     ok = code == 0 and out.strip() == "" and "ARGS:" not in out and "closed" in err.lower()
-    return ok, f"exit={code}; out={out.strip()[:120]!r}; err={err.strip()[:160]!r}"
+    # A committed malformed terminal record must not bypass validation merely
+    # because its bytes also appear at the base ref.
+    invalid_parent = tmp / "invalid_closed"
+    invalid_parent.mkdir()
+    invalid = make_repo(invalid_parent, with_scripts=True)
+    (invalid / ".quality-loop").mkdir()
+    (invalid / ".quality-loop" / "agent-record.json").write_text(json.dumps({
+        "task_id": "bad", "goal": "bad", "status": "done", "risk_tier": "low",
+    }))
+    git(invalid, "add", "-A")
+    git(invalid, "commit", "-m", "invalid closed record")
+    git(invalid, "update-ref", "refs/remotes/origin/main", "HEAD")
+    bad_code, bad_out, _ = _stop(invalid, env=env)
+    invalid_blocked = bad_code == 0 and _decision(bad_out) == "block" and "missing required field" in bad_out
+    return ok and invalid_blocked, (f"valid(exit={code},out={out.strip()[:80]!r}); "
+                                    f"invalid_closed={invalid_blocked}")
 
 
 def case_stop_gate_gates_inflight_modified_record(tmp: Path) -> tuple[bool, str]:
@@ -817,8 +833,8 @@ def case_stop_gate_terminal_runs_verify_umbrella(tmp: Path) -> tuple[bool, str]:
 def _marker_repo(tmp: Path, gate_exit: int = 1) -> tuple[Path, str | None]:
     """A terminal-status repo whose working tree carries a real (non-.quality-
     loop) change, so the stop reaches the last-verified marker check rather than
-    the closed-record path. scripts/quality_loop.py is a stub that prints ARGS
-    on every invocation — its ABSENCE from the output proves no re-execution.
+    the closed-record path. scripts/quality_loop.py is a stub that accepts
+    check-record and prints ARGS on verify — its absence proves no re-execution.
     ``gate_exit`` is the stub umbrella's exit code: the SKIP test passes 0 (a
     would-PASS runner, so the fixture is honest — the marker claims a passing
     verify), while the NEGATIVE tests keep 1 (a would-FAIL runner) to prove the
@@ -827,7 +843,8 @@ def _marker_repo(tmp: Path, gate_exit: int = 1) -> tuple[Path, str | None]:
     # Overwrite the gate runner with an observable stub (uncommitted -> dirty
     # tree, and a real diff outside .quality-loop).
     (repo / "scripts" / "quality_loop.py").write_text(
-        f"import sys\nprint('ARGS: ' + ' '.join(sys.argv[1:]))\nsys.exit({gate_exit})\n")
+        "import sys\nif sys.argv[1:2] == ['check-record']: sys.exit(0)\n"
+        f"print('ARGS: ' + ' '.join(sys.argv[1:]))\nsys.exit({gate_exit})\n")
     qdir = repo / ".quality-loop"
     qdir.mkdir()
     (qdir / "agent-record.json").write_text(json.dumps(done_record()))
@@ -874,8 +891,23 @@ def case_stop_gate_skips_reexec_on_fresh_marker(tmp: Path) -> tuple[bool, str]:
     allowlist_stale = stop_gate._verified_clean(
         repo, "done", repo / ".quality-loop" / "agent-record.json",
     ) is None
-    ok = fresh and allowlist_stale
-    return ok, (f"fresh={fresh}; allowlist_stale={allowlist_stale}; "
+    # A forged marker can match the bytes of an invalid done record. The
+    # structural validator must block before treating that marker as a pass.
+    invalid_parent = tmp / "invalid_marker"
+    invalid_parent.mkdir()
+    invalid = make_repo(invalid_parent, with_scripts=True)
+    (invalid / ".quality-loop").mkdir()
+    (invalid / ".quality-loop" / "agent-record.json").write_text(json.dumps({
+        "task_id": "bad", "goal": "bad", "status": "done", "risk_tier": "low",
+    }))
+    _write_marker(invalid, "HEAD", "forged", "done")
+    bad_code, bad_out, bad_err = _stop(invalid)
+    invalid_blocked = (
+        bad_code == 0 and _decision(bad_out) == "block"
+        and "missing required field" in bad_out and "verified clean" not in bad_err
+    )
+    ok = fresh and allowlist_stale and invalid_blocked
+    return ok, (f"fresh={fresh}; allowlist_stale={allowlist_stale}; invalid_blocked={invalid_blocked}; "
                 f"exit={code}; out={out.strip()[:80]!r}; err={err.strip()[:160]!r}")
 
 

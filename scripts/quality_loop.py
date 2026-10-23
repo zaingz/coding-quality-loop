@@ -2019,8 +2019,10 @@ def _brief_recovery(cwd: Path, record_summary: dict[str, Any]) -> dict[str, str]
     """Read-only comparison with saved local inputs; never run commands.
 
     A matching marker means raw source, index, allowlist and record bytes still
-    match one local passing verify. It does not establish that commands would
-    pass again, an external effect completed, or the marker is independent.
+    match one local passing verify. Review freshness is compared with the
+    current canonical diff when Git can compute it without executing filters.
+    Local records and markers are forgeable; neither result proves authenticity,
+    repeatability of commands, or an external effect's outcome.
     """
     result = {
         "local_verification": "unknown",
@@ -2082,11 +2084,17 @@ def _brief_recovery(cwd: Path, record_summary: dict[str, Any]) -> dict[str, str]
     reviews = [record.get(name) for name in ("independent_review", "security_review")]
     hashes = [review.get("diff_sha256") for review in reviews if isinstance(review, dict)]
     if hashes:
-        result["review_diff"] = (
-            "hash_match" if marker_snapshot == current_snapshot
-            and all(isinstance(value, str) and value == marker_diff for value in hashes)
-            else "stale"
-        )
+        # Never take the marker's diff hash as authority. A writable marker
+        # and review can agree with each other while both disagreeing with
+        # the actual source diff. When Git has an executable clean/process
+        # filter configured, passive inspection cannot safely compute that
+        # diff, so review freshness remains unknown.
+        current_diff = qlreal.passive_canonical_diff_sha256(base, cwd)
+        if current_diff is not None:
+            result["review_diff"] = (
+                "hash_match" if all(isinstance(value, str) and value == current_diff for value in hashes)
+                else "stale"
+            )
     return result
 
 

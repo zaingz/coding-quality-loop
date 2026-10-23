@@ -243,7 +243,7 @@ def _verified_clean(root: Path, status: str, record: Path) -> str | None:
 
     - the raw SOURCE snapshot, recomputed against the marker's own base
       (a moved base ref, changed file, staged edit, or allowlist change forces
-      the umbrella without executing repository-configured Git filters); and
+      the umbrella; this snapshot itself does not invoke Git filters); and
     - the RECORD path — relative evidence can resolve differently for two
       byte-identical records at different locations; and
     - the RECORD content hash — load-bearing, because the umbrella verdict
@@ -256,10 +256,11 @@ def _verified_clean(root: Path, status: str, record: Path) -> str | None:
 
     Scope, honestly: this compares local inputs since a passing verify; the
     command environment or external effects could have changed separately.
-    The marker is a plain file, so like every local gate input it is
-    tamper-evident, not a boundary against a forging agent (which could rewrite
-    the record it attests anyway). CI never reads the marker and re-executes
-    unconditionally — it remains the anchor."""
+    The marker is a forgeable local consistency check, not an authenticity
+    guarantee. An agent controlling the record, code, and marker can rewrite
+    all three. Stop may invoke configured Git clean filters through its status
+    checks, and fallback verify re-executes allowed commands. CI never reads
+    the marker and re-executes unconditionally — it remains the anchor."""
     marker = root / ".quality-loop" / "last-verified.json"
     try:
         data = json.loads(marker.read_text(encoding="utf-8"))
@@ -297,6 +298,28 @@ def _verified_clean(root: Path, status: str, record: Path) -> str | None:
         return None
     verified_at = data.get("verified_at")
     return verified_at if isinstance(verified_at, str) and verified_at else "an earlier verify"
+
+
+def _terminal_record_error(root: Path, record: Path) -> str | None:
+    """Validate before skipping verify; marker equality does not prove shape.
+
+    The existing check-record command shares verify's full structural
+    validator and does not execute the record's proving commands. A missing
+    or broken validator is an error, never a reason to trust a local marker.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(root / "scripts" / "quality_loop.py"),
+             "check-record", str(record)],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cwd=str(root), check=False,
+        )
+    except OSError as exc:
+        return f"terminal record validator unavailable: {exc}"
+    if proc.returncode == 0:
+        return None
+    detail = (proc.stderr + proc.stdout).strip()[:4000]
+    return detail or f"terminal record validator failed (exit {proc.returncode})"
 
 
 def _tree_is_dirty(root: Path) -> bool:
@@ -440,6 +463,9 @@ def main() -> int:
 
     if status in TERMINAL_GATED_STATUSES:
         if _record_is_closed(root, record) and not _tree_is_dirty(root):
+            error = _terminal_record_error(root, record)
+            if error is not None:
+                return _block("Quality Loop terminal record is invalid or could not be validated; repair it before stopping.\n" + error)
             # Merged/archived record AND a clean working tree: this task is
             # CLOSED. Allow the stop and skip the verify umbrella so a cloned/
             # merged `done` record does not re-execute its recorded commands
@@ -456,6 +482,9 @@ def main() -> int:
             return 0
         verified_at = _verified_clean(root, status, record)
         if verified_at is not None:
+            error = _terminal_record_error(root, record)
+            if error is not None:
+                return _block("Quality Loop terminal record is invalid or could not be validated; repair it before stopping.\n" + error)
             # The full umbrella passed with these local inputs. Skip repeating
             # it to save latency; the current environment is not rechecked.
             print(

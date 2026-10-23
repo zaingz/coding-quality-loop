@@ -73,6 +73,7 @@ def _git_bytes(args: list[str], cwd: Path) -> bytes:
     proc = subprocess.run(
         ["git", "-c", "core.fsmonitor=false", *args], cwd=cwd,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
     )
     if proc.returncode:
         error = qlc.redact(proc.stderr.decode("utf-8", errors="replace").strip())
@@ -337,11 +338,49 @@ def canonical_diff_sha256(base: str = "HEAD", cwd: Path | None = None) -> str:
     excluding .quality-loop/, plus the untracked pseudo-diff.
 
     Shared by attest-review and the explicit review-freshness gate. Passive
-    brief and Stop-gate recovery instead use source_snapshot_sha256, which
-    cannot invoke repository-configured Git diff or clean filters. Raises
-    SystemExit (via run_git) outside a git repository.
+    recovery uses source_snapshot_sha256 for local verification; brief uses
+    passive_canonical_diff_sha256 for review freshness only when no executable
+    clean/process filter is configured. Raises SystemExit (via run_git) outside
+    a git repository.
     """
     return diff_sha256(base, cwd, exclude_record_dir=True)
+
+
+def passive_canonical_diff_sha256(base: str, cwd: Path) -> str | None:
+    """Compute the actual review hash only when Git diff cannot run filters.
+
+    A configured clean/process driver can run arbitrary repository code while
+    Git reads worktree content. A passive brief reports review freshness as
+    unknown in that case. It never substitutes a locally writable marker's
+    claimed diff hash for the current diff. External diff, textconv and
+    fsmonitor are disabled for the filter-free path.
+    """
+    if not isinstance(base, str) or not base or base.startswith("-"):
+        return None
+    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+    try:
+        filters = subprocess.run(
+            ["git", "-c", "core.fsmonitor=false", "config", "--null",
+             "--name-only", "--get-regexp", r"^filter\..*\.(clean|process)$"],
+            cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            check=False,
+        )
+        # Exit 1 with no names means no configured driver. Every other state
+        # is either an executable filter or an uncertain config read.
+        if filters.returncode != 1 or filters.stdout or filters.stderr:
+            return None
+        diff = subprocess.run(
+            ["git", "-c", "core.fsmonitor=false", "diff", "--no-ext-diff",
+             "--no-textconv", base, "--", ".", ":(exclude).quality-loop"],
+            cwd=cwd, env=env, text=True, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, check=False,
+        )
+        if diff.returncode:
+            return None
+        patch = diff.stdout + _untracked_pseudo_diff(cwd)
+        return hashlib.sha256(patch.encode("utf-8")).hexdigest()
+    except (OSError, ValueError, SystemExit):
+        return None
 
 
 def _path_matches_high_tier(path: str, extra: tuple[str, ...] = ()) -> bool:
