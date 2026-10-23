@@ -81,16 +81,17 @@ pi --continue                 # latest Pi session for this working directory
 ```
 
 The brief reads `status`, `next_action`, open risks, escalation reason, and the progress note.
-Its `recovery` field says whether this diff and record are unchanged since a *local* passing
-`verify`; older markers without a bound record path report `unknown` until verification is
-deliberately rerun. It does not inspect external effects or run any recorded command. A changed diff
-invalidates old review and verification evidence. Inspect an interrupted external effect's
+Its `recovery` field compares raw source, index, record and allowlist bytes with a *local* passing
+`verify`; older markers without a bound record path and source snapshot report `unknown` until
+verification is deliberately rerun. Matching bytes do not prove checks would still pass in the
+current environment. The brief does not inspect external effects or run any recorded command.
+A changed diff invalidates old review and verification evidence. Inspect an interrupted external effect's
 actual outcome before retrying it. Run `verify` deliberately after reconciliation; it
 re-executes allowlisted commands. Pi's [`--continue` and `--session` options](https://github.com/earendil-works/pi/blob/ede2c9b468d8e061c557d16957513715e6d49cd6/packages/coding-agent/docs/cli.md#L64-L85) restore conversation history, not CQL verification.
 
 If an optional extension reads the brief, handle all `session_start` reasons: `startup`,
 `reload`, `new`, `resume`, and `fork`. A fresh process reopening history starts as `startup`;
-`resume` can mean an in-process switch. Use [`getBranch()`](https://github.com/earendil-works/pi/blob/ede2c9b468d8e061c557d16957513715e6d49cd6/packages/coding-agent/docs/extensions.md#L281-L295) for the active branch; `getEntries()` includes abandoned branches. `session_start` can notify but cannot return prompt context. A concise `before_agent_start` message enters the next agent run; [`sendUserMessage()` starts a turn](https://github.com/earendil-works/pi/blob/ede2c9b468d8e061c557d16957513715e6d49cd6/packages/coding-agent/src/core/extensions/types.ts#L1617-L1627), so it is not passive recovery. Treat [`agent_settled`](https://github.com/earendil-works/pi/blob/ede2c9b468d8e061c557d16957513715e6d49cd6/packages/coding-agent/docs/extensions.md#L53-L67), not `agent_end`, as the no-more-automatic-continuation notification.
+`resume` can mean an in-process switch. Use [`getBranch()`](https://github.com/earendil-works/pi/blob/ede2c9b468d8e061c557d16957513715e6d49cd6/packages/coding-agent/docs/extensions.md#L346-L350) for the active branch; `getEntries()` includes abandoned branches. `session_start` can notify but cannot return prompt context. A concise `before_agent_start` message enters the next agent run; [`sendUserMessage()` starts a turn](https://github.com/earendil-works/pi/blob/ede2c9b468d8e061c557d16957513715e6d49cd6/packages/coding-agent/src/core/extensions/types.ts#L1740-L1749), so it is not passive recovery. Treat [`agent_settled`](https://github.com/earendil-works/pi/blob/ede2c9b468d8e061c557d16957513715e6d49cd6/packages/coding-agent/docs/extensions.md#L53-L67), not `agent_end`, as the no-more-automatic-continuation notification.
 
 [Pi Durable](https://earendil.com/posts/pi-durable/) is a separate experimental framework,
-not a Pi CLI plugin. Its [`structuredOutput` is not saved in model-issued transcript results](https://github.com/earendil-works/pi/blob/ede2c9b468d8e061c557d16957513715e6d49cd6/packages/durable/README.md#L240-L257); an application must persist needed evidence explicitly. Durable checkpoints still do not make an external effect safe to repeat without reconciliation or idempotency.
+not a Pi CLI plugin. Its [`structuredOutput` is not saved in model-issued transcript results](https://github.com/earendil-works/pi/blob/ede2c9b468d8e061c557d16957513715e6d49cd6/packages/durable/README.md#L275-L281); an application must persist needed evidence explicitly. Durable checkpoints still do not make an external effect safe to repeat without reconciliation or idempotency.

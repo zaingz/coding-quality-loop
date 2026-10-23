@@ -843,8 +843,10 @@ def _write_marker(repo: Path, base: str, digest: str, status: str,
     if record_digest is None:
         record_digest = _hl.sha256(
             (repo / ".quality-loop" / "agent-record.json").read_bytes()).hexdigest()
+    snapshot = stop_gate._source_snapshot_sha256(base, repo) or "unavailable"
     (repo / ".quality-loop" / "last-verified.json").write_text(json.dumps({
-        "diff_sha256": digest, "record_sha256": record_digest, "base": base,
+        "diff_sha256": digest, "source_snapshot_sha256": snapshot,
+        "record_sha256": record_digest, "base": base,
         "record_path": str((repo / ".quality-loop" / "agent-record.json").resolve()),
         "status": status, "verified_at": "2026-07-21T00:00:00Z",
     }), encoding="utf-8")
@@ -863,9 +865,18 @@ def case_stop_gate_skips_reexec_on_fresh_marker(tmp: Path) -> tuple[bool, str]:
         return False, "canonical_diff_sha256 returned no hash (Lane 1 helper + diff_sha256 both unavailable)"
     _write_marker(repo, "HEAD", digest, "done")
     code, out, err = _stop(repo)
-    ok = (code == 0 and out.strip() == "" and "ARGS:" not in out
+    fresh = (code == 0 and out.strip() == "" and "ARGS:" not in out
           and "verified clean" in err and "skipping re-execution" in err)
-    return ok, f"exit={code}; out={out.strip()[:80]!r}; err={err.strip()[:160]!r}"
+    # The umbrella reads allowed-commands. A changed or removed allowlist
+    # must invalidate the fast path even when source and record stay fixed.
+    allowlist = repo / ".quality-loop" / "allowed-commands"
+    allowlist.write_text("python3 -B -c 'print(1)'\n")
+    allowlist_stale = stop_gate._verified_clean(
+        repo, "done", repo / ".quality-loop" / "agent-record.json",
+    ) is None
+    ok = fresh and allowlist_stale
+    return ok, (f"fresh={fresh}; allowlist_stale={allowlist_stale}; "
+                f"exit={code}; out={out.strip()[:80]!r}; err={err.strip()[:160]!r}")
 
 
 def case_stop_gate_reruns_umbrella_on_stale_marker(tmp: Path) -> tuple[bool, str]:

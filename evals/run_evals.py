@@ -776,6 +776,10 @@ def case_brief_empty_repo(tmp: Path) -> tuple[bool, str]:
         "{broken", "[]", '{"risk_tier": []}',
         '{"status": "done", "risk_tier": "low"}',
         '{"task_id": "t", "goal": "g", "status": "done", "risk_tier": "low"}',
+        json.dumps({
+            "task_id": "t", "goal": "g", "status": "done", "risk_tier": "low",
+            "commands_run": [{"cmd": 23}],
+        }),
     ):
         (qdir / "agent-record.json").write_text(body)
         bad_code, bad_out, bad_err = run_cli("brief", "--cwd", str(tmp), "--json", env=env)
@@ -783,6 +787,8 @@ def case_brief_empty_repo(tmp: Path) -> tuple[bool, str]:
         malformed_ok &= (
             bad_code == 0 and bool(parsed.get("record", {}).get("error"))
             and parsed.get("recovery", {}).get("local_verification") == "unknown"
+            and parsed.get("record", {}).get("status") != "done"
+            and "next task" not in parsed.get("next_step", "").lower()
             and "Traceback" not in bad_err
         )
     ok = empty_ok and missing_ok and malformed_ok
@@ -902,6 +908,15 @@ def case_brief_json_valid(tmp: Path) -> tuple[bool, str]:
         and (qdir / "command-count").read_text() == "1"
         and snapshot == {p.name: p.read_bytes() for p in qdir.iterdir() if p.is_file()}
     )
+    (qdir / "allowed-commands").unlink()
+    allow_code, allow_out, _ = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
+    allow_payload = json.loads(allow_out) if allow_code == 0 else {}
+    allowlist_stale = (
+        allow_code == 0
+        and allow_payload.get("recovery", {}).get("local_verification") != "unchanged_since_pass"
+        and (qdir / "command-count").read_text() == "1"
+    )
+    (qdir / "allowed-commands").write_text(command + "\n")
     (repo / "main.py").write_text("def value():\n    return 3\n")
     changed_code, changed_out, _ = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
     changed = json.loads(changed_out) if changed_code == 0 else {}
@@ -926,10 +941,10 @@ def case_brief_json_valid(tmp: Path) -> tuple[bool, str]:
         and changed_payload.get("recovery", {}).get("review_diff") == "hash_match"
         and changed_payload.get("next_step") == record["next_action"]
     )
-    # Even a read-only Git diff may execute repository-configured helpers.
-    # Both the tracked diff and untracked-file sweep must suppress them.
+    # Passive inspection must not execute repository-configured Git helpers.
     textconv_hit = tmp / "textconv-hit"
     fsmonitor_hit = tmp / "fsmonitor-hit"
+    clean_hit = tmp / "clean-hit"
     textconv = tmp / "textconv.py"
     textconv.write_text(
         "#!/usr/bin/env python3\nimport pathlib, sys\n"
@@ -944,11 +959,20 @@ def case_brief_json_valid(tmp: Path) -> tuple[bool, str]:
         "print()\n"
     )
     fsmonitor.chmod(0o755)
-    (repo / ".gitattributes").write_text("main.py diff=probe\n")
+    clean = tmp / "clean.py"
+    clean.write_text(
+        "#!/usr/bin/env python3\nimport pathlib, sys\n"
+        f"pathlib.Path({str(clean_hit)!r}).write_text('ran')\n"
+        "sys.stdout.buffer.write(sys.stdin.buffer.read())\n"
+    )
+    clean.chmod(0o755)
+    (repo / ".gitattributes").write_text("main.py diff=probe filter=probe\n")
     _git(repo, "config", "diff.probe.textconv", str(textconv))
     _git(repo, "config", "core.fsmonitor", str(fsmonitor))
+    _git(repo, "config", "filter.probe.clean", str(clean))
     helper_code, _, _ = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
-    no_git_helpers = helper_code == 0 and not textconv_hit.exists() and not fsmonitor_hit.exists()
+    no_git_helpers = (helper_code == 0 and not textconv_hit.exists()
+                      and not fsmonitor_hit.exists() and not clean_hit.exists())
 
     # A marker is local data; never let its base become a Git --output option.
     marker_data = json.loads(marker.read_text())
@@ -967,6 +991,7 @@ def case_brief_json_valid(tmp: Path) -> tuple[bool, str]:
     (repo / ".gitattributes").unlink()
     _git(repo, "config", "--unset", "diff.probe.textconv")
     _git(repo, "config", "--unset", "core.fsmonitor")
+    _git(repo, "config", "--unset", "filter.probe.clean")
     alternate = qdir / "sub" / "other-record.json"
     alternate.parent.mkdir()
     alternate.write_text(json.dumps(safe_record))
@@ -978,9 +1003,11 @@ def case_brief_json_valid(tmp: Path) -> tuple[bool, str]:
         alt_code == path_code == 0
         and path_payload.get("recovery", {}).get("local_verification") == "unknown"
     )
-    ok = all((restart_ok, diff_stale, record_stale, no_git_helpers, invalid_base_safe, record_path_bound))
+    ok = all((restart_ok, allowlist_stale, diff_stale, record_stale,
+              no_git_helpers, invalid_base_safe, record_path_bound))
     return ok, (
-        f"restart={restart_ok}; changed_diff={diff_stale}; changed_record={record_stale}; "
+        f"restart={restart_ok}; allowlist_stale={allowlist_stale}; "
+        f"changed_diff={diff_stale}; changed_record={record_stale}; "
         f"no_git_helpers={no_git_helpers}; invalid_base_safe={invalid_base_safe}; "
         f"record_path_bound={record_path_bound}"
     )

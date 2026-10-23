@@ -29,6 +29,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -65,6 +66,152 @@ _WAIVER_KEYS = ("test_waiver", "no_test_waiver", "bugfix_test_waiver")
 # redacted stderr and exits on failure).
 _git = qlc.git_capture
 _git_or_fail = qlc.run_git
+
+
+def _git_bytes(args: list[str], cwd: Path) -> bytes:
+    """Capture a Git metadata command without text/path decoding or fsmonitor."""
+    proc = subprocess.run(
+        ["git", "-c", "core.fsmonitor=false", *args], cwd=cwd,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+    )
+    if proc.returncode:
+        error = qlc.redact(proc.stderr.decode("utf-8", errors="replace").strip())
+        raise ValueError(f"git {args[0]} failed ({proc.returncode}): {error or 'no details'}")
+    return proc.stdout
+
+
+def _nul_paths(output: bytes, label: str) -> list[bytes]:
+    if output and not output.endswith(b"\0"):
+        raise ValueError(f"incomplete NUL-delimited {label} listing")
+    return output[:-1].split(b"\0") if output else []
+
+
+def _regular_bytes(path: Path) -> bytes:
+    """Read a regular file without following a final-component symlink."""
+    before = os.lstat(path)
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError(f"not a regular file: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(path, flags)
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            raise ValueError(f"file changed while opening: {path}")
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            data = stream.read()
+        after = os.fstat(fd)
+        if (after.st_size, after.st_mtime_ns) != (opened.st_size, opened.st_mtime_ns):
+            raise ValueError(f"file changed while reading: {path}")
+        return data
+    finally:
+        os.close(fd)
+
+
+def _source_path(cwd: Path, raw_path: bytes) -> Path:
+    """Resolve one Git path, refusing traversal and symlinked parent folders."""
+    parts = raw_path.split(b"/")
+    if not raw_path or raw_path.startswith(b"/") or any(part in (b"", b".", b"..") for part in parts):
+        raise ValueError(f"invalid path in Git listing: {raw_path!r}")
+    path = cwd
+    for part in parts[:-1]:
+        path /= os.fsdecode(part)
+        if not stat.S_ISDIR(os.lstat(path).st_mode):
+            raise ValueError(f"source path has a non-directory parent: {path}")
+    return path / os.fsdecode(parts[-1])
+
+
+def _is_scaffolding_raw_path(raw_path: bytes) -> bool:
+    """Match real Git path components, including literal backslashes in names."""
+    parts = raw_path.split(b"/")
+    return (
+        b".quality-loop" in parts
+        or b"__pycache__" in parts
+        or parts[-1] == b"agent-record.json"
+        or parts[-1].endswith(b".pyc")
+    )
+
+
+def source_snapshot_sha256(base: str, cwd: Path) -> str:
+    """Fingerprint raw source and verification inputs without executing Git filters.
+
+    The digest covers the resolved base object, index stages, and exact tracked
+    and untracked worktree paths, modes and bytes. Loop scaffolding is excluded,
+    except the presence and contents of .quality-loop/allowed-commands. Missing
+    or unreadable listed files fail closed. This is a passive recovery snapshot,
+    not proof that recorded commands or an independent review still passed.
+    """
+    if not isinstance(base, str) or not base or base.startswith("-"):
+        raise ValueError("invalid base ref for source snapshot")
+    cwd = Path(cwd)
+    base_oid = _git_bytes(["rev-parse", "--verify", "--quiet", base], cwd).strip()
+    if not re.fullmatch(rb"[0-9a-fA-F]{40,64}", base_oid):
+        raise ValueError("base ref did not resolve to one Git object")
+    index = _nul_paths(_git_bytes(["ls-files", "--cached", "--stage", "-z"], cwd), "index")
+    untracked = _nul_paths(
+        _git_bytes(["ls-files", "--others", "--exclude-standard", "-z"], cwd),
+        "untracked files",
+    )
+    digest = hashlib.sha256()
+
+    def add(*parts: bytes) -> None:
+        for part in parts:
+            digest.update(len(part).to_bytes(8, "big"))
+            digest.update(part)
+
+    add(b"CQL raw source snapshot v1", base_oid.lower())
+    tracked_paths: set[bytes] = set()
+    for entry in sorted(index):
+        header, sep, raw_path = entry.partition(b"\t")
+        match = re.fullmatch(rb"([0-7]{6}) ([0-9a-fA-F]{40,64}) ([0-3])", header)
+        if not sep or not match or not raw_path:
+            raise ValueError("malformed Git index entry")
+        if _is_scaffolding_raw_path(raw_path):
+            continue
+        _source_path(cwd, raw_path)
+        add(b"index", raw_path, match[1], match[2].lower(), match[3])
+        tracked_paths.add(raw_path)
+
+    untracked_paths = set(untracked)
+    if len(untracked_paths) != len(untracked):
+        raise ValueError("duplicate untracked path in Git listing")
+    for raw_path in sorted(tracked_paths | untracked_paths):
+        if _is_scaffolding_raw_path(raw_path):
+            continue
+        path = _source_path(cwd, raw_path)
+        mode = os.lstat(path).st_mode
+        mode_bytes = f"{mode & 0o177777:06o}".encode("ascii")
+        if stat.S_ISLNK(mode):
+            content = os.fsencode(os.readlink(path))
+            kind = b"symlink"
+        elif stat.S_ISREG(mode):
+            content = _regular_bytes(path)
+            kind = b"file"
+        else:
+            raise ValueError(f"unsupported source file type: {path}")
+        add(b"tracked" if raw_path in tracked_paths else b"untracked",
+            raw_path, kind, mode_bytes, len(content).to_bytes(8, "big"),
+            hashlib.sha256(content).digest())
+
+    marker_dir = cwd / ".quality-loop"
+    try:
+        dir_mode = os.lstat(marker_dir).st_mode
+    except FileNotFoundError:
+        add(b"allowed-commands", b"absent")
+    else:
+        if not stat.S_ISDIR(dir_mode):
+            raise ValueError(".quality-loop is not a regular directory")
+        marker = marker_dir / "allowed-commands"
+        try:
+            marker_mode = os.lstat(marker).st_mode
+        except FileNotFoundError:
+            add(b"allowed-commands", b"absent")
+        else:
+            if not stat.S_ISREG(marker_mode):
+                raise ValueError(".quality-loop/allowed-commands is not a regular file")
+            marker_bytes = _regular_bytes(marker)
+            add(b"allowed-commands", b"present", len(marker_bytes).to_bytes(8, "big"),
+                hashlib.sha256(marker_bytes).digest())
+    return digest.hexdigest()
 
 
 def changed_files(base: str = "HEAD", cwd: Path | None = None) -> list[str]:
@@ -108,12 +255,9 @@ def _changed_files_for_replay(base: str, cwd: Path) -> tuple[list[str], str]:
 
 
 # Loop scaffolding (the record, .quality-loop/, caches) is process output, not
-# the change under review — one shared predicate with diff-audit's untracked
-# sweep (quality_loop_core.is_scaffolding_path). Deliberately called WITHOUT an
-# install-manifest set here: the attestation hash must keep pinning untracked
-# copies of shipped files, so manifest membership only relaxes scope-integrity
-# and the diff-size advisory, never review freshness.
-_is_scaffolding_untracked = qlc.is_scaffolding_path
+# the change under review. This raw-path check preserves Git's exact filename
+# bytes, including a literal backslash that is not a directory separator on
+# Unix. Install-manifest-listed files remain part of the review hash.
 
 
 def _untracked_pseudo_diff(cwd: Path) -> str:
@@ -125,41 +269,43 @@ def _untracked_pseudo_diff(cwd: Path) -> str:
     without staling the review. Appending the content in a stable pseudo-diff
     closes that hole for render and hash alike.
     """
-    code, out, _ = _git(["-c", "core.fsmonitor=false", "ls-files", "--others", "--exclude-standard"], cwd)
-    if code != 0:
-        return ""
-    chunks: list[str] = []
-    for f in sorted(p.strip() for p in out.splitlines() if p.strip()):
-        if _is_scaffolding_untracked(f):
-            continue
-        path = cwd / f
-        # Never follow an untracked symlink: reading its target would disclose a
-        # file outside the tree through render-prompt. Represent it by its link
-        # value so a change still stales the hash, without reading the target.
-        if path.is_symlink():
-            try:
-                target = os.readlink(path)
-            except OSError:
-                target = "(unreadable)"
-            chunks.append(f"diff --untracked a/{f} b/{f}\nsymlink -> {target}\n")
-            continue
-        try:
-            raw = path.read_bytes()
-        except OSError as exc:
-            chunks.append(
-                f"diff --untracked a/{f} b/{f}\n(unreadable untracked file: {exc.__class__.__name__})\n"
-            )
-            continue
-        # A raw-byte sha keeps the hash byte-faithful (CRLF/final-newline/
-        # invalid-byte changes all stale it); the decoded +lines stay human-
-        # reviewable in the rendered prompt.
-        digest = hashlib.sha256(raw).hexdigest()
-        content = raw.decode("utf-8", errors="replace")
-        body = "".join("+" + line + "\n" for line in content.splitlines())
-        chunks.append(
-            f"diff --untracked a/{f} b/{f}\n--- /dev/null\n+++ b/{f}\nsha256 {digest}\n{body}"
+    try:
+        paths = _nul_paths(
+            _git_bytes(["ls-files", "--others", "--exclude-standard", "-z"], cwd),
+            "untracked files",
         )
-    return "".join(chunks)
+        if len(set(paths)) != len(paths):
+            raise ValueError("duplicate untracked path in Git listing")
+        chunks: list[str] = []
+        for raw_path in sorted(paths):
+            if _is_scaffolding_raw_path(raw_path):
+                continue
+            f = os.fsdecode(raw_path)
+            plain_label = f.isascii() and all(
+                32 < ord(c) < 127 and c not in '\\"' for c in f
+            )
+            label = f if plain_label else json.dumps(f, ensure_ascii=True)
+            path = _source_path(cwd, raw_path)
+            mode = os.lstat(path).st_mode
+            # Never follow an untracked symlink: rendering its target could
+            # disclose a file outside the tree.
+            if stat.S_ISLNK(mode):
+                target = json.dumps(os.readlink(path), ensure_ascii=True)
+                chunks.append(f"diff --untracked a/{label} b/{label}\nsymlink -> {target}\n")
+                continue
+            raw = _regular_bytes(path)
+            # The digest preserves raw-byte changes; decoded lines are only a
+            # human-readable view of the content.
+            digest = hashlib.sha256(raw).hexdigest()
+            content = raw.decode("utf-8", errors="replace")
+            body = "".join("+" + line + "\n" for line in content.splitlines())
+            chunks.append(
+                f"diff --untracked a/{label} b/{label}\n--- /dev/null\n+++ b/{label}\nsha256 {digest}\n{body}"
+            )
+        return "".join(chunks)
+    except (OSError, ValueError) as exc:
+        print(f"error: untracked diff unavailable: {qlc.redact(str(exc))}", file=sys.stderr)
+        raise SystemExit(2) from exc
 
 
 def diff_patch(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir: bool = False) -> str:
@@ -184,10 +330,9 @@ def canonical_diff_sha256(base: str = "HEAD", cwd: Path | None = None) -> str:
     """THE canonical diff hash for a base: sha256 of the tracked diff vs base
     excluding .quality-loop/, plus the untracked pseudo-diff.
 
-    The single implementation shared by attest-review, the review-freshness
-    gate, and the `verify` umbrella's last-verified marker — the stop-gate fast
-    path imports this same helper to recompute the hash, so the marker writer
-    and the marker reader can never diverge on hash semantics. Raises
+    Shared by attest-review and the explicit review-freshness gate. Passive
+    brief and Stop-gate recovery instead use source_snapshot_sha256, which
+    cannot invoke repository-configured Git diff or clean filters. Raises
     SystemExit (via run_git) outside a git repository.
     """
     return diff_sha256(base, cwd, exclude_record_dir=True)

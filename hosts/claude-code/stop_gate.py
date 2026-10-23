@@ -217,18 +217,33 @@ def _canonical_diff_sha256(base: str, root: Path) -> str | None:
     return result if isinstance(result, str) and result else None
 
 
+def _source_snapshot_sha256(base: str, root: Path) -> str | None:
+    """Read a raw source snapshot without invoking Git diff or file filters."""
+    scripts = root / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    try:
+        import quality_loop_reality as qlr  # noqa: PLC0415
+
+        result = qlr.source_snapshot_sha256(base, root)
+    except (Exception, SystemExit):
+        return None
+    return result if isinstance(result, str) and result else None
+
+
 def _verified_clean(root: Path, status: str, record: Path) -> str | None:
-    """When ``.quality-loop/last-verified.json`` proves this exact diff, record
-    path, content, and status already passed the full `verify` umbrella, return its
-    ``verified_at`` stamp so the terminal stop can skip re-execution. Returns
+    """When ``.quality-loop/last-verified.json`` matches the saved local source,
+    allowlist, record path, content, and status from a passing ``verify``, return
+    its ``verified_at`` stamp so the terminal stop can skip re-execution. Returns
     None (run the umbrella) on any missing / unreadable / mismatched marker.
 
-    This is purely a latency optimization: it must never allow a stop the full
-    umbrella would have blocked, so every uncertain path falls through to the
-    umbrella. Four things must all match:
+    This is a latency optimization over saved local inputs; it does not rerun
+    checks or inspect external state. Every uncertain path falls through to
+    the umbrella. Four things must all match:
 
-    - the canonical DIFF hash, recomputed against the marker's own base (a moved
-      base ref or any code change forces the umbrella); and
+    - the raw SOURCE snapshot, recomputed against the marker's own base
+      (a moved base ref, changed file, staged edit, or allowlist change forces
+      the umbrella without executing repository-configured Git filters); and
     - the RECORD path — relative evidence can resolve differently for two
       byte-identical records at different locations; and
     - the RECORD content hash — load-bearing, because the umbrella verdict
@@ -239,7 +254,8 @@ def _verified_clean(root: Path, status: str, record: Path) -> str | None:
       diff hash + status unchanged and be skipped; and
     - the record ``status``.
 
-    Scope, honestly: this only proves nothing changed since a passing verify.
+    Scope, honestly: this compares local inputs since a passing verify; the
+    command environment or external effects could have changed separately.
     The marker is a plain file, so like every local gate input it is
     tamper-evident, not a boundary against a forging agent (which could rewrite
     the record it attests anyway). CI never reads the marker and re-executes
@@ -252,11 +268,13 @@ def _verified_clean(root: Path, status: str, record: Path) -> str | None:
     if not isinstance(data, dict):
         return None
     recorded_hash = data.get("diff_sha256")
+    recorded_snapshot = data.get("source_snapshot_sha256")
     recorded_record_hash = data.get("record_sha256")
     recorded_record_path = data.get("record_path")
     base = data.get("base")
     if (data.get("status") != status
             or not isinstance(recorded_hash, str) or not recorded_hash
+            or not isinstance(recorded_snapshot, str) or not recorded_snapshot
             or not isinstance(recorded_record_hash, str) or not recorded_record_hash
             or not isinstance(recorded_record_path, str) or not recorded_record_path
             or not isinstance(base, str) or not base):
@@ -274,8 +292,8 @@ def _verified_clean(root: Path, status: str, record: Path) -> str | None:
         return None
     if current_record_hash != recorded_record_hash:
         return None
-    current = _canonical_diff_sha256(base, root)
-    if current is None or current != recorded_hash:
+    current = _source_snapshot_sha256(base, root)
+    if current is None or current != recorded_snapshot:
         return None
     verified_at = data.get("verified_at")
     return verified_at if isinstance(verified_at, str) and verified_at else "an earlier verify"
@@ -438,13 +456,12 @@ def main() -> int:
             return 0
         verified_at = _verified_clean(root, status, record)
         if verified_at is not None:
-            # The full `verify` umbrella already passed for this exact diff +
-            # status (last-verified.json written by Lane 1's verify on PASS).
-            # Skip the re-execution purely to save latency; a mismatch or any
-            # unreadable marker fell through to the umbrella above.
+            # The full umbrella passed with these local inputs. Skip repeating
+            # it to save latency; the current environment is not rechecked.
             print(
-                f"quality-loop: verified clean at {verified_at}; diff + record + status "
-                "unchanged — skipping re-execution.",
+                f"quality-loop: verified clean at {verified_at}; local source, allowlist, "
+                "record and status unchanged — skipping re-execution (environment and "
+                "external effects not rechecked).",
                 file=sys.stderr,
             )
             return 0

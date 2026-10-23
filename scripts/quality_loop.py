@@ -1992,9 +1992,11 @@ def _latest_record_summary(cwd: Path) -> dict[str, Any]:
             if data.get("risk_tier") not in RISK_TIERS:
                 return {"path": str(path), "error": "invalid or missing risk_tier"}
             if data["status"] in TERMINAL_STATUSES:
-                for field in ("acceptance_criteria", "constraints", "non_goals", "assumptions", "verification_plan"):
-                    if not isinstance(data.get(field), list):
-                        return {"path": str(path), "error": f"missing or invalid {field} in terminal record"}
+                # A terminal handoff must not say "done" when the same record
+                # fails check-record. In-progress legacy summaries stay usable.
+                errors, _ = record_validation_issues(data)
+                if errors:
+                    return {"path": str(path), "error": "invalid terminal record: " + "; ".join(errors[:3])}
             for field in ("open_risks", "review_findings"):
                 if field in data and (not isinstance(data[field], list)
                                       or not all(isinstance(item, str) for item in data[field])):
@@ -2014,11 +2016,11 @@ def _latest_record_summary(cwd: Path) -> dict[str, Any]:
 
 
 def _brief_recovery(cwd: Path, record_summary: dict[str, Any]) -> dict[str, str]:
-    """Read-only local evidence freshness; never run recorded commands.
+    """Read-only comparison with saved local inputs; never run commands.
 
-    A matching marker means this diff and record are unchanged since one local
-    passing verify. It does not establish that an external effect completed or
-    that the local marker is an independent attestation.
+    A matching marker means raw source, index, allowlist and record bytes still
+    match one local passing verify. It does not establish that commands would
+    pass again, an external effect completed, or the marker is independent.
     """
     result = {
         "local_verification": "unknown",
@@ -2038,7 +2040,8 @@ def _brief_recovery(cwd: Path, record_summary: dict[str, Any]) -> dict[str, str]
     marker_diff = marker.get("diff_sha256")
     marker_record = marker.get("record_sha256")
     marker_path_record = marker.get("record_path")
-    if not all(isinstance(value, str) and value for value in (base, marker_diff, marker_record)):
+    marker_snapshot = marker.get("source_snapshot_sha256")
+    if not all(isinstance(value, str) and value for value in (base, marker_diff, marker_record, marker_snapshot)):
         return result
     # The marker is local data, not a trusted CLI argument. A leading dash
     # could turn its base into a git diff option such as --output=<path>.
@@ -2059,19 +2062,15 @@ def _brief_recovery(cwd: Path, record_summary: dict[str, Any]) -> dict[str, str]
     if record_hash is None:
         return result
     try:
-        import contextlib
-        import io
-
-        # The canonical hash helper exits on a missing git ref. A briefing
-        # should report uncertainty without turning a failed read into a stop.
-        with contextlib.redirect_stderr(io.StringIO()):
-            current_diff = qlreal.canonical_diff_sha256(base, cwd)
-    except (OSError, SystemExit, ValueError):
+        # Read raw files and Git's NUL-delimited index only. Calling git diff
+        # here can execute repository-configured clean/process filters.
+        current_snapshot = qlreal.source_snapshot_sha256(base, cwd)
+    except (OSError, SystemExit, ValueError, RuntimeError):
         return result
     result["local_verification"] = (
         "unchanged_since_pass"
         if marker.get("status") == record_summary.get("status")
-        and marker_record == record_hash and marker_diff == current_diff
+        and marker_record == record_hash and marker_snapshot == current_snapshot
         else "stale"
     )
     try:
@@ -2084,7 +2083,8 @@ def _brief_recovery(cwd: Path, record_summary: dict[str, Any]) -> dict[str, str]
     hashes = [review.get("diff_sha256") for review in reviews if isinstance(review, dict)]
     if hashes:
         result["review_diff"] = (
-            "hash_match" if all(isinstance(value, str) and value == current_diff for value in hashes)
+            "hash_match" if marker_snapshot == current_snapshot
+            and all(isinstance(value, str) and value == marker_diff for value in hashes)
             else "stale"
         )
     return result
@@ -2306,6 +2306,8 @@ def cmd_brief(args: argparse.Namespace) -> int:
         sections.append("## Reviewer heterogeneity\n" + het_warning)
 
     next_hint = "Run the loop on the next task, or resume an incomplete one."
+    if record_summary and "error" in record_summary:
+        next_hint = "Repair the invalid record before continuing."
     if record_summary and "error" not in record_summary and record_summary.get("status") not in ("done", "?"):
         escalation_reason = record_summary.get("escalation_reason")
         recorded_action = record_summary.get("next_action")
@@ -2780,8 +2782,8 @@ def verify(args: argparse.Namespace) -> int:
     # Last-verified marker for the stop-gate fast path: written ONLY on an
     # overall PASS, under .quality-loop/ (hash-excluded, so writing it never
     # stales a review). The hook skips re-running the umbrella only when the
-    # marker's canonical diff hash, the record's path and content hash, AND the
-    # record status all still match; a FAIL removes any stale marker so absence
+    # marker's raw source snapshot (including the allowlist), record path and
+    # content hash, AND status all still match; a FAIL removes any stale marker so absence
     # always means "run the full umbrella". The record hash is load-bearing:
     # the umbrella verdict depends on the record (it re-executes commands_run
     # and checks AC coverage), and the record lives under .quality-loop/, which
@@ -2794,6 +2796,7 @@ def verify(args: argparse.Namespace) -> int:
         if overall == 0:
             write_json(marker, {
                 "diff_sha256": qlreal.canonical_diff_sha256(base, Path.cwd()),
+                "source_snapshot_sha256": qlreal.source_snapshot_sha256(base, Path.cwd()),
                 "record_sha256": _file_sha256(record_path),
                 "record_path": str(record_path.resolve()),
                 "base": base,
@@ -2802,7 +2805,7 @@ def verify(args: argparse.Namespace) -> int:
             })
         else:
             marker.unlink(missing_ok=True)
-    except (OSError, SystemExit):
+    except (OSError, SystemExit, ValueError, RuntimeError):
         pass
 
     print(f"\nOverall: {'FAIL' if overall else 'PASS'}")

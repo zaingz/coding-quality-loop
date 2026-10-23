@@ -2027,8 +2027,7 @@ def case_verify_writes_last_verified_marker(tmp: Path) -> tuple[bool, str]:
 
 
 def case_canonical_diff_sha256_single_source(tmp: Path) -> tuple[bool, str]:
-    """canonical_diff_sha256 IS the hash attest-review embeds and freshness
-    checks (one implementation), and it stales when untracked content changes."""
+    """Review and passive snapshots pin exact untracked path and file bytes."""
     repo = make_repo(tmp)
     (repo / "mod.py").write_text("def helper():\n    return 2\n")
     review_path = repo / "review.json"
@@ -2046,8 +2045,40 @@ def case_canonical_diff_sha256_single_source(tmp: Path) -> tuple[bool, str]:
     )
     (repo / "extra.py").write_text("x = 1\n")
     stales = qlreal.canonical_diff_sha256("HEAD", cwd=repo) != canonical
-    ok = same_impl and stales
-    return ok, f"exit={code}; same_impl={same_impl}; stales_on_new_content={stales}"
+    names = ("new\nfile.py", "sp ace.py", "unicode-☃.py")
+    exact_paths = True
+    for name in names:
+        path = repo / name
+        path.write_bytes(b"first\n")
+        old_review = qlreal.canonical_diff_sha256("HEAD", cwd=repo)
+        old_snapshot = qlreal.source_snapshot_sha256("HEAD", cwd=repo)
+        path.write_bytes(b"second\n")
+        exact_paths &= (
+            qlreal.canonical_diff_sha256("HEAD", cwd=repo) != old_review
+            and qlreal.source_snapshot_sha256("HEAD", cwd=repo) != old_snapshot
+        )
+    # Fault-inject a file that disappears after Git lists it. Its unreadable
+    # name cannot contribute a constant placeholder to either digest.
+    special_closed = True
+    original_git_bytes = qlreal._git_bytes
+
+    def missing_file_listing(args: list[str], cwd: Path) -> bytes:
+        output = original_git_bytes(args, cwd)
+        if args[:3] == ["ls-files", "--others", "--exclude-standard"]:
+            return output + b"vanished-file.py\0"
+        return output
+
+    from unittest.mock import patch
+    with patch.object(qlreal, "_git_bytes", side_effect=missing_file_listing):
+        for fingerprint in (qlreal.canonical_diff_sha256, qlreal.source_snapshot_sha256):
+            try:
+                fingerprint("HEAD", cwd=repo)
+                special_closed = False
+            except (OSError, ValueError, SystemExit):
+                pass
+    ok = same_impl and stales and exact_paths and special_closed
+    return ok, (f"exit={code}; same_impl={same_impl}; stales_on_new_content={stales}; "
+                f"exact_paths={exact_paths}; special_closed={special_closed}")
 
 
 def _behavior_record(repo: Path, command: str, goal: str) -> dict:
