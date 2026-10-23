@@ -786,6 +786,25 @@ def case_brief_with_record_and_progress(tmp: Path) -> tuple[bool, str]:
     return ok, f"exit={code}; out={out.strip()!r}"
 
 
+def case_brief_uses_record_next_action(tmp: Path) -> tuple[bool, str]:
+    """Resume guidance should show the action already recorded for the task."""
+    qdir = tmp / ".quality-loop"
+    qdir.mkdir(parents=True)
+    (qdir / "agent-record.json").write_text(json.dumps({
+        "task_id": "resume-1", "goal": "Update a widget", "status": "implement",
+        "risk_tier": "low", "next_action": "Add the focused widget test",
+    }))
+    text_code, text_out, _ = run_cli("brief", "--cwd", str(tmp))
+    json_code, json_out, _ = run_cli("brief", "--cwd", str(tmp), "--json")
+    payload = json.loads(json_out) if json_code == 0 else {}
+    ok = (
+        text_code == 0 and json_code == 0
+        and "## Suggested next step\nAdd the focused widget test" in text_out
+        and payload.get("next_step") == "Add the focused widget test"
+    )
+    return ok, f"text={text_code}; json={json_code}; recorded_action_shown={ok}"
+
+
 def case_brief_json_valid(tmp: Path) -> tuple[bool, str]:
     code, out, err = run_cli("brief", "--cwd", str(tmp), "--json")
     ok = False
@@ -1921,7 +1940,7 @@ def case_record_mutation_roundtrip(tmp: Path) -> tuple[bool, str]:
     c2, _, e2 = run_cli(
         "record", "add-evidence", str(path),
         "--cmd", "pytest -q", "--result", "pass", "--class", "unit",
-        "--evidence", "13 passed",
+        "--evidence", "13 passed", "--expected-red", "AssertionError: totals round once",
     )
     c3, _, e3 = run_cli(
         "record", "add-ac", str(path),
@@ -1930,7 +1949,10 @@ def case_record_mutation_roundtrip(tmp: Path) -> tuple[bool, str]:
     mutated = json.loads(path.read_text())
     status_set = mutated.get("status") == "verify"
     row = (mutated.get("commands_run") or [])[-1]
-    row_ok = row == {"cmd": "pytest -q", "class": "unit", "result": "pass", "evidence": "13 passed"}
+    row_ok = row == {
+        "cmd": "pytest -q", "class": "unit", "result": "pass",
+        "evidence": "13 passed", "expected_red": "AssertionError: totals round once",
+    }
     ac = (mutated.get("acceptance_criteria") or [])[-1]
     ac_ok = ac == {"criterion": "totals round once", "proving_command": "pytest -q"}
     preserved = mutated.get("custom_extra") == {"keep": "me"}
@@ -2268,6 +2290,7 @@ CASES = [
     ("repeated failure requires a durable harness update", case_repeated_failure_requires_harness_update),
     ("brief does not crash on an empty repo", case_brief_empty_repo),
     ("brief renders record, risks, and progress tail", case_brief_with_record_and_progress),
+    ("brief uses the incomplete record's next_action for resume", case_brief_uses_record_next_action),
     ("brief --json returns valid structured output", case_brief_json_valid),
     ("schema accepts object acceptance criteria with proving_command (and strings)", case_schema_accepts_object_acceptance_criteria),
     ("optional run_metrics with non-negative numbers passes check-record", case_run_metrics_valid_passes),

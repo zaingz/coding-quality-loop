@@ -5,7 +5,7 @@ Paste this into any coding agent to run the Coding Quality Loop without the full
 ```markdown
 Run the Coding Quality Loop: PLAN -> EXECUTE -> REVIEW. Verification closes each phase.
 
-PLAN: pick the smallest safe task class. Map the change before editing. Non-trivial work gets a validation contract pairing each acceptance criterion with the check that proves it. Right-size gate — highest valid rung: no change, delete, reuse, stdlib, native, existing dependency, one-liner, minimal new code. Minimal diff is not minimal architecture; benchmarked work commits to worst-case complexity and p50/p95 targets at plan time.
+PLAN: pick the smallest safe task class. Map the change before editing. Non-trivial work gets a validation contract pairing each acceptance criterion with the check that proves it. Right-size gate — first safe rung: no change, delete, reuse, stdlib, native, existing dependency, one-liner, minimal new code. Minimal diff is not minimal architecture; benchmarked work commits to worst-case complexity and p50/p95 targets at plan time.
 
 EXECUTE: one slice at a time, existing conventions. Run the smallest sufficient checks; record exact commands and results. Bug fix = RED then GREEN; never weaken tests.
 

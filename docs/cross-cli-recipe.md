@@ -11,7 +11,7 @@ arbiter: it compares the resolved model *families* across hosts, and
 `verify-gates` string-compares reviewer ≠ implementer on the record. Declare
 your topology in `model_routing` (`agents: {name: {host, class}}` +
 `main_session`) so the check sees what you actually run — see `assets/routing/`
-for pre-validated variants.
+for config-checked presets; confirm live model access and CLI flags separately.
 
 ## Role → headless command
 
@@ -62,18 +62,20 @@ Codex-implementer topology, not for review legs.
 - **Fresh sessions:** `claude -p` and `codex exec` each start a new session per
   invocation; don't resume a session for reviewer roles — the reviewer must
   arrive with fresh context.
-- **Exit codes are the evidence:** capture each command's exit code and record
-  it in the agent record —
+- **Reviewer invocation status is not a review verdict:** capture the model's
+  actual findings and verdict, and separately note whether the CLI invocation
+  succeeded —
 
   ```bash
   python3 scripts/quality_loop.py render-prompt --role reviewer --record .quality-loop/agent-record.json |
     codex exec -s read-only -m gpt-5.6-sol; echo "exit=$?"
   ```
 
-  then append the command to `commands_run` with `result: pass|fail` and the
-  output as `evidence`, and add it to `.quality-loop/allowed-commands` so
-  `run-evidence` can re-execute it. A reviewer verdict goes into
-  `independent_review` with `fresh_context: true` and `ran_checks`.
+  Record the verdict and findings in `independent_review` with `fresh_context`
+  and an honest `ran_checks` value. A CLI exit code of zero does not mean the
+  reviewer approved. Do not allowlist or replay the model invocation as a
+  deterministic proving check; `commands_run` and `run-evidence` are for
+  executable checks of the code.
 - **Model swaps mid-run:** if the implementer leg escalates (two verified
   failures on the same check), record the event in `escalations` citing the
   failing `commands_run` entries — `verify-gates` rejects escalations that cite

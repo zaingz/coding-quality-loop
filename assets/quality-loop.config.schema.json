@@ -354,7 +354,7 @@
                     "max",
                     null
                   ],
-                  "description": "Reasoning effort. 'high' is the routine ceiling; effort is per-step, not per-task endurance, so xhigh/max only overthink and overspend each step. check-config rejects xhigh/max unless allow_overthink is true on this block."
+                  "description": "Reasoning effort. CQL defaults to 'high' as a cost-control policy pending controlled measurement; higher effort may help demanding tasks. check-config rejects xhigh/max unless allow_overthink is true on this block."
                 },
                 "allow_overthink": {
                   "type": "boolean",

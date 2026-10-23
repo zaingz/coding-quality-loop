@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+The current checkout has 22 static + 66 behavioral + 33 memory + 62 reality +
+30 routing + 72 hook = **285 core gate cases** (+46 control add-on). The
+v6.7.0 release figures below remain its published snapshot.
+
 ## 6.7.0
 
 The test-integrity release: green must distinguish old behavior from new

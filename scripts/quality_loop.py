@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -96,6 +97,18 @@ MINIMALITY_RUNGS = {
 }
 # Optional per-run process-tax metrics (R3). All fields are optional numbers.
 RUN_METRICS_FIELDS = {"tokens_in", "tokens_out", "cost_usd", "duration_sec"}
+
+
+def _finite_non_negative_number(value: Any) -> bool:
+    # JSON integers are finite even when too large for float conversion.
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and value >= 0
+        and (not isinstance(value, float) or math.isfinite(value))
+    )
+
+
 COMMAND_RESULTS = {"pass", "fail", "blocked"}
 COMMAND_CLASSES = {
     "format",
@@ -631,6 +644,7 @@ def record_add_evidence(args: argparse.Namespace) -> int:
             _require_nonempty("--cmd", args.cmd),
             _require_nonempty("--evidence", args.evidence),
             _require_nonempty("--reason", args.reason) if args.reason is not None else None,
+            _require_nonempty("--expected-red", args.expected_red) if args.expected_red is not None else None,
         ) if e
     ]
     commands = record.setdefault("commands_run", [])
@@ -648,6 +662,8 @@ def record_add_evidence(args: argparse.Namespace) -> int:
     }
     if args.reason is not None:
         row["reason"] = args.reason
+    if args.expected_red is not None:
+        row["expected_red"] = args.expected_red
     commands.append(row)
     return _commit_record_mutation(
         path, record, errors_before,
@@ -728,7 +744,7 @@ def record_outcome(args: argparse.Namespace) -> int:
     return 0
 
 
-def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
+def record_validation_issues(record: Any) -> tuple[list[str], list[str]]:
     """Structural + shape + lifecycle-stage validation, shared by `check-record`
     and the `record` mutation verbs. Returns (errors, warnings); the caller
     decides how to surface them. A mutation verb refuses to write when it would
@@ -736,6 +752,8 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
     can never persist a record it just made invalid."""
     errors: list[str] = []
     warnings: list[str] = []
+    if not isinstance(record, dict):
+        return ["record must be an object"], warnings
 
     required = [
         "task_id",
@@ -756,11 +774,20 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         errors.append("task_id must be a non-empty string")
     if not isinstance(record.get("goal"), str) or not record.get("goal", "").strip():
         errors.append("goal must be a non-empty string")
-    if record.get("risk_tier") not in RISK_TIERS:
+    risk_tier = record.get("risk_tier")
+    if not isinstance(risk_tier, str) or risk_tier not in RISK_TIERS:
         errors.append("risk_tier must be one of: low, medium, high")
-    status = record.get("status")
+    raw_status = record.get("status")
+    status = raw_status if isinstance(raw_status, str) else None
     if status not in STATUSES:
         errors.append("status is not a valid lifecycle state")
+    task_class = record.get("task_class")
+    if task_class is not None and (
+        not isinstance(task_class, str) or task_class not in {"tiny", "small", "medium", "mission"}
+    ):
+        errors.append("task_class must be one of: tiny, small, medium, mission, null")
+    if "security_sensitive" in record and not isinstance(record["security_sensitive"], bool):
+        errors.append("security_sensitive must be a boolean")
     # A legacy `phase` field (from the retired three-phase model) is tolerated and
     # ignored — no gate consumes it, so its value is never validated.
 
@@ -769,7 +796,8 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         if not isinstance(minimality, dict):
             errors.append("minimality_decision must be an object")
         else:
-            if minimality.get("rung") not in MINIMALITY_RUNGS:
+            rung = minimality.get("rung")
+            if not isinstance(rung, str) or rung not in MINIMALITY_RUNGS:
                 errors.append("minimality_decision.rung is invalid")
             if not minimality.get("reason"):
                 errors.append("minimality_decision.reason is required")
@@ -790,6 +818,18 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         if array_key in record and not isinstance(record[array_key], list):
             errors.append(f"{array_key} must be an array")
 
+    repo_map = record.get("repo_map")
+    if "repo_map" in record:
+        if not isinstance(repo_map, dict):
+            errors.append("repo_map must be an object")
+        else:
+            for key in ("entry_points", "likely_files", "callers_checked", "tests", "patterns_to_follow"):
+                if key in repo_map and (
+                    not isinstance(repo_map[key], list)
+                    or not all(isinstance(item, str) for item in repo_map[key])
+                ):
+                    errors.append(f"repo_map.{key} must be an array of strings")
+
     commands = record.get("commands_run")
     if isinstance(commands, list):
         for idx, cmd in enumerate(commands):
@@ -798,10 +838,11 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
                 continue
             if not isinstance(cmd.get("cmd"), str) or not cmd.get("cmd", "").strip():
                 errors.append(f"commands_run[{idx}].cmd must be a non-empty string")
-            if cmd.get("result") not in COMMAND_RESULTS:
+            result = cmd.get("result")
+            if not isinstance(result, str) or result not in COMMAND_RESULTS:
                 errors.append(f"commands_run[{idx}].result must be one of: pass, fail, blocked")
             cls = cmd.get("class")
-            if cls is not None and cls not in COMMAND_CLASSES:
+            if cls is not None and (not isinstance(cls, str) or cls not in COMMAND_CLASSES):
                 errors.append(
                     f"commands_run[{idx}].class is not a recognized class: {cls!r}"
                 )
@@ -817,6 +858,12 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
                     errors.append(
                         f"commands_run[{idx}].{reason_key} must be a non-empty string when present"
                     )
+            if "expected_red" in cmd and (
+                not isinstance(cmd["expected_red"], str) or not cmd["expected_red"].strip()
+            ):
+                errors.append(
+                    f"commands_run[{idx}].expected_red must be a non-empty string when present"
+                )
 
     for artifact_key in ("validation_contract", "completion_record", "harness_update"):
         value = record.get(artifact_key)
@@ -850,10 +897,8 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
             for key, value in run_metrics.items():
                 if key not in RUN_METRICS_FIELDS:
                     errors.append(f"run_metrics has unknown key: {key!r}")
-                elif isinstance(value, bool) or not isinstance(value, (int, float)):
-                    errors.append(f"run_metrics.{key} must be a number")
-                elif value < 0:
-                    errors.append(f"run_metrics.{key} must be >= 0")
+                elif not _finite_non_negative_number(value):
+                    errors.append(f"run_metrics.{key} must be a finite number >= 0")
 
     # Optional shipped-work outcome (v6.2): {verdict, note, recorded_at}, set by
     # `record outcome`. Absence is valid and no gate requires it; when present
@@ -920,10 +965,8 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
                     errors.append(f"models_used[{idx}].attempts must be an integer >= 1")
                 for num_key in ("tokens_in", "tokens_out", "cost_usd"):
                     val = entry.get(num_key)
-                    if val is not None and (
-                        isinstance(val, bool) or not isinstance(val, (int, float)) or val < 0
-                    ):
-                        errors.append(f"models_used[{idx}].{num_key} must be a non-negative number")
+                    if val is not None and not _finite_non_negative_number(val):
+                        errors.append(f"models_used[{idx}].{num_key} must be a finite non-negative number")
     escalations = record.get("escalations")
     if escalations is not None:
         if not isinstance(escalations, list):
@@ -1929,7 +1972,7 @@ def check_config(args: argparse.Namespace) -> int:
 
 
 def _latest_record_summary(cwd: Path) -> dict[str, Any]:
-    """Return open risks and status from the most recent agent record."""
+    """Return resume details from the most recent agent record."""
     for path in (cwd / ".quality-loop" / "agent-record.json", cwd / "agent-record.json"):
         if path.is_file():
             try:
@@ -1942,6 +1985,7 @@ def _latest_record_summary(cwd: Path) -> dict[str, Any]:
                 "goal": data.get("goal", ""),
                 "status": data.get("status", "?"),
                 "risk_tier": data.get("risk_tier", "?"),
+                "next_action": data.get("next_action"),
                 "open_risks": data.get("open_risks", []),
                 "review_findings": data.get("review_findings", []),
             }
@@ -2157,7 +2201,11 @@ def cmd_brief(args: argparse.Namespace) -> int:
 
     next_hint = "Run the loop on the next task, or resume an incomplete one."
     if record_summary and "error" not in record_summary and record_summary.get("status") not in ("done", "?"):
-        next_hint = f"Resume incomplete task: {record_summary.get('goal', '?')} (status: {record_summary.get('status', '?')})"
+        recorded_action = record_summary.get("next_action")
+        if isinstance(recorded_action, str) and recorded_action.strip():
+            next_hint = recorded_action.strip()
+        else:
+            next_hint = f"Resume incomplete task: {record_summary.get('goal', '?')} (status: {record_summary.get('status', '?')})"
     sections.append(f"## Suggested next step\n{next_hint}")
 
     if getattr(args, "json", False):
@@ -2404,8 +2452,30 @@ def verify(args: argparse.Namespace) -> int:
     import contextlib
     import io
 
+    def _report_shape_failure(shape_errors: list[str]) -> int:
+        print("VERIFY — unified gate report")
+        print("\n[FAIL] check-record (shape)")
+        for error in shape_errors:
+            print(f"  error: {error}")
+        try:
+            (Path.cwd() / ".quality-loop" / "last-verified.json").unlink(missing_ok=True)
+        except OSError:
+            pass
+        print("\nOverall: FAIL")
+        return 1
+
     record_path = Path(args.record)
-    record = load_json(record_path)
+    try:
+        with contextlib.redirect_stderr(io.StringIO()) as load_errors:
+            record = load_json(record_path)
+    except SystemExit:
+        return _report_shape_failure([load_errors.getvalue().strip().removeprefix("error: ")])
+    # The CI action calls verify directly, so it must reject the same invalid
+    # record shapes as check-record before considering evidence or running any
+    # commands declared by that record.
+    shape_errors, _ = record_validation_issues(record)
+    if shape_errors:
+        return _report_shape_failure(shape_errors)
     requested_base = getattr(args, "base", None)
     # Resolve the base once and reuse it for every diff-grounded section. With
     # no explicit --base, auto-resolve (merge-base of the origin/main ladder and
@@ -2769,6 +2839,7 @@ def main() -> int:
     p_rev.add_argument("--class", dest="cmd_class", required=True, choices=sorted(COMMAND_CLASSES))
     p_rev.add_argument("--evidence", required=True, help="Verifiable evidence handle (output tail, artifact path)")
     p_rev.add_argument("--reason", help="Why a result=blocked row could not run (verify-gates requires one on blocked rows)")
+    p_rev.add_argument("--expected-red", help="Literal output substring expected from the base failure before replay")
     p_rev.set_defaults(func=record_add_evidence)
 
     p_rac = record_sub.add_parser("add-ac", help="Append an object acceptance criterion {criterion, proving_command}")

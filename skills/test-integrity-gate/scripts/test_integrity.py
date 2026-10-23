@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove a focused test fails on base source and passes on current source."""
+"""Check a focused test's selected base failure and current pass."""
 
 from __future__ import annotations
 
@@ -118,12 +118,36 @@ def report(
     return 0 if status == "pass" else 1
 
 
+def known_runner_failure(old: dict[str, object]) -> bool:
+    """Exclude recognizable infrastructure failures from a claimed RED.
+
+    This small guard cannot establish that a different failure is relevant;
+    inspect the captured old output even when the selected marker matches.
+    """
+    if old.get("exit_code") in (126, 127):
+        return True
+    output = str(old.get("stdout_tail", "")) + "\n" + str(old.get("stderr_tail", ""))
+    patterns = (
+        r"\b(?:ModuleNotFoundError|ImportError):",
+        r"\b(?:Cannot find module|ERR_MODULE_NOT_FOUND)\b",
+        r"(?im)^(?:[^\n]*?:\s*)?can't open file\b",
+        r"(?im)^ERROR: file or directory not found:",
+        r"(?im)^\s*(?:no tests ran|Ran 0 tests)\b",
+        r"(?im)^(?:/[^:\n]+/)?(?:sh|bash|dash|zsh):[^\n]*(?:command not found|:\s*not found)(?::[^\n]*)?$",
+    )
+    return any(re.search(pattern, output) for pattern in patterns)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run a focused test against base source plus proposed tests, then current source."
     )
     parser.add_argument("--base", required=True, help="Task-start commit or merge-base")
     parser.add_argument("--command", required=True, help="Focused test command")
+    parser.add_argument(
+        "--expected-red",
+        help="Literal output substring selected before replay that identifies the intended base failure",
+    )
     parser.add_argument("--timeout", type=int, default=120)
     args = parser.parse_args()
 
@@ -169,14 +193,23 @@ def main() -> int:
     finally:
         git(repo, "worktree", "remove", "--force", str(worktree_dir))
 
-    passed = old["state"] == "fail" and current["state"] == "pass"
-    reason = ""
-    if old["state"] != "fail":
-        reason = "command did not fail against old source with proposed tests"
+    expected_red = args.expected_red or ""
+    if old["state"] == "timeout":
+        status, reason = "not_proven", "command timed out against old source"
+    elif old["state"] != "fail":
+        status, reason = "fail", "command did not fail against old source with proposed tests"
+    elif known_runner_failure(old):
+        status, reason = "not_proven", "base output indicates a runner, import, or test-discovery failure"
+    elif not expected_red.strip():
+        status, reason = "not_proven", "expected-red output substring was not supplied before replay"
+    elif expected_red not in old["stdout_tail"] and expected_red not in old["stderr_tail"]:
+        status, reason = "not_proven", "expected-red output substring was not found in captured base output"
     elif current["state"] != "pass":
-        reason = "command did not pass against current source"
+        status, reason = "fail", "command did not pass against current source"
+    else:
+        status, reason = "pass", ""
     return report(
-        "pass" if passed else "fail",
+        status,
         reason=reason,
         old=old,
         current=current,

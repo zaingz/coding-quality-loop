@@ -3,9 +3,10 @@
 // layer as a thin UX shell and means the two installers (CLI and repo-local)
 // can never disagree.
 import { spawn, spawnSync } from "node:child_process";
-import { access, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, readFile, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { c, info, ok, warn } from "./report.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -68,15 +69,15 @@ async function resolveSkillRoot() {
 }
 
 /**
- * Pick a python3 binary. Prefers `python3`, falls back to `python`.
+ * Pick a Python 3.10+ binary. Prefers `python3`, falls back to `python`.
  */
 function resolvePython() {
   for (const candidate of ["python3", "python"]) {
-    const probe = spawnSync(candidate, ["--version"], { stdio: "ignore" });
+    const probe = spawnSync(candidate, ["-c", "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)"], { stdio: "ignore" });
     if (probe.status === 0) return candidate;
   }
   throw new Error(
-    "Python 3 is required but was not found on PATH. Install from https://www.python.org/downloads/ and re-run.",
+    "Python 3.10+ is required but was not found on PATH. Install from https://www.python.org/downloads/ and re-run.",
   );
 }
 
@@ -184,11 +185,16 @@ export async function checkInstall(target) {
   } catch (err) {
     if (err?.code === "ENOENT") {
       warn(`no install manifest found at ${manifestRel}`);
-      info("nothing is recorded to verify — installs before v6.0.0 wrote no manifest. Run `cql init` to (re)install and record one.");
+      info("nothing is recorded to verify. For a genuinely new, clean target, run `cql init` to install. If this target has files or hooks from an earlier install, preserve them and all backups; a missing manifest cannot prove ownership. Reconcile provenance manually before reinstalling or removing anything. Do not rerun `cql init` over an existing install to recreate the manifest.");
     } else {
       warn(`could not read ${manifestRel}: ${err.message}`);
-      info("delete the manifest and run `cql init` to regenerate it.");
+      info("preserve the manifest and repair or reconcile it before reinstalling.");
     }
+    return { findings: [manifestRel], foundHosts: [] };
+  }
+  if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
+    warn(`${manifestRel} must contain a JSON object`);
+    info("preserve the manifest and repair or reconcile it before reinstalling.");
     return { findings: [manifestRel], foundHosts: [] };
   }
   // Shape validation: an empty or wrong-shaped manifest ({}, missing host,
@@ -205,8 +211,8 @@ export async function checkInstall(target) {
     f.split(/[\\/]+/).includes("..");
   const files = allFiles.filter((f) => !isUnsafe(f));
   const shapeProblems = [];
-  if (manifest.version !== 1) {
-    shapeProblems.push(`manifest version is ${JSON.stringify(manifest.version ?? null)} (expected 1)`);
+  if (manifest.version !== 2) {
+    shapeProblems.push(`manifest version is ${JSON.stringify(manifest.version ?? null)} (expected 2 with file checksums)`);
   }
   if (hosts.length === 0) {
     shapeProblems.push("manifest records no host");
@@ -222,22 +228,53 @@ export async function checkInstall(target) {
   }
   if (shapeProblems.length > 0) {
     for (const p of shapeProblems) warn(p);
-    info("the manifest is not a valid install record — run `cql init` to reinstall and regenerate it.");
+    if (manifest.version === 1) {
+      info("v1 has no checksums or backup ownership proof. Preserve .quality-loop/install-manifest.json, managed files, hooks, and backups; automatic migration is stopped. Follow the npm README's legacy reconciliation guidance on a separate project copy, or use a separate clean target. Do not rename or delete the manifest or backups, overwrite managed files, or rerun `cql init`/`cql remove` to bypass this refusal. If ownership is uncertain, stop.");
+    } else {
+      info("the manifest is not a valid install record; inspect it before reinstalling.");
+    }
     findings.push(...shapeProblems);
   }
+  const hashes = manifest.file_hashes;
+  const validHashes = hashes && typeof hashes === "object" && !Array.isArray(hashes) ? hashes : {};
+  const groups = (Array.isArray(manifest.hook_groups) ? manifest.hook_groups : []).filter(
+    (g) => g && typeof g.file === "string" && typeof g.key === "string",
+  );
+  const tracked = new Set([...files, ...groups.map((g) => g.file)]);
+  const targetReal = await realpath(target).catch(() => null);
   let present = 0;
-  for (const rel of files) {
-    if (await pathExists(join(target, rel))) {
-      present++;
-    } else {
+  for (const rel of tracked) {
+    if (isUnsafe(rel)) {
+      findings.push(`unsafe tracked path: ${rel}`);
+      continue;
+    }
+    const path = join(target, rel);
+    if (!(await pathExists(path))) {
       warn(`missing ${rel}`);
+      findings.push(rel);
+      continue;
+    }
+    if (files.includes(rel)) present++;
+    const actualPath = await realpath(path).catch(() => null);
+    const fromTarget = targetReal && actualPath ? relative(targetReal, actualPath) : null;
+    if (fromTarget === null || fromTarget === ".." || fromTarget.startsWith(`..${sep}`) || isAbsolute(fromTarget)) {
+      warn(`${rel} resolves outside the target or cannot be resolved`);
+      findings.push(rel);
+      continue;
+    }
+    const expected = validHashes[rel];
+    if (typeof expected !== "string" || !/^[a-f0-9]{64}$/.test(expected)) {
+      warn(`${rel} has no valid installed checksum`);
+      findings.push(rel);
+      continue;
+    }
+    const bytes = await readFile(path).catch(() => null);
+    if (bytes === null || createHash("sha256").update(bytes).digest("hex") !== expected) {
+      warn(`${rel} changed since install`);
       findings.push(rel);
     }
   }
   ok(`${present}/${files.length} recorded files present (host${hosts.length === 1 ? "" : "s"}: ${hosts.join(", ") || "unknown"})`);
-  const groups = (Array.isArray(manifest.hook_groups) ? manifest.hook_groups : []).filter(
-    (g) => g && typeof g.file === "string" && typeof g.key === "string",
-  );
   for (const g of groups) {
     let wired = false;
     try {

@@ -95,9 +95,14 @@ jobs:
           npx --no-install coding-quality-loop --version
           echo "--- installed CLI: --help ---"
           npx --no-install coding-quality-loop --help >/dev/null
-          echo "--- installed CLI: init --dry-run --yes --host claude-code ---"
+          echo "--- installed CLI: real init + check in scratch target ---"
           target="$(mktemp -d)"
-          npx --no-install coding-quality-loop init --dry-run --yes --host claude-code --target "$target"
+          npx --no-install coding-quality-loop init --yes --host claude-code --target "$target"
+          npx --no-install coding-quality-loop check --target "$target"
+          test -s "$target/.claude/skills/coding-quality-loop/SKILL.md"
+          test -s "$target/scripts/quality_loop.py"
+          test -s "$target/.claude/settings.json"
+          python3 -B "$target/scripts/quality_loop.py" --help >/dev/null
 
       - name: Publish (dry-run)
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true'

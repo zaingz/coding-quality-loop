@@ -13,7 +13,7 @@
 [![version](https://img.shields.io/badge/version-6.7.0-111111?style=flat-square)](CHANGELOG.md)
 [![Agent Skills spec](https://img.shields.io/badge/agent--skills-spec%20compatible-111111?style=flat-square)](https://agentskills.io/specification)
 [![evals](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml/badge.svg)](https://github.com/zaingz/coding-quality-loop/actions/workflows/evals.yml)
-[![offline gates](https://img.shields.io/badge/offline%20gates-262%20core%20cases-111111?style=flat-square)](evals/)
+[![offline gates](https://img.shields.io/badge/offline%20gates-285%20core%20cases-111111?style=flat-square)](evals/)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-none-111111?style=flat-square)](scripts/quality_loop.py)
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-routed-111111?style=flat-square)](#install--use-matrix)
@@ -27,16 +27,18 @@
 
 AI coding agents are fast. Point one at a vague ticket and it can refactor things nobody asked for, pull in a dependency you did not want, claim "tests pass" without showing them, and sign off on its own work. You are left holding a big change you cannot tell is correct.
 
-**Coding Quality Loop makes the agent work like a careful engineer instead.** It pins down what "done" means before writing code, changes as little as possible, proves the change with a test you can see, and has a *separate* agent review the work before it reaches you. What comes back is small, checked, and reversible: something you can read, trust, and merge in minutes.
+**Coding Quality Loop asks the agent to work like a careful engineer.** It defines what "done" means, favors a small change, records checks you can inspect, and calls for a fresh reviewer on medium or risk-bearing work. Review the evidence before deciding whether to merge.
 
-It is a portable [Agent Skill](https://agentskills.io/specification). The loop **routes across two frontier hosts** — Claude Code plans and implements, Codex reviews in a different model family — and it still **installs into more** (Droid, git, GitHub) as instruction and hook targets outside that routed loop. Cursor and Pi get advisory rules recipes in [`examples/`](examples/), not a runtime install. Use it as a copy-paste prompt, a loadable skill, or a multi-agent config. No new tools, no lock-in.
+It is a portable [Agent Skill](https://agentskills.io/specification). The supplied routing recipe names Claude Code for implementation and Codex for review; Droid, git, and GitHub are additional install targets. Cursor and Pi have advisory rules recipes in [`examples/`](examples/), not a runtime install. Use it as a copy-paste prompt, a loadable skill, or a multi-agent config.
 
-### New: green tests have to prove they test something
+### New: replay proposed tests against old code
 
-For medium+ changes with proposed tests, `verify` now runs each acceptance
+For medium+ changes with proposed tests, `verify` runs each acceptance
 criterion's proving command against **old source plus the proposed tests**. The
-command must fail there and pass on the current source. A hollow test that stays
-green on both sides blocks the change.
+command must show the selected old-failure text there and pass on current
+source. A test that stays green on both sides blocks the change. The selected
+text is evidence of a failure signature; inspect the old output to establish
+that the intended assertion ran.
 
 Want only that gate? Install the standalone, zero-dependency skill:
 
@@ -52,20 +54,25 @@ Claude Code users can also install it from this repo's plugin marketplace:
 
 ## Why the loop
 
-Same agent, same model — a different process wrapped around it. Two honesty notes up front: the process asks for the table below, and our own published runs show the payoff is **model-specific, not uniform** — Claude cells measure positive code-quality lift, Codex cells measure flat-to-negative (−1.11, −9.0). Both numbers are on [the dashboard](#the-published-eval-runs), in red.
+The table below describes the workflow CQL asks an agent to follow. The
+[published eval runs](#the-published-eval-runs) are exploratory: each cell has
+one seed, most runs used model proxies or did not record how the agent ran, and
+the webapp judge-lift scores are void. They do not establish a general coding
+quality lift. Judge each change by its consumer-visible behavior and review
+evidence.
 
 You ask your agent to *"fix the checkout retry bug."*
 
-| Without the loop | With the loop |
+| Common failure to avoid | What the loop asks for |
 |---|---|
-| A sprawling diff across many files. | A focused fix in one or two files. |
-| A new dependency you did not ask for. | No new dependencies. |
-| "Looks right to me." | A test that **fails before the fix and passes after**, shown, not claimed. |
-| You review it cold, by yourself. | A *second* agent already checked it against the goal. |
-| Hope you can undo it. | A one-line rollback, written down. |
-| Relearns the same lesson next session. | Remembers it and recalls it next time. |
+| A sprawling diff across many files. | Keep the change focused on the goal. |
+| A new dependency you did not ask for. | Justify dependencies against simpler existing options. |
+| "Looks right to me." | Show checks against the requested behavior and inspect the old failure. |
+| You review it cold, by yourself. | Ask a fresh reviewer to check the diff against the goal. |
+| Hope you can undo it. | Record how to revert the change. |
+| Relearns the same lesson next session. | Save a reusable lesson when it earns one. |
 
-That is the whole idea: smaller changes, real proof, a second set of eyes, and memory that sticks. The work scales to the risk: a typo just gets fixed; a payment migration runs the full process. See a real worked example in [`examples/walkthrough/`](examples/walkthrough/README.md).
+That is the whole idea: smaller changes, real proof, a second set of eyes, and memory that sticks. The work scales to the risk: a typo just gets fixed; a payment migration runs the full process. See an illustrative record in [`examples/walkthrough/`](examples/walkthrough/README.md); it does not include an executable invoice fix.
 
 <details>
 <summary><strong>What the agent produces, step by step</strong></summary>
@@ -94,17 +101,17 @@ The state record in the walkthrough passes the same [`verify-gates`](scripts/qua
 
 </div>
 
-**New in v5.0.0 — and the headline of the release.** The main session is the **orchestrator**: it thinks hard and makes *every* decision — task class, context map, contract, right-size rung, plan, model routing, the verdict on findings, and the stop-if-unsafe call. Workers (the implementer and the reviewer) never see the skill: they receive a **brief, not context** — goal, contract slice, files, commands, done-check, one screen max. No skill text, no references, no repository tour.
+**Introduced in v5.0.0.** The main session owns scope, risk, and final decisions. Delegated implementers and reviewers receive a bounded brief with the goal, relevant contract, files, checks, and done condition. A simple task can stay in one implementation session; medium+ work calls for a fresh reviewer.
 
-That inversion is a **token diet**. The always-loaded agent surface (`SKILL.md`) is now roughly **half its former size**, and workers load none of it. Decisions concentrate where the reasoning is; execution stays cheap and narrow. The rule that earns it: **every gate must earn its tokens** — that is the retention standard, and honestly, we have not yet run the live ablation that enforces it. The pre-registered protocol that will is [`bench/PROTOCOL.md`](bench/PROTOCOL.md); until it runs, deletions are still wins.
+The skill entrypoint is concise; optional routing and lifecycle detail lives in references. Whether this saves time or improves coding quality still needs a live comparison using the pre-registered [`bench/PROTOCOL.md`](bench/PROTOCOL.md).
 
-Routing is pinned to **two hosts, two vendors**: Claude Code plans and implements on frontier Anthropic models; Codex reviews on a frontier OpenAI model, always a **different family** than the implementer. This is a floor the config enforces (`check-config`), not a suggestion.
+The supplied routing recipe assigns Claude Code implementation and Codex review. `check-config` rejects a same-family pair when both families resolve; otherwise it reports `SKIPPED`. Confirm the actual reviewer model and independent session separately.
 
 | | Orchestrator (main session) | Workers (implementer, reviewer) |
 |---|---|---|
-| Sees | full skill, references, repo | a one-screen brief only |
-| Owns | every decision + the verdict | one narrow execution task |
-| Model | frontier reasoning (plan/route) | implement on Claude Code · review on Codex (different family) |
+| Sees | relevant skill and repository context | a bounded task brief |
+| Owns | scope, risk, final verdict | delegated implementation or review |
+| Model | chosen for the task | supplied recipe: Claude Code implementation, Codex review |
 
 See [`SKILL.md`](SKILL.md#orchestrator-layer) for the canonical contract and [`references/agentic-orchestration.md`](references/agentic-orchestration.md) for the orchestrator/worker topology.
 
@@ -124,13 +131,13 @@ npx coding-quality-loop init
 
 </div>
 
-Shipped on [npm](https://www.npmjs.com/package/coding-quality-loop) with signed provenance. Requires Node 18+ and Python 3. Zero runtime dependencies. Interactive by default; add `--yes` for CI, `--dry-run` to preview, `--host <name>` to skip detection. See [`packages/npm/`](packages/npm/) for the full CLI.
+Shipped on [npm](https://www.npmjs.com/package/coding-quality-loop) with signed provenance. Requires Node 18+ and Python 3.10+. Zero runtime dependencies. Interactive by default; add `--yes` for CI, `--dry-run` to preview, `--host <name>` to skip detection. See [`packages/npm/`](packages/npm/) for the full CLI.
 
 ```bash
 npx coding-quality-loop init --dry-run --yes   # preview only
 npx coding-quality-loop add git                # add the pre-commit backstop
 npx coding-quality-loop check                  # verify a prior install against its manifest
-npx coding-quality-loop remove                 # uninstall from the manifest; restores your backups
+npx coding-quality-loop remove                 # use the manifest; restore verified installer backups
 ```
 
 Lighter or heavier paths — a no-install drop-in prompt, or a manual per-host copy — plus the demo transcript and the task-class table live in **[`docs/quickstart.md`](docs/quickstart.md)**, the single onboarding doc.
@@ -183,21 +190,21 @@ The validation contract spans the `INTAKE` and `PLAN` sub-steps, both inside PLA
 
 <div align="center">
 
-<img src="docs/images/anatomy-of-a-change.png" alt="Anatomy of a shipped change — seven cards from task contract to completion record, traced on the real invoice-rounding walkthrough in examples/walkthrough/agent-record.json. The red→green evidence card is highlighted." width="900">
+<img src="docs/images/anatomy-of-a-change.png" alt="Anatomy of an illustrative change record — seven cards from task contract to completion record. The red→green evidence card is highlighted." width="900">
 
 </div>
 
-Each card above is a field in [`examples/walkthrough/agent-record.json`](examples/walkthrough/agent-record.json) — the same file `verify-gates` checks in the eval fixtures. See [`docs/architecture.md`](docs/architecture.md) for the three-layer breakdown, and [`docs/quickstart.md`](docs/quickstart.md) for the three adoption paths.
+Each card above is a field in the [illustrative record](examples/walkthrough/agent-record.json) that `verify-gates` checks. The example includes no invoice code or executable invoice tests; it demonstrates record shape only. See [`docs/architecture.md`](docs/architecture.md) for the three-layer breakdown, and [`docs/quickstart.md`](docs/quickstart.md) for the three adoption paths.
 
 ---
 
 ## Proof you can run
 
-Every claim on this page is checkable on a clean checkout with no dependencies. Copy the block, paste in a terminal, watch the counts.
+The commands below exercise offline gate counts on a clean checkout with Python 3.10+; the control add-on tests use local loopback. Historical eval results, live host behavior, and coding-quality improvement require separate evidence.
 
 <div align="center">
 
-<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard (rendered as of v5.1.0; counts have since grown — run the block below for current numbers) — offline gate cases across the eval suites, per-agent code-quality lift excluding process artifacts with negatives shown next to positives, zero runtime dependencies, two routed hosts (Claude Code + Codex), five published eval runs." width="900">
+<img src="docs/images/evidence-dashboard.png" alt="Evidence dashboard rendered as of v5.1.0 with offline gate counts and exploratory historical eval scores. Run the suite for current counts; these scores do not establish a general quality lift." width="900">
 
 </div>
 
@@ -214,7 +221,7 @@ python3 evals/run_control_evals.py                                              
 python3 bench/runner.py --mode fixture --seeds 1 --out /tmp/quality-loop-fixture-smoke.json  # 10. bench fixture smoke
 ```
 
-Current result: **22/22 static** + **65/65 behavioral** + **33/33 memory** + **56/56 reality** + **30/30 routing** + **56/56 hook** = **262 gate cases** across the six core suites, plus **40 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
+Current result: **22/22 static** + **66/66 behavioral** + **33/33 memory** + **62/62 reality** + **30/30 routing** + **72/72 hook** = **285 gate cases** across the six core suites, plus **46 add-on cases** for the opt-in [control plane](#control-plane) (step 9 — the add-on ships in the repo checkout, not the npm tarball), re-run on every push by a dependency-free [GitHub Actions workflow](.github/workflows/evals.yml).
 
 <details>
 <summary><strong>What each proof suite actually proves</strong></summary>
@@ -239,7 +246,7 @@ Five eval directories are committed with source, numbers, and caveats. Read them
 | [procmon 07-03](archive/eval-runs/rust-procmon-eval-2026-07-03/README.md) | 2026-07-03 | Rust process manager | Codex (GPT-5), Claude Code (Sonnet 4.6) | Model-proxy (Perplexity subagents) | Overall +5.75 (Codex +4.0, Claude +7.5) — almost all from D7 artifacts; code-quality dims flat-to-worse |
 | [Webapp 07-07](archive/eval-runs/webapp-agent-eval-2026-07-07/README.md) | 2026-07-07 | Browser task manager | Codex (gpt-5.5), Claude Code (claude-fable-5) | Live CLI + real browser verification (drop-in delivery) | ⚠️ **Judge-lift numbers VOID** per [`bench/PROTOCOL.md` §4](bench/PROTOCOL.md) (judge-family independence violated — the two judges differed only from each other, not from the arms' implementer models). Void figures, kept for the record: excl. D7 Claude Code +6.67 / Codex −1.11 (with D7: +16.0 / +7.5). The **objective browser/behavior checks for this run are unaffected**. |
 
-All directional, not durable benchmark claims — and note the sign flips: the lift is model-specific (Claude positive, Codex flat-to-negative), which is exactly why the live ablation is pre-registered before it runs. **One correction, stated where the numbers live:** the Webapp 07-07 judge-lift figures (+6.67 / −1.11 excl-D7; +16.0 / +7.5 with D7) are **void** under [`bench/PROTOCOL.md` §4](bench/PROTOCOL.md) — the two judges were independent of each other but not of the arms' own implementer model families, so they scored their own house style. Only the judge-scored lift is void; the run's objective browser/behavior checks stand. The webapp run also caught an agent silently softening its local copy of the gate script and reporting PASS against it — see the panel below. The benchmark harness, fixture-smoke result, and the pre-registered protocol live in [`bench/PROTOCOL.md`](bench/PROTOCOL.md).
+These scores are historical observations, not durable benchmark claims. **One correction, stated where the numbers live:** the Webapp 07-07 judge-lift figures (+6.67 / −1.11 excl-D7; +16.0 / +7.5 with D7) are **void** under [`bench/PROTOCOL.md` §4](bench/PROTOCOL.md) — the two judges were independent of each other but not of the arms' own implementer model families. Only the judge-scored lift is void; the run's objective browser/behavior checks stand. The webapp run also caught an agent silently softening its local copy of the gate script and reporting PASS against it — see the panel below. The benchmark harness, fixture-smoke result, and the pre-registered protocol live in [`bench/PROTOCOL.md`](bench/PROTOCOL.md).
 
 ### The gate-gaming story
 
@@ -253,12 +260,12 @@ During the [Webapp 07-07](archive/eval-runs/webapp-agent-eval-2026-07-07/README.
 
 ### Run it yourself on your task
 
-First, see a record that already passes, end to end, in about ten seconds (exit 0):
+First, check the shape of an illustrative record in about ten seconds (exit 0):
 
 ```bash
 python3 scripts/quality_loop.py verify-gates examples/walkthrough/agent-record.json
 # verification gates look sufficient for recorded risk tier
-# (exit 0 — this is what a complete, honest record looks like)
+# (exit 0 — record gates pass; no invoice code or tests are run)
 ```
 
 Then start your own. For medium/high-risk work, create a state record and run the primary verification command — an umbrella over record-shape gates, diff-grounded reality checks, evidence re-execution, and AC-to-command coverage:
@@ -295,7 +302,7 @@ Most tools hide this table. Ours is one of the best marketing artifacts in the r
 | Enforced today | Not enforced by design, to stay portable |
 |---|---|
 | Non-trivial work, meaning medium/mission or any medium/high-risk or security-sensitive task, requires a named implementer, a real **validation contract**, an approving **independent review** by someone *other than* the implementer, and, at ship, a **completion record** with evidence. Required fields must be present and non-empty; bare booleans, empty strings, and nonexistent paths are rejected. It checks *shape*, not whether the content is substantive. A small low-risk task ships with handoff evidence, not a formal completion record. | `run-evidence` re-executes allowlisted commands but is **not a sandbox**. The trust model is repo-defined commands, same as CI. Commands not on the `.quality-loop/allowed-commands` allowlist are skipped and reported as `not_allowed`, not run. |
-| **Reality layer.** `verify-gates --against-diff` reads the real git diff and catches **phantom completion**, **scope integrity**, a **diff-derived risk floor**, **bugfix-test co-presence**, and **stale review hashes**. `run-evidence` re-executes recorded pass commands; for medium+ changes with proposed tests, fix-revert replay requires each AC command to fail on old source plus new tests and pass now. `--red-green` covers precommitted failing tests. Worktree unavailable means "not proven", never a silent pass. | Reviewer/implementer names and any recorded model families are compared, while session identity and fresh context remain self-attested. `attest-review` plus `--against-diff` make review *freshness* checkable, but cannot prove the reviewer *read* the diff. The merge-base is a **CI-anchored** guarantee, not a local one: locally, rewritten refs can move the base; commit-first evasion is CI's job. |
+| **Reality layer.** `verify-gates --against-diff` reads the real git diff and catches **phantom completion**, **scope integrity**, a **diff-derived risk floor**, **bugfix-test co-presence**, and **stale review hashes**. `run-evidence` re-executes recorded pass commands. For medium+ changes with proposed tests, fix-revert replay requires each AC command to fail on old source with a selected `commands_run[].expected_red` output substring, then pass now; missing or unmatched text is `not_proven`. `--red-green` applies the same rule to precommitted failing tests. Inspect the captured old output: a self-selected substring can match an unrelated setup error and cannot establish test relevance alone. Worktree unavailable means `not_proven`. | Reviewer/implementer names and any recorded model families are compared, while session identity and fresh context remain self-attested. `attest-review` plus `--against-diff` make review *freshness* checkable, but cannot prove the reviewer *read* the diff. The merge-base is a **CI-anchored** guarantee, not a local one: locally, rewritten refs can move the base; commit-first evasion is CI's job. |
 | **Detected-risk floor.** The record goal, criteria, and plan are scanned for auth/authz, secrets, crypto, payments, migrations, destructive, concurrency, data-loss, PII, and infra boundaries. Any hit forces high-risk plus security-review gates regardless of the declared tier. | The detected-risk floor is a curated heuristic. It catches honest mis-tiering, not an agent deliberately phrasing around it. **Deterministic policy hooks** remain the backstop for anything you cannot afford an agent to get wrong. |
 | **UNDERSTAND is gated.** Non-trivial work must carry a substantive context map with entry points or likely files plus callers or tests. | **`verify-gates` without `--against-diff` reads the record, not the diff.** It confirms recorded evidence is present and well-formed; `--against-diff` adds diff-grounded checks. `diff-audit` and CI remain the blocking layer. |
 | Every `pass` command carries a verifiable evidence handle and known `class`; a recorded minimality decision; and `diff-audit` flags secrets, including **untracked files** and **test-weakening**, dependency edits, migrations, and oversized diffs. `diff-audit --staged` covers the pre-commit diff; `scan-text --stdin` is a secret-scan-as-a-service for hook shims. | The helper is not a hosted agent service. Authentication, model cost, and production rollout remain the caller's responsibility. |
@@ -315,12 +322,12 @@ Pick your host. Full copy-paste files live in [`examples/`](examples/); every pa
 | Host | Install | Invoke |
 |---|---|---|
 | **Any host** (auto-detect) | `npx coding-quality-loop init` | follow the printed "Next steps" for your host |
-| **Claude Code** (skill) | `cp -r . .claude/skills/coding-quality-loop` (project) or `~/.claude/skills/coding-quality-loop` (user) | `claude "Use the coding-quality-loop skill to fix the failing test and open a PR."` |
-| **Claude Code** (instruction-only) | `cp examples/claude-code/CLAUDE.md ./CLAUDE.md` (or `/init`, then paste the loop) | `claude "Follow the Coding Quality Loop to fix the failing test."` |
-| **Codex** | `npx coding-quality-loop init --host codex` (ships `AGENTS.md` + hooks) or `cp examples/codex/AGENTS.md ./AGENTS.md` | `codex "Follow the Coding Quality Loop in AGENTS.md to fix the bug."` |
-| **Droid (Factory)** | `cp examples/droid/.factory/droids/*.md .factory/droids/` (role droids) + skill in repo root | `droid exec "Follow the Coding Quality Loop in SKILL.md to fix the bug and summarize verification evidence."` |
-| **Cursor** — *advisory rules only, no runtime* | `cp -r examples/cursor/.cursor ./.cursor` | in chat: `@coding-quality-loop fix the retry bug with verification evidence` |
-| **Pi** — *advisory rules only, no runtime* | `cp -r . ~/.agents/skills/coding-quality-loop` (or in-repo `.agents/skills/`) | `/skill:coding-quality-loop implement the change with a contract and independent review` |
+| **Claude Code** (instruction-only skill copy) | From the target project, copy `SKILL.md`, `assets/`, and `references/` from a separate CQL source checkout into `.claude/skills/coding-quality-loop/` ([commands](docs/quickstart.md#c-manual-copy--per-host)) | `claude "Use the coding-quality-loop skill to fix the failing test and open a PR."` |
+| **Claude Code** (instruction-only) | Copy `examples/claude-code/CLAUDE.md` from a separate source checkout; merge with an existing `CLAUDE.md` | `claude "Follow the Coding Quality Loop to fix the failing test."` |
+| **Codex** | `npx coding-quality-loop init --host codex` (ships `AGENTS.md` + hooks) or use the [manual source-path recipe](docs/quickstart.md#c-manual-copy--per-host) | `codex "Follow the Coding Quality Loop in AGENTS.md to fix the bug."` |
+| **Droid (Factory)** | Copy role droids from a separate source checkout using the [manual recipe](docs/quickstart.md#c-manual-copy--per-host) | `droid exec "Use the quality-loop-planner droid to plan the smallest fix and summarize verification evidence."` |
+| **Cursor** — *advisory rules only, no runtime* | Copy the rule from a separate source checkout using the [manual recipe](docs/quickstart.md#c-manual-copy--per-host) | in chat: `@coding-quality-loop fix the retry bug with verification evidence` |
+| **Pi** — *advisory rules only, no runtime* | Copy the skill from a separate source checkout using the [manual recipe](docs/quickstart.md#c-manual-copy--per-host) | `/skill:coding-quality-loop implement the change with a contract and independent review` |
 | **Standalone / custom** | route each step from `assets/quality-loop.config.example.json` | follow [`examples/standalone/`](examples/standalone/run-quality-loop.md) |
 
 Cursor and Pi are no longer offered by the npm installer's host picker: they load the *instructions* but none of the hook runtime, so they get honest advisory-only labels instead of surface parity.
@@ -335,7 +342,8 @@ The matrix rows above are the full per-host install + invoke commands; copy-past
 Install host integrations into a project:
 
 ```bash
-python3 scripts/install.py --host all
+CQL_SOURCE=/absolute/path/to/coding-quality-loop
+python3 "$CQL_SOURCE/scripts/install.py" --target . --host all
 ```
 
 This copies the stdlib Quality Loop runtime scripts, host hook shims, `.claude/settings.json`, `.codex/hooks.json`, read-only reviewer agents, pre-commit config, and an example GitHub workflow with backups. Claude Code and Codex hooks remain advisory unless the host trusts/enables them; git hooks and CI are the portable backstop.
@@ -349,7 +357,7 @@ Release 1.6 adds first-class host wiring without making any host mandatory:
 - `action.yml` and `hosts/github/quality-loop-example.yml` provide CI wiring.
 - `scripts/install.py` installs host wiring idempotently and prints what is enforced vs advisory.
 
-**Config-based model routing** — the `model_routing` section in `quality-loop.config.json` maps each model class to a real model per host. `python3 scripts/quality_loop.py setup-models --host <host>` applies it: it rewrites `model:` frontmatter for Claude Code (`.claude/agents/*.md`) and Droid (`.factory/droids/*.md`), or prints the Codex `config.toml` / Pi `/model` settings to apply. Multi-host topologies are first-class: an `agents` entry may pin a role to another harness (`{"host": "codex", "class": "strong_reasoning"}`), `main_session` declares where the implementer runs, and one `setup-models` run applies every host — print hosts (codex, pi) are labeled `PRINT-ONLY — settings not applied or verified by CQL`. Reviewer independence is enforced on the resolved model **family** across hosts (`family` field or well-known prefix; unknown ids skip; `allow_same_family` is the explicit escape hatch). Three pre-validated variants along the intelligence↔cost dial ship in [`assets/routing/`](assets/routing/). `brief` shows the active routing per host and flags drift on file hosts. Agent files ship with `model: inherit` so they are host-neutral at rest. Route reasoning effort at **`high`**: `check-config` rejects `xhigh`/`max` unless a model-class block sets `"allow_overthink": true`, because effort is per-step, not per-task endurance — above `high`, models overthink and overspend each step. See the [model capability glossary](references/agentic-orchestration.md#model-capability-glossary) (intelligence / taste / cost, the effort ceiling, and the escalation policy) and [config-driven model setup](references/agentic-orchestration.md#config-driven-model-setup).
+**Config-based model routing** — the `model_routing` section in `quality-loop.config.json` maps each model class to a real model per host. `python3 scripts/quality_loop.py setup-models --host <host>` applies it: it rewrites `model:` frontmatter for Claude Code (`.claude/agents/*.md`) and Droid (`.factory/droids/*.md`), or prints the Codex `config.toml` / Pi `/model` settings to apply. Multi-host topologies are first-class: an `agents` entry may pin a role to another harness (`{"host": "codex", "class": "strong_reasoning"}`), `main_session` declares where the implementer runs, and one `setup-models` run applies every host — print hosts (codex, pi) are labeled `PRINT-ONLY — settings not applied or verified by CQL`. Reviewer independence is enforced on the resolved model **family** across hosts (`family` field or well-known prefix; unknown ids skip; `allow_same_family` is the explicit escape hatch). Three config-checked presets along the intelligence↔cost dial ship in [`assets/routing/`](assets/routing/); the checks do not establish live model access or capability. `brief` shows the active routing per host and flags drift on file hosts. Agent files ship with `model: inherit` so they are host-neutral at rest. CQL defaults effort to **`high`** as a cost-control policy pending controlled comparison; `check-config` rejects `xhigh`/`max` unless a model-class block sets `"allow_overthink": true`. Higher effort can be appropriate for demanding tasks; this policy is not a provider compatibility limit. See the [model capability glossary](references/agentic-orchestration.md#model-capability-glossary) and [config-driven model setup](references/agentic-orchestration.md#config-driven-model-setup).
 
 One user's personal cross-CLI setup (an external harness that overrides CQL routing) is documented — labeled as exactly that — in [`docs/cross-cli-recipe.md`](docs/cross-cli-recipe.md#one-users-setup-not-shipped-the-agent-os-override).
 
@@ -385,7 +393,7 @@ coding-quality-loop/
 │                       #   reviewer checklists, tool contracts, philosophy,
 │                       #   the memory contract, enforcement matrix)
 ├── examples/           # host-native copy-paste: claude-code, codex, droid, standalone,
-│                       #   advisory rules for cursor/pi, a real walkthrough, + committed live evals
+│                       #   advisory rules for cursor/pi, an illustrative record, + committed live evals
 ├── evals/              # offline eval cases + harness that prove the gates fire (repo only, not in the npm tarball)
 ├── scripts/            # quality_loop*.py — six stdlib-only modules, no third-party deps
 │                       #   (quality_loop_control.py is the opt-in control-plane add-on)
@@ -459,15 +467,15 @@ python3 scripts/quality_loop.py control-serve    # dashboard at http://127.0.0.1
 
 <img src="docs/images/control-plane-task-timeline.png" alt="Control plane task-audit view for task v5-docs-overhaul — header tiles for model calls, input/output tokens, findings (6), and delegations (3) over a single chronological timeline that interleaves delegations (implementer, validator, simplicity_reviewer), the minimal_new_code minimality rung, review findings by severity, and tool events: the per-task audit trail tying findings, delegations, verdicts, and spend to the sessions that produced them" width="900">
 
-It is an **index over evidence, never a gate**: a disposable SQLite cache under `.quality-loop/control/` (self-gitignored, excluded from attestation) rebuilt from sources of truth — host transcripts and loop artifacts. Local-only by construction: stdlib `http.server` hard-bound to `127.0.0.1`, GET-only API, zero dependencies, no conversation bodies stored beyond a 160-char title line and truncated tool targets. Spend is reported in tokens; USD appears only if you supply your own `control_plane.prices` — no vendor price data ships. Opt-in hooks (`control_plane.enabled`) record session start/end and autostart the server; the ingest path always exits 0, so a broken observability plane can never break a session. **40 add-on cases** pin the whole surface (kept out of the core gate-case headline because the add-on is not installed by default). See [`docs/control-plane.md`](docs/control-plane.md).
+It is an **index over evidence, never a gate**: a disposable SQLite cache under `.quality-loop/control/` (self-gitignored, excluded from attestation) rebuilt from sources of truth — host transcripts and loop artifacts. Local-only by construction: stdlib `http.server` hard-bound to `127.0.0.1`, GET-only API, zero dependencies, no conversation bodies stored beyond a 160-char title line and truncated tool targets. Spend is reported in tokens; USD appears only if you supply your own `control_plane.prices` and every constituent usage bucket can be priced — otherwise aggregate USD is unknown. No vendor price data ships. Opt-in hooks (`control_plane.enabled`) record session start/end and autostart the server; the ingest path always exits 0, so a broken observability plane can never break a session. **46 add-on cases** pin the whole surface (kept out of the core gate-case headline because the add-on is not installed by default). See [`docs/control-plane.md`](docs/control-plane.md).
 
 ---
 
 ## Why agentic-first
 
-One model grading its own work is the dominant failure mode. v5 answers it with the [Orchestrator Layer](#the-orchestrator-layer): the main session reasons and decides; workers only execute against a one-screen brief. The default split stays small — **one implementer on Claude Code + one independent reviewer on Codex (a different model family) + deterministic policy hooks.** Add specialists (a dedicated context mapper, a security reviewer) only when risk justifies the coordination cost; over-parallelization is an anti-pattern. ([Orchestration](references/agentic-orchestration.md))
+Self-review can miss defects. The [Orchestrator Layer](#the-orchestrator-layer) keeps scope and final decisions in the main session while delegating bounded implementation and fresh review when the task warrants them. The supplied recipe pairs Claude Code implementation with Codex review and deterministic policy hooks; add specialist workers only when risk warrants the coordination cost. ([Orchestration](references/agentic-orchestration.md))
 
-The reviewer being a **different vendor** than the implementer is the load-bearing part: `check-config` hard-fails a medium+ config where the implementer and reviewer resolve to the same model family, so "one model grading its own work" cannot happen by accident.
+`check-config` rejects same-family implementer/reviewer routing when both families resolve. When either is unresolved, it reports `SKIPPED`; confirm live model identity, fresh reviewer context, and actual review evidence.
 
 > **History:** v3–v4 organized the loop around an *advisor / Smart Friend* pattern — a cheap executor that drove the loop and consulted a stronger model only at reasoning walls. v5 inverts it: the strong model orchestrates from the top and workers never consult upward. The older topology is retained as a note in [`references/agentic-orchestration.md`](references/agentic-orchestration.md).
 
@@ -539,7 +547,7 @@ Read the full manifesto: problem framing, trends, honestly-cited inspirations, a
   2. Verify `SKILL.md` frontmatter has `name`, `description`, `license`, `compatibility`,
      and `metadata.version` matching `CHANGELOG.md`.
   3. Run `python3 scripts/quality_loop.py check-config assets/quality-loop.config.example.json`
-     and the full eval suite (all suites green: 22 static + 65 behavioral + 33 memory + 56 reality + 30 routing + 56 hook = 262 gate cases, plus 40 add-on cases for the control plane).
+     and the full eval suite (all suites green: 22 static + 66 behavioral + 33 memory + 62 reality + 30 routing + 72 hook = 285 gate cases, plus 46 add-on cases for the control plane).
   4. Run `gh skill publish` to validate against the Agent Skills spec and write provenance.
   5. Confirm `gh skill install <repo> --pin <tag>` works on a clean checkout.
 - **Enforce the non-negotiables with hooks.** Advisory text drifts; wire the `policy_guard` rules

@@ -193,7 +193,8 @@
           "evidence": {"type": ["string", "object", "null"], "description": "A verifiable evidence handle (string) or structured object"},
           "reason": {"type": "string", "minLength": 1, "description": "Why a result=blocked row could not run (sandbox, missing tool, ...). verify-gates passes blocked rows only when a non-empty reason or rationale is present"},
           "rationale": {"type": "string", "minLength": 1, "description": "Accepted alias for reason on result=blocked rows"},
-          "red_green": {"type": "boolean", "description": "Marks a command to be replayed at base (expect fail) and HEAD (expect pass) by run-evidence --red-green"}
+          "red_green": {"type": "boolean", "description": "Marks a command to be replayed at base and HEAD by run-evidence --red-green"},
+          "expected_red": {"type": "string", "minLength": 1, "description": "Literal output substring selected before replay that must appear in the failing base command's captured stdout or stderr. Needed for RED evidence in red-green and test-integrity replay; absent or unmatched means not_proven."}
         },
         "additionalProperties": true
       }

@@ -412,17 +412,387 @@ def case_spend_math_and_prices(tmp: Path) -> tuple[bool, str]:
     prices = {"alpha": {"input_per_mtok": 3.0, "output_per_mtok": 15.0}}
     by_model = {r["key"]: r for r in ctl.spend(conn, "model", prices)}
     by_day = {r["key"]: r for r in ctl.spend(conn, "day", prices)}
+    by_session = {r["key"]: r for r in ctl.spend(conn, "session", prices)}
+    listed = {r["id"]: r for r in ctl.list_sessions(conn, prices=prices)}
+    overall = ctl.overview(conn, prices)["totals"]
     conn.close()
     alpha = by_model["alpha-1"]
     # 2M input @ $3/M + 1M output @ $15/M = 6 + 15 = 21
-    # Mixed-model day: only alpha's share is priced (1M in + 0.5M out = 10.5);
-    # unpriced beta tokens must not inherit alpha's rate.
+    # Alpha's model row is known, but mixed day/session/overview totals are
+    # unknown because beta has no rate. Raw tokens remain available.
     ok = (alpha["cost_usd"] == 21.0 and by_model["beta-2"]["cost_usd"] is None
           and by_day["2026-01-01"]["output_tokens"] == 500_000
           and by_day["2026-01-02"]["output_tokens"] == 500_010
-          and by_day["2026-01-02"]["cost_usd"] == 10.5)
+          and by_day["2026-01-01"]["cost_usd"] == 10.5
+          and by_day["2026-01-02"]["cost_usd"] is None
+          and by_session["s1"]["cost_usd"] is None
+          and listed["s1"]["cost_usd"] is None
+          and overall["input_tokens"] == 2_000_010
+          and overall["cost_usd"] is None)
     day_out = {k: (v["output_tokens"], v["cost_usd"]) for k, v in by_day.items()}
-    return ok, f"alpha_cost={alpha['cost_usd']}; beta_cost={by_model['beta-2']['cost_usd']}; days={day_out}"
+    return ok, (f"alpha_cost={alpha['cost_usd']}; beta_cost={by_model['beta-2']['cost_usd']}; "
+                f"session={by_session['s1']['cost_usd']}; overview={overall['cost_usd']}; "
+                f"days={day_out}")
+
+
+def case_malformed_prices_unknown(tmp: Path) -> tuple[bool, str]:
+    """Invalid user rates cannot crash pricing or generate NaN/inf USD."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    write_transcript(proj, "s1", [
+        assistant_line("s1", "u1", "2026-01-01T10:00:00Z",
+                       model="malformed-model", inp=1_000_000, out=0),
+    ])
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    values = ("20", float("nan"), float("inf"), -1, True)
+    observed = []
+    for value in values:
+        rates = {"malformed-model": {"input_per_mtok": value}}
+        observed.append((ctl.spend(conn, "model", rates)[0]["cost_usd"],
+                         ctl.overview(conn, rates)["totals"]["cost_usd"],
+                         ctl.list_sessions(conn, prices=rates)[0]["cost_usd"],
+                         ctl.session_detail(conn, "s1", rates)["models"][0]["cost_usd"]))
+    conn.close()
+    ok = all(all(cost is None for cost in result) for result in observed)
+    return ok, f"malformed_rates={values!r}; costs={observed!r}"
+
+
+def case_negative_token_buckets_unknown(tmp: Path) -> tuple[bool, str]:
+    """Bad token telemetry cannot create USD, even after grouped sums cancel."""
+    rates = {"input_per_mtok": 10.0, "output_per_mtok": 50.0,
+             "cache_read_per_mtok": 1.0, "cache_creation_per_mtok": 12.5}
+    direct = [
+        ctl._cost({"input_tokens": 100, "output_tokens": -100,
+                   "cache_read_tokens": 0, "cache_creation_tokens": 0}, rates,
+                  "codex", True),
+        ctl._cost({"input_tokens": 100, "output_tokens": 0,
+                   "cache_read_tokens": -100, "cache_creation_tokens": 0}, rates,
+                  "claude-code", True),
+        ctl._cost({"input_tokens": 100, "output_tokens": float("nan"),
+                   "cache_read_tokens": 0, "cache_creation_tokens": 0}, rates,
+                  "claude-code", True),
+        ctl._cost({"input_tokens": 100, "output_tokens": 0,
+                   "cache_read_tokens": 0, "cache_creation_tokens": float("inf")},
+                  rates, "codex", True),
+    ]
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    write_transcript(proj, "bad-tokens", [
+        assistant_line("bad-tokens", "u1", "2026-01-05T10:00:00Z",
+                       model="priced-model", inp=100, out=100, cache_read=100),
+        assistant_line("bad-tokens", "u2", "2026-01-05T10:01:00Z",
+                       model="priced-model", inp=100, out=100, cache_read=100),
+    ])
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    conn.execute("UPDATE model_calls SET cache_read_tokens=-100 "
+                 "WHERE rowid=(SELECT MIN(rowid) FROM model_calls)")
+    conn.commit()
+    prices = {"priced-model": rates}
+    # The summed cache-read bucket is zero, so checking only the sum would
+    # silently price a row that contains negative telemetry.
+    claude_spend = ctl.spend(conn, "session", prices)[0]
+    claude_list = ctl.list_sessions(conn, prices=prices)[0]
+    claude_detail = ctl.session_detail(conn, "bad-tokens", prices)["models"][0]
+    claude_total = ctl.overview(conn, prices)["totals"]
+    conn.execute("UPDATE model_calls SET cache_read_tokens=0, output_tokens=-100 "
+                 "WHERE rowid=(SELECT MIN(rowid) FROM model_calls)")
+    conn.execute("UPDATE sessions SET host='codex' WHERE id='bad-tokens'")
+    ctl._meta_set(conn, "codex_usage_index_rev", ctl.CODEX_USAGE_INDEX_REV)
+    conn.commit()
+    codex_spend = ctl.spend(conn, "session", prices)[0]
+    conn.close()
+    ok = (direct == [None] * len(direct)
+          and claude_spend["cache_read_tokens"] == 0
+          and claude_spend["cost_usd"] is None
+          and claude_list["cost_usd"] is None
+          and claude_detail["cost_usd"] is None
+          and claude_total["cost_usd"] is None
+          and codex_spend["output_tokens"] == 0
+          and codex_spend["cost_usd"] is None)
+    return ok, (f"direct={direct}; claude={claude_spend['cost_usd']}; "
+                f"codex={codex_spend['cost_usd']}")
+
+
+def case_codex_cached_input_cost(tmp: Path) -> tuple[bool, str]:
+    """Codex cached input is part of input_tokens; Claude cache is separate."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    write_transcript(proj, "claude-cache", [
+        assistant_line("claude-cache", "c1", "2026-01-02T09:00:00Z",
+                       model="shared-model", inp=100, out=20,
+                       cache_read=40, cache_create=10),
+    ])
+    write_transcript(proj, "claude-bad", [
+        assistant_line("claude-bad", "c2", "2026-01-03T09:00:00Z",
+                       model="bad-model", inp=100, out=0),
+    ])
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    stats = {"model_calls": 0}
+
+    def codex_call(session: str, ts: str, inp: int, cached: int, out: int,
+                   model: str = "shared-model", written: int | None = None) -> None:
+        ctl._touch_session(conn, session, ts, host="codex")
+        current = ctl._index_codex_line(
+            conn, {"type": "turn_context", "payload": {"model": model}},
+            session, None, stats)
+        usage = {"input_tokens": inp, "cached_input_tokens": cached,
+                 "output_tokens": out}
+        if written is not None:
+            usage["cache_write_input_tokens"] = written
+        ctl._index_codex_line(conn, {
+            "type": "event_msg", "timestamp": ts,
+            "payload": {"type": "token_count", "info": {
+                "last_token_usage": usage,
+                "total_token_usage": {"total_tokens": inp + out},
+            }},
+        }, session, current, stats)
+
+    codex_call("codex-cache", "2026-01-02T10:00:00Z", 100, 40, 20)
+    codex_call("codex-zero", "2026-01-02T11:00:00Z", 50, 0, 10)
+    codex_call("codex-write", "2026-01-02T12:00:00Z", 100, 20, 10,
+               written=30)
+    codex_call("codex-invalid", "2026-01-03T10:00:00Z", 10, 11, 0,
+               model="bad-model")
+    # A valid call in the same group must not mask that earlier bad row.
+    codex_call("codex-invalid", "2026-01-03T11:00:00Z", 100, 0, 0,
+               model="bad-model")
+    codex_call("codex-invalid", "2026-01-03T12:00:00Z", 10, 7, 0,
+               model="bad-model", written=4)
+    # Fixture rates are supplied by the caller, not claimed vendor prices.
+    prices = {"shared-model": {"input_per_mtok": 10.0,
+                               "cache_read_per_mtok": 1.0,
+                               "cache_creation_per_mtok": 2.0,
+                               "output_per_mtok": 20.0},
+              "bad-model": {"input_per_mtok": 10.0,
+                            "cache_read_per_mtok": 1.0}}
+    by_model = {r["key"]: r for r in ctl.spend(conn, "model", prices)}
+    by_day = {r["key"]: r for r in ctl.spend(conn, "day", prices)}
+    by_session = {r["key"]: r for r in ctl.spend(conn, "session", prices)}
+    listed = {r["id"]: r for r in ctl.list_sessions(conn, prices=prices)}
+    codex_detail = ctl.session_detail(conn, "codex-cache", prices)
+    write_detail = ctl.session_detail(conn, "codex-write", prices)
+    invalid_detail = ctl.session_detail(conn, "codex-invalid", prices)
+    totals = ctl.overview(conn, prices)["totals"]
+    conn.close()
+
+    # Simulate a pre-fix schema-8 cache whose rollout offset is at EOF but
+    # whose cache-write bucket is still zero. The one-time refresh must
+    # rebuild Codex-derived rows while retaining non-regenerable hook events.
+    migration_repo = make_repo(tmp, "migration-repo")
+    rollout_root = tmp / "codex-rollouts"
+    rollout_dir = rollout_root / "2026" / "01" / "04"
+    rollout_dir.mkdir(parents=True)
+    rollout = rollout_dir / "rollout-2026-01-04T10-00-00-migration.jsonl"
+    rollout.write_text("\n".join(json.dumps(line) for line in [
+        {"type": "session_meta", "payload": {"cwd": str(migration_repo),
+                                             "timestamp": "2026-01-04T10:00:00Z"}},
+        {"type": "turn_context", "payload": {"model": "shared-model"}},
+        {"type": "event_msg", "timestamp": "2026-01-04T10:00:01Z",
+         "payload": {"type": "token_count", "info": {
+             "last_token_usage": {"input_tokens": 100, "cached_input_tokens": 20,
+                                  "cache_write_input_tokens": 30, "output_tokens": 10},
+             "total_token_usage": {"total_tokens": 110},
+         }}},
+        {"type": "response_item", "timestamp": "2026-01-04T10:00:02Z",
+         "payload": {"type": "function_call", "call_id": "migration-tool",
+                     "name": "test_tool", "arguments": "{}"}},
+    ]) + "\n", encoding="utf-8")
+    hook_rollout = rollout_dir / "rollout-2026-01-04T11-00-00-hookfirst.jsonl"
+    hook_rollout.write_text("\n".join(json.dumps(line) for line in [
+        {"type": "session_meta", "payload": {"cwd": str(migration_repo),
+                                             "timestamp": "2026-01-04T11:00:00Z"}},
+        {"type": "turn_context", "payload": {"model": "shared-model"}},
+        {"type": "event_msg", "timestamp": "2026-01-04T11:00:01Z",
+         "payload": {"type": "token_count", "info": {
+             "last_token_usage": {"input_tokens": 80, "cached_input_tokens": 10,
+                                  "cache_write_input_tokens": 20, "output_tokens": 5},
+             "total_token_usage": {"total_tokens": 85},
+         }}},
+    ]) + "\n", encoding="utf-8")
+    old_root = os.environ.get("CODEX_SESSIONS_DIR")
+    try:
+        os.environ["CODEX_SESSIONS_DIR"] = str(rollout_root)
+        migration_conn = ctl.open_db(migration_repo)
+        ctl._touch_session(
+            migration_conn, hook_rollout.stem, "2026-01-04T11:00:00Z",
+            host="codex", source="hook",
+        )
+        migration_conn.execute(
+            "UPDATE sessions SET ended_at=? WHERE id=?",
+            ("2026-01-04T11:00:03Z", hook_rollout.stem),
+        )
+        migration_conn.execute(
+            "INSERT INTO events(session_id, host, ts, name) VALUES(?,?,?,?)",
+            (hook_rollout.stem, "codex", "2026-01-04T11:00:03Z", "SessionEnd"))
+        migration_conn.commit()
+        migration_conn.close()
+        ctl.index_all(migration_repo)
+        migration_conn = ctl.open_db(migration_repo)
+        migration_conn.execute("UPDATE model_calls SET cache_creation_tokens=0")
+        migration_conn.execute("DELETE FROM meta WHERE key='codex_usage_index_rev'")
+        migration_conn.execute(
+            "UPDATE sessions SET ended_at=? WHERE id=?",
+            ("2026-01-04T10:00:04Z", rollout.stem),
+        )
+        migration_conn.execute(
+            "INSERT INTO events(session_id, host, ts, name) VALUES(?,?,?,?)",
+            (rollout.stem, "codex", "2026-01-04T10:00:02Z", "SessionEnd"))
+        migration_conn.commit()
+        migration_conn.close()
+        os.environ["CODEX_SESSIONS_DIR"] = str(tmp / "temporarily-unavailable")
+        ctl.index_all(migration_repo)
+        migration_conn = ctl.open_db(migration_repo)
+        deferred = (migration_conn.execute(
+            "SELECT COUNT(*) FROM model_calls WHERE cache_creation_tokens=0"
+        ).fetchone()[0] == 2
+            and ctl._meta_get(migration_conn, "codex_usage_index_rev") is None)
+        migration_conn.close()
+        os.environ["CODEX_SESSIONS_DIR"] = str(rollout_root)
+        refreshed = ctl.index_all(migration_repo)
+        settled = ctl.index_all(migration_repo)
+        migration_conn = ctl.open_db(migration_repo)
+        migration_rows = {row["session_id"]: row for row in migration_conn.execute(
+            "SELECT session_id, input_tokens, cache_read_tokens, cache_creation_tokens "
+            "FROM model_calls")}
+        migration_sessions = {row["id"]: row for row in migration_conn.execute(
+            "SELECT id, source, ended_at FROM sessions WHERE host='codex'")}
+        migration_events = migration_conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        migration_tools = migration_conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0]
+        migration_rev = ctl._meta_get(migration_conn, "codex_usage_index_rev")
+        migration_costs = {row["key"]: row["cost_usd"] for row in ctl.spend(migration_conn, "session", prices)}
+        migration_conn.close()
+    finally:
+        if old_root is None:
+            os.environ.pop("CODEX_SESSIONS_DIR", None)
+        else:
+            os.environ["CODEX_SESSIONS_DIR"] = old_root
+    migrated = (deferred and refreshed["model_calls"] == 2 and settled["model_calls"] == 0
+                and tuple(migration_rows[rollout.stem][key] for key in
+                          ("input_tokens", "cache_read_tokens", "cache_creation_tokens")) == (100, 20, 30)
+                and tuple(migration_rows[hook_rollout.stem][key] for key in
+                          ("input_tokens", "cache_read_tokens", "cache_creation_tokens")) == (80, 10, 20)
+                and migration_sessions[rollout.stem]["ended_at"] == "2026-01-04T10:00:04Z"
+                and migration_sessions[hook_rollout.stem]["source"] == "hook"
+                and migration_sessions[hook_rollout.stem]["ended_at"] == "2026-01-04T11:00:03Z"
+                and migration_events == 2 and migration_tools == 1
+                and migration_rev == ctl.CODEX_USAGE_INDEX_REV
+                and migration_costs[rollout.stem] == 0.00078
+                and migration_costs[hook_rollout.stem] == 0.00065)
+    # Same model on both hosts forces spend() to split by host before pricing.
+    # Invalid Codex telemetry remains visible in token totals, but has no USD.
+    ok = (migrated and stats["model_calls"] == 6
+          and by_session["claude-cache"]["cost_usd"] == 0.00146
+          and by_session["codex-cache"]["cost_usd"] == 0.00104
+          and by_session["codex-zero"]["cost_usd"] == 0.0007
+          and by_session["codex-write"]["cost_usd"] == 0.00078
+          and by_session["codex-invalid"]["cost_usd"] is None
+          and by_session["claude-bad"]["cost_usd"] == 0.001
+          and by_model["shared-model"]["cost_usd"] == 0.00398
+          and by_model["shared-model"]["input_tokens"] == 350
+          and by_model["bad-model"]["cost_usd"] is None
+          and by_day["2026-01-02"]["cost_usd"] == 0.00398
+          and by_day["2026-01-03"]["cost_usd"] is None
+          and listed["codex-cache"]["cost_usd"] == 0.00104
+          and listed["codex-write"]["cost_usd"] == 0.00078
+          and listed["codex-invalid"]["cost_usd"] is None
+          and listed["claude-bad"]["cost_usd"] == 0.001
+          and codex_detail["models"][0]["cost_usd"] == 0.00104
+          and write_detail["models"][0]["cost_usd"] == 0.00078
+          and write_detail["models"][0]["cache_creation_tokens"] == 30
+          and invalid_detail["models"][0]["cost_usd"] is None
+          and totals["input_tokens"] == 570
+          and totals["cache_read_tokens"] == 118
+          and totals["cache_creation_tokens"] == 44
+          and totals["cost_usd"] is None)
+    session_costs = {key: row["cost_usd"] for key, row in by_session.items()}
+    return ok, (f"migrated={migrated}; sessions={session_costs}; "
+                f"models={by_model}; days={by_day}; totals={totals}")
+
+
+def case_codex_unpriced_cache_write(tmp: Path) -> tuple[bool, str]:
+    """A configured ordinary-input rate cannot price unknown cache writes."""
+    repo = make_repo(tmp)
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    session = "codex-unpriced-write"
+    ts = "2026-01-05T10:00:00Z"
+    ctl._touch_session(conn, session, ts, host="codex")
+    ctl._index_codex_line(conn, {
+        "type": "event_msg", "timestamp": ts,
+        "payload": {"type": "token_count", "info": {
+            "last_token_usage": {"input_tokens": 1_000_000,
+                                 "cached_input_tokens": 0,
+                                 "cache_write_input_tokens": 500_000,
+                                 "output_tokens": 0},
+            "total_token_usage": {"total_tokens": 1_000_000},
+        }},
+    }, session, "priced-model", {"model_calls": 0})
+    partial = {"priced-model": {"input_per_mtok": 20.0}}
+    complete = {"priced-model": {"input_per_mtok": 20.0,
+                                  "cache_creation_per_mtok": 40.0}}
+    partial_spend = ctl.spend(conn, "session", partial)[0]
+    partial_list = ctl.list_sessions(conn, prices=partial)[0]
+    partial_detail = ctl.session_detail(conn, session, partial)
+    partial_total = ctl.overview(conn, partial)["totals"]
+    complete_spend = ctl.spend(conn, "session", complete)[0]
+    conn.close()
+    ok = (partial_spend["input_tokens"] == 1_000_000
+          and partial_spend["cache_creation_tokens"] == 500_000
+          and partial_spend["cost_usd"] is None
+          and partial_list["cost_usd"] is None
+          and partial_detail["models"][0]["cost_usd"] is None
+          and partial_total["cost_usd"] is None
+          and complete_spend["cost_usd"] == 30.0)
+    return ok, (f"partial={partial_spend['cost_usd']}; "
+                f"complete={complete_spend['cost_usd']}; "
+                f"tokens={partial_spend['input_tokens']}/"
+                f"{partial_spend['cache_creation_tokens']}")
+
+
+def case_codex_deferred_usage_price(tmp: Path) -> tuple[bool, str]:
+    """Old Codex rows retain tokens but no USD while source reindex is blocked."""
+    repo = make_repo(tmp)
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    session = "codex-old-row"
+    ts = "2026-01-05T11:00:00Z"
+    ctl._touch_session(conn, session, ts, host="codex")
+    ctl._index_codex_line(conn, {
+        "type": "event_msg", "timestamp": ts,
+        "payload": {"type": "token_count", "info": {
+            "last_token_usage": {"input_tokens": 1_000_000,
+                                 "cached_input_tokens": 0,
+                                 "output_tokens": 0},
+            "total_token_usage": {"total_tokens": 1_000_000},
+        }},
+    }, session, "priced-model", {"model_calls": 0})
+    prices = {"priced-model": {"input_per_mtok": 20.0,
+                               "cache_creation_per_mtok": 40.0}}
+    current = ctl.spend(conn, "session", prices)[0]["cost_usd"]
+    conn.execute("DELETE FROM meta WHERE key='codex_usage_index_rev'")
+    conn.commit()
+    conn.close()
+    # No rollout exists for this legacy row: index_all must defer the refresh.
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    revision = ctl._meta_get(conn, "codex_usage_index_rev")
+    stale_spend = ctl.spend(conn, "session", prices)[0]
+    stale_list = ctl.list_sessions(conn, prices=prices)[0]
+    stale_detail = ctl.session_detail(conn, session, prices)
+    stale_total = ctl.overview(conn, prices)["totals"]
+    conn.close()
+    ok = (current == 20.0 and revision is None
+          and stale_spend["input_tokens"] == 1_000_000
+          and stale_spend["cost_usd"] is None
+          and stale_list["cost_usd"] is None
+          and stale_detail["models"][0]["cost_usd"] is None
+          and stale_total["cost_usd"] is None)
+    return ok, (f"current={current}; deferred_revision={revision!r}; "
+                f"deferred_cost={stale_spend['cost_usd']}; "
+                f"tokens={stale_spend['input_tokens']}")
 
 
 # ---------------------------------------------------------------------------
@@ -1131,6 +1501,62 @@ def case_metrics_spend_per_accepted_record(tmp: Path) -> tuple[bool, str]:
                 f"after_reverse_twin={tasks2}")
 
 
+def case_partial_loop_metric_cost_unknown(tmp: Path) -> tuple[bool, str]:
+    """An unpriced session makes both accepted-task and fallback-role USD unknown."""
+    repo = make_repo(tmp)
+    proj = claude_dir(tmp, repo)
+    write_transcript(proj, "priced-session", [
+        assistant_line("priced-session", "priced", "2026-01-05T10:05:00Z",
+                       model="test-model-1", inp=500, out=100, agent="impl-agent"),
+    ])
+    write_transcript(proj, "unpriced-session", [
+        assistant_line("unpriced-session", "unpriced", "2026-01-05T10:06:00Z",
+                       model="unpriced-model", inp=600, out=200,
+                       agent="second-agent"),
+    ])
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    docs = repo / "docs" / "records"
+    docs.mkdir(parents=True)
+    record = _fixture_record()
+    record["task_id"] = "task-accepted"
+    (docs / "task-accepted.json").write_text(json.dumps(record), encoding="utf-8")
+    delegs = []
+    for session, agent in (("priced-session", "impl-agent"),
+                           ("unpriced-session", "second-agent")):
+        row = json.loads(_deleg_line("task-accepted", "implementer", agent,
+                                    "2026-01-05T10:00:00Z"))
+        row["session_id"] = session
+        delegs.append(json.dumps(row))
+    (qdir / "delegations.jsonl").write_text("\n".join(delegs) + "\n", encoding="utf-8")
+    ctl.index_all(repo)
+    conn = ctl.open_db(repo)
+    rates = {"input_per_mtok": 10.0, "output_per_mtok": 50.0}
+    partial = {"test-model": rates}
+    session_costs = {row["key"]: row["cost_usd"] for row in
+                     ctl.spend(conn, "session", partial)}
+    metrics = ctl.loop_metrics(conn, repo, partial)
+    fully_priced = ctl.loop_metrics(conn, repo, {**partial, "unpriced-model": rates})
+    conn.close()
+    role = next((row for row in metrics["spend_by_role"] if row["role"] == "other"), {})
+    accepted = next((row for row in metrics["spend_per_accepted_record"]
+                     if row["task_id"] == "task-accepted"), {})
+    full_role = next((row for row in fully_priced["spend_by_role"]
+                      if row["role"] == "other"), {})
+    full_accepted = next((row for row in fully_priced["spend_per_accepted_record"]
+                          if row["task_id"] == "task-accepted"), {})
+    ok = (session_costs == {"priced-session": 0.01, "unpriced-session": None}
+          and role.get("calls") == 2 and role.get("input_tokens") == 1100
+          and role.get("cost_usd", "missing") is None
+          and accepted.get("sessions") == 2
+          and accepted.get("input_tokens") == 1100
+          and accepted.get("cost_usd", "missing") is None
+          and full_role.get("cost_usd") == 0.026
+          and full_accepted.get("cost_usd") == 0.026)
+    return ok, (f"sessions={session_costs}; role={role}; accepted={accepted}; "
+                f"fully_priced={full_accepted.get('cost_usd')}")
+
+
 def case_delegation_unjoinable_ts(tmp: Path) -> tuple[bool, str]:
     """v6 join fix (a): a legacy row whose ts is unparseable is flagged
     `unjoinable` — never a distance-0 best match that steals the session from
@@ -1745,7 +2171,12 @@ CASES = [
     ("summary line overrides first-prompt session title", case_summary_title_overrides),
     ("records ingest as record/review/decision/plan/escalation/models_used artifacts", case_record_artifacts),
     ("memory lessons and progress ingest as artifacts", case_memory_and_progress),
-    ("spend aggregates exactly; user prices yield USD, absent prices yield None", case_spend_math_and_prices),
+    ("spend preserves known model price but mixed unpriced totals are unknown", case_spend_math_and_prices),
+    ("malformed user rates produce unknown USD rather than traceback or NaN", case_malformed_prices_unknown),
+    ("negative and nonfinite token buckets have unknown USD even when grouped sums cancel", case_negative_token_buckets_unknown),
+    ("Codex cache is priced once across mixed hosts; invalid usage has no USD", case_codex_cached_input_cost),
+    ("unpriced Codex cache writes leave USD unknown without hiding raw tokens", case_codex_unpriced_cache_write),
+    ("deferred Codex usage migration leaves historical USD unknown", case_codex_deferred_usage_price),
     ("all API endpoints return valid JSON with correct codes", case_api_endpoints),
     ("server binds 127.0.0.1 only and rejects non-GET with 405", case_server_read_only_and_local),
     ("dashboard is self-contained (no external refs) and served themed", case_dashboard_self_contained),
@@ -1760,6 +2191,7 @@ CASES = [
     ("persistent-worker fix rounds: many rows, one session, tokens counted once", case_delegation_follow_up_rounds),
     ("worktree sessions attribute to the repo in all three adapters; decoy sibling excluded", case_worktree_sessions_attributed),
     ("loop metrics expose spend per accepted record; rejected excluded; twin counted once", case_metrics_spend_per_accepted_record),
+    ("unpriced session makes accepted-record and role USD unknown, preserving raw tokens", case_partial_loop_metric_cost_unknown),
     ("unparseable delegation ts is counted unjoinable, never a dist-0 match", case_delegation_unjoinable_ts),
     ("fallback delegation join is one-to-one; nearest wins, no double count", case_delegation_one_to_one),
     ("droid wrapper runs become droid_run events, not 0-token model calls", case_droid_runs_are_events),

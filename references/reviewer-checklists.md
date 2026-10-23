@@ -97,7 +97,7 @@ under-fanned, and future edits will pay for it.
 ## Security Reviewer Pass (Risk Boundaries Only)
 
 Trigger this pass only when the change touches a risk boundary (canonical list:
-SKILL.md §Task Class). Check:
+SKILL.md §Task Classes). Check:
 
 - **AuthN / AuthZ** — is identity verified and is every new path authorized for the right scope/tenant?
 - **Secrets** — no credential read from prompts/env/memory/logs/context into code; no secret in the diff.

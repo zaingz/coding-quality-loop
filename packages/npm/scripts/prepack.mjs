@@ -8,7 +8,7 @@
 // LICENSE. The evals and the optional control plane
 // (assets/control-plane/, scripts/quality_loop_control.py) stay out of the
 // tarball — the control plane is an in-repo opt-in add-on.
-import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
@@ -44,6 +44,35 @@ const EXCLUDE = [
   "assets/control-plane",
   "scripts/quality_loop_control.py",
 ];
+
+// Direct runtime imports and entry points must survive the directory copy.
+// A top-level scripts/ check alone permits a tarball whose Python CLI cannot
+// start (for example, one missing quality_loop_memory.py).
+const REQUIRED_FILES = [
+  "scripts/install.py",
+  "scripts/quality_loop.py",
+  "scripts/quality_loop_core.py",
+  "scripts/quality_loop_memory.py",
+  "scripts/quality_loop_reality.py",
+  "scripts/quality_loop_routing.py",
+  "hosts/claude-code/hooklib.py",
+  "hosts/claude-code/pretooluse_guard.py",
+  "hosts/claude-code/sessionstart_context.py",
+  "hosts/claude-code/stop_gate.py",
+];
+
+async function missingRequiredFiles() {
+  const missing = [];
+  for (const rel of REQUIRED_FILES) {
+    try {
+      if (!(await stat(join(DIST, rel))).isFile()) missing.push(rel);
+    } catch (err) {
+      if (err.code !== "ENOENT") throw err;
+      missing.push(rel);
+    }
+  }
+  return missing;
+}
 
 async function copyIfExists(rel) {
   const src = join(REPO_ROOT, rel);
@@ -134,12 +163,15 @@ async function main() {
   }
   const neutralized = await neutralizeAgentPins(join(DIST, ".claude", "agents"));
   const stripped = await stripPyCache(DIST);
+  if (missing.length > 0) {
+    throw new Error(`required package inputs missing: ${missing.join(", ")}`);
+  }
+  const missingFiles = await missingRequiredFiles();
+  if (missingFiles.length > 0) {
+    throw new Error(`required runtime files missing: ${missingFiles.join(", ")}`);
+  }
   console.log(`prepack: copied ${copied.length} paths -> dist/skill/ (stripped ${stripped} pycache entries, neutralized ${neutralized} agent pin(s))`);
   copied.forEach((p) => console.log(`  ok  ${p}`));
-  if (missing.length > 0) {
-    console.warn(`prepack: ${missing.length} paths not found (ok for optional):`);
-    missing.forEach((p) => console.warn(`  --  ${p}`));
-  }
 }
 
 main().catch((err) => {

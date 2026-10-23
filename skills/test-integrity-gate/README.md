@@ -1,6 +1,6 @@
 # Test Integrity Gate
 
-**Prove the new test fails against the old code before trusting green.**
+**Replay the new test against old and current code before trusting green.**
 
 ![Test Integrity Gate terminal demo](assets/demo.svg)
 
@@ -33,11 +33,15 @@ Claude Code plugin marketplace:
 ```bash
 python3 scripts/test_integrity.py \
   --base origin/main \
-  --command "pytest tests/test_checkout.py::test_retries_once"
+  --command "pytest tests/test_checkout.py::test_retries_once" \
+  --expected-red "AssertionError: retries must occur exactly once"
 ```
 
-Exit `0` means the test discriminates old behavior from new behavior. Any
-unproven state exits non-zero.
+Exit `0` means the command failed on old source with the selected literal
+failure text and passed on current source. Select a specific assertion message
+before replay. Missing or unmatched text returns `not_proven` and exit `1`;
+the JSON report retains the old exit code and output tail. Inspect that output:
+a weak substring can still match an unrelated failure.
 
 The full [Coding Quality Loop](https://github.com/zaingz/coding-quality-loop)
 adds contracts, scope checks, evidence re-execution, independent review, and CI

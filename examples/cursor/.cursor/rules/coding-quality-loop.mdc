@@ -15,7 +15,7 @@ EXECUTE groups `IMPLEMENT_SLICE`, `VERIFY`; REVIEW groups `REVIEW`, `PACKAGE`, `
 - **PLAN** — `INTAKE`: goal, acceptance criteria, constraints, assumptions, risk tier
   (`low|medium|high`), verification plan. `EXPLORE / PLAN`: map only relevant files,
   callers, tests, config; name likely files and the checks you will run.
-  `MINIMALITY_GATE`: highest valid rung — no change, delete, reuse, stdlib, native,
+  `MINIMALITY_GATE`: first safe rung — no change, delete, reuse, stdlib, native,
   existing dependency, one-liner, minimal new code. Never trade away security, validation,
   authorization, accessibility, or data-loss protection.
 - **EXECUTE** — `IMPLEMENT_SLICE`: one small, reviewable slice in existing conventions.

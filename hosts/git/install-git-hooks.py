@@ -34,13 +34,19 @@ def main() -> int:
     root = repo_root()
     path = root / ".git" / "hooks" / "pre-commit"
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    if existing == HOOK:
+    existing = path.read_bytes() if path.exists() else None
+    shipped = HOOK.encode("utf-8")
+    if existing == shipped:
         print(f"pre-commit hook already installed: {path}")
         return 0
-    if existing and "quality_loop.py diff-audit --staged" not in existing:
+    if existing is not None:
         backup = path.with_suffix(".pre-quality-loop-backup")
-        backup.write_text(existing, encoding="utf-8")
+        try:
+            with backup.open("xb") as out:
+                out.write(existing)
+        except FileExistsError:
+            print(f"backup already exists at {backup}; preserve and reconcile it before installing", file=sys.stderr)
+            return 1
         print(f"backed up existing pre-commit hook to {backup}")
     path.write_text(HOOK, encoding="utf-8")
     os.chmod(path, 0o755)

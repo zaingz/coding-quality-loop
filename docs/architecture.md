@@ -42,7 +42,7 @@ Advisory text drifts across sessions; a gate either fires or it does not.
 | `verify-gates --against-diff` | Adds diff-grounded checks against the real `git diff`: phantom completion, scope integrity, diff-derived risk floor, bugfix-test co-presence, net test-declaration/assertion loss, and stale review hashes. |
 | `verify` | Umbrella command: runs `verify-gates --against-diff`, `diff-audit`, `run-evidence`, and AC-to-command coverage in one pass. `--base` defaults to the **merge-base with `origin/main`** (ladder: origin/main → origin/master → main → master), so committed-but-unpushed work stays in the diff; `--timeout <s>` (or `QUALITY_LOOP_TIMEOUT`, default 120) bounds evidence re-execution. Fails if any constituent section fails; emits a single unified report. Survives a non-git repo (records the diff-dependent sections as failed instead of exiting with no report). |
 | `diff-audit` | Scans the diff (or `--staged` for pre-commit) for possible secrets, dependency edits, migrations, oversized changes, and test weakening. Flags untracked files too. |
-| `run-evidence` | Re-executes recorded pass commands from the record's allowlist. `--red-green` replays a red_green command in a worktree at base and HEAD. |
+| `run-evidence` | Re-executes recorded pass commands from the record's allowlist. `--red-green` replays a `red_green` command in a worktree at base and HEAD; base failure requires a matching `expected_red` output substring or is `not_proven`. |
 | `attest-review` | Embeds a recomputed diff hash so a review verdict cannot silently outlast the diff it approved. |
 | `render-prompt` | Renders `assets/prompts/reviewer.md` or `security-reviewer.md` with `{contract}`/`{diff}`/`{evidence}` substituted from a record — pipe its stdout to the reviewing CLI. |
 | `scan-text --stdin` | Secret-scan-as-a-service, for hook shims and paste boxes. |
@@ -142,10 +142,10 @@ flowchart LR
   K -. lessons .-> B
 ```
 
-The **right-size gate runs twice**: once at `MINIMALITY_GATE` to pick the smallest
-approach, and again at `PACKAGE` (via `verify-gates --against-diff`) to confirm nothing
-crept in. Minimal diff is not minimal architecture: collapsing a multi-feature medium
-task into one monolithic file is under-fanned modularity, not minimality.
+The right-size decision is recorded at `MINIMALITY_GATE`; the reviewer should revisit it
+on the final diff. No deterministic gate proves that this second judgment occurred
+(`references/enforcement-matrix.md`). Minimal diff is not minimal architecture:
+collapsing a multi-feature medium task into one monolithic file can hurt maintainability.
 
 The `verify` umbrella command closes each phase with the smallest sufficient check:
 record-shape gates, diff-grounded reality checks, evidence re-execution, and

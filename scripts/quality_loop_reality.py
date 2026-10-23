@@ -47,7 +47,7 @@ _HIGH_TIER_DIR_COMPONENTS = {
 _HIGH_TIER_FILE_NAMES = {
     # lockfiles
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
-    "Pipfile.lock", "go.sum", "Cargo.lock", "Gemfile.lock",
+    "pipfile.lock", "go.sum", "cargo.lock", "gemfile.lock",
 }
 # Explicit inflections, word-boundary matched: "fix"/"fixed"/"fixes"/"fixing"
 # and "bugfix" count, but "fixture"/"prefix" do not (the old greedy \w* suffix
@@ -195,6 +195,7 @@ def _path_matches_high_tier(path: str, extra: tuple[str, ...] = ()) -> bool:
     """Built-in high-tier paths, extended (never replaced) by the config's
     high_risk_paths entries: an entry matches as a path component, a basename,
     or (when it contains a slash) a path prefix."""
+    path = path.replace("\\", "/").lower()
     name = path.split("/")[-1]
     if name in _HIGH_TIER_FILE_NAMES:
         return True
@@ -205,6 +206,7 @@ def _path_matches_high_tier(path: str, extra: tuple[str, ...] = ()) -> bool:
         if component in _HIGH_TIER_DIR_COMPONENTS:
             return True
     for token in extra:
+        token = token.replace("\\", "/").lower()
         if "/" in token:
             if path == token or path.startswith(token + "/"):
                 return True
@@ -602,6 +604,40 @@ def _run_command(cmd: str, cwd: Path, timeout: int) -> dict[str, Any]:
         return {"exit_code": None, "stdout": "", "stderr": str(exc), "timed_out": False}
 
 
+def _expected_red_outcome(
+    result: dict[str, Any], expected_red: Any,
+) -> tuple[str, str]:
+    """Count a selected base failure, excluding recognizable runner failures.
+
+    This is a bounded negative check, not proof that an arbitrary marker came
+    from the intended assertion. The old output still needs inspection.
+    """
+    if result["timed_out"]:
+        return "timeout", "command timed out at base"
+    if result["exit_code"] == 0:
+        return "pass", "command passed against old source with the proposed tests"
+    if result["exit_code"] is None:
+        return "not_proven", "command could not start at base"
+    if result["exit_code"] in (126, 127):
+        return "not_proven", "test command or runner was unavailable at base"
+    output = result["stdout"] + "\n" + result["stderr"]
+    infrastructure_errors = (
+        r"\b(?:ModuleNotFoundError|ImportError):",
+        r"\b(?:Cannot find module|ERR_MODULE_NOT_FOUND)\b",
+        r"(?im)^(?:[^\n]*?:\s*)?can't open file\b",
+        r"(?im)^ERROR: file or directory not found:",
+        r"(?im)^\s*(?:no tests ran|Ran 0 tests)\b",
+        r"(?im)^(?:/[^:\n]+/)?(?:sh|bash|dash|zsh):[^\n]*(?:command not found|:\s*not found)(?::[^\n]*)?$",
+    )
+    if any(re.search(pattern, output) for pattern in infrastructure_errors):
+        return "not_proven", "base output indicates a runner, import, or test-discovery failure"
+    if not isinstance(expected_red, str) or not expected_red.strip():
+        return "not_proven", "expected_red output substring was not supplied before replay"
+    if expected_red not in result["stdout"] and expected_red not in result["stderr"]:
+        return "not_proven", "expected_red output substring was not found in captured base output"
+    return "fail", "base command failed with the selected expected_red output substring"
+
+
 def _acceptance_proving_commands(record: dict[str, Any]) -> list[str]:
     commands: list[str] = []
     for criterion in record.get("acceptance_criteria", []) or []:
@@ -681,6 +717,7 @@ def _test_integrity_replay(
     timeout: int,
     allowlist: list[str],
     head_outcomes: dict[str, dict[str, Any]],
+    expected_red_by_command: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Run AC commands against base source plus the proposed test files."""
     if not test_paths or not proving_commands:
@@ -744,10 +781,9 @@ def _test_integrity_replay(
         for cmd in runnable:
             old_result = _run_command(cmd, worktree, timeout)
             head_result = head_outcomes[cmd]
-            old_state = (
-                "timeout"
-                if old_result["timed_out"]
-                else ("pass" if old_result["exit_code"] == 0 else "fail")
+            old_state, old_reason = _expected_red_outcome(
+                old_result,
+                (expected_red_by_command or {}).get(cmd),
             )
             green = (
                 "timeout"
@@ -759,18 +795,16 @@ def _test_integrity_replay(
                 "old_code_with_new_tests": old_state,
                 "green": green,
                 "test_files": test_paths,
-                "reason": "",
+                "reason": old_reason,
+                "old_exit_code": old_result["exit_code"],
+                "old_stdout_tail": qlc.redact(old_result["stdout"]),
+                "old_stderr_tail": qlc.redact(old_result["stderr"]),
             }
             results.append(result)
             if old_state != "fail":
-                detail = (
-                    "command timed out"
-                    if old_state == "timeout"
-                    else "command passed against old source with the proposed tests"
-                )
                 findings.append(
-                    "test-integrity replay: %s — %s; the proving command does not "
-                    "distinguish the change" % (qlc.redact(cmd), detail)
+                    "test-integrity replay not proven for %s: %s"
+                    % (qlc.redact(cmd), old_reason)
                 )
             if green != "pass":
                 findings.append(
@@ -860,6 +894,7 @@ def run_evidence(
                 cwd,
                 timeout,
                 head_outcomes.get(cmd),
+                cmd_entry.get("expected_red"),
             )
             red_green_results.append(rg)
             if rg["red"] != "fail":
@@ -899,6 +934,10 @@ def run_evidence(
         or diff_forces_high
     )
     proving_commands = _acceptance_proving_commands(record)
+    expected_red_by_command = {
+        str(entry.get("cmd", "")).strip(): entry.get("expected_red")
+        for entry in commands if isinstance(entry.get("cmd"), str)
+    }
     test_integrity_results: list[dict[str, Any]] = []
     if changed_error:
         test_integrity_results = [
@@ -920,6 +959,7 @@ def run_evidence(
             timeout,
             allowlist,
             head_outcomes,
+            expected_red_by_command,
         )
         findings.extend(integrity_findings)
 
@@ -950,6 +990,7 @@ def _red_green_check(
     cwd: Path,
     timeout: int,
     green_result: dict[str, Any] | None,
+    expected_red: Any = None,
 ) -> dict[str, Any]:
     """Replay a command at base (expect fail) and HEAD (expect pass).
 
@@ -974,15 +1015,10 @@ def _red_green_check(
             return out
 
         red_result = _run_command(cmd, worktree, timeout)
-        if red_result["timed_out"]:
-            out["red"] = "timeout"
-            out["red_reason"] = "command timed out at base"
-        elif red_result["exit_code"] == 0:
-            out["red"] = "pass"
-            out["red_reason"] = "command passed at base (RED was not real — test does not reproduce the bug)"
-        else:
-            out["red"] = "fail"
-            out["red_reason"] = "command failed at base as expected (RED proven)"
+        out["red"], out["red_reason"] = _expected_red_outcome(red_result, expected_red)
+        out["red_exit_code"] = red_result["exit_code"]
+        out["red_stdout_tail"] = qlc.redact(red_result["stdout"])
+        out["red_stderr_tail"] = qlc.redact(red_result["stderr"])
         if green_result["timed_out"]:
             out["green"] = "timeout"
             out["green_reason"] = "command timed out at HEAD"

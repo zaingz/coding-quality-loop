@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -716,16 +717,14 @@ def case_stop_gate_never_closes_in_no_origin_repo(tmp: Path) -> tuple[bool, str]
     return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:160]!r}"
 
 
-def case_install_hooks_portable_and_uninstall_survives_drift(tmp: Path) -> tuple[bool, str]:
+def case_install_hooks_portable_and_uninstall_blocks_drift(tmp: Path) -> tuple[bool, str]:
     # Two installer invariants on the hook wiring. (1) Portability: where
     # `python3` is on PATH the written launcher stays the literal "python3" —
     # settings.json is often committed and shared, and a machine-specific
     # absolute path would silently disable the gates on every other clone (the
     # absolute-path substitution is reserved for hosts with no python3). (2)
-    # Drift: uninstall must recognise its hook groups by the shim-script path,
-    # not interpreter equality — after the recorded interpreter changes (a
-    # python upgrade), uninstall still removes every group instead of leaving
-    # orphaned spawn-failing hooks behind.
+    # Drift: changing the managed launcher after install must block uninstall
+    # before any writes, because removing that group would discard the edit.
     import shutil as _shutil
     if not _shutil.which("python3"):
         return True, "skipped: no python3 on PATH (absolute-path substitution is correct here)"
@@ -749,13 +748,11 @@ def case_install_hooks_portable_and_uninstall_survives_drift(tmp: Path) -> tuple
     proc = subprocess.run(
         [sys.executable, str(install), "--uninstall", "--target", str(repo)],
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
-    if proc.returncode != 0:
-        return False, f"uninstall failed: {proc.stdout[-200:]!r}"
-    if settings.is_file():
-        left = json.loads(settings.read_text()).get("hooks") or {}
-        if left:
-            return False, f"orphaned hook groups survived drift: {list(left)!r}"
-    return True, "portable launcher written; drifted groups fully removed on uninstall"
+    preserved = (settings.read_text() == drifted
+                 and (repo / "scripts" / "quality_loop.py").is_file()
+                 and (repo / ".quality-loop" / "install-manifest.json").is_file())
+    blocked = proc.returncode != 0 and "changed since install" in proc.stdout
+    return blocked and preserved, f"portable launcher written; uninstall_blocked={blocked}; edits_preserved={preserved}"
 
 
 def case_settings_stop_timeout_covers_verify(tmp: Path) -> tuple[bool, str]:
@@ -776,6 +773,32 @@ def case_settings_stop_timeout_covers_verify(tmp: Path) -> tuple[bool, str]:
                 timeouts.append(h.get("timeout"))
     ok = bool(timeouts) and all(isinstance(t, int) and t >= 600 for t in timeouts)
     return ok, f"stop_timeouts={timeouts} (both hosts; need >= 600 to cover 120s/command evidence re-execution)"
+
+
+def case_host_hook_matchers(_tmp: Path) -> tuple[bool, str]:
+    """Pin Codex continuation event wiring without invoking the external CLI."""
+    codex = json.loads((ROOT / "hosts" / "codex" / "hooks.json").read_text(encoding="utf-8"))
+
+    def matcher_for(groups: list[dict], script: str) -> str:
+        matches = [
+            group.get("matcher", "")
+            for group in groups
+            if any(script in hook.get("command", "") for hook in group.get("hooks", []))
+        ]
+        return matches[0] if len(matches) == 1 else ""
+
+    context = matcher_for(codex["hooks"]["SessionStart"], "sessionstart_context.py")
+    control = matcher_for(codex["hooks"]["SessionStart"], "control_plane.py")
+
+    def covers(pattern: str, events: tuple[str, ...]) -> bool:
+        return all(re.fullmatch(pattern, event) is not None for event in events)
+
+    ok = (
+        covers(context, ("startup", "resume", "compact", "fork"))
+        and re.fullmatch(context, "clear") is None
+        and covers(control, ("startup", "resume", "clear", "compact", "fork"))
+    )
+    return ok, f"codex_context={context!r}; codex_control={control!r}"
 
 
 def case_stop_gate_terminal_runs_verify_umbrella(tmp: Path) -> tuple[bool, str]:
@@ -999,8 +1022,9 @@ def case_installer_idempotent_claude_codex(tmp: Path) -> tuple[bool, str]:
 
 
 def case_uninstall_skips_symlink_traversal(tmp: Path) -> tuple[bool, str]:
-    # Security fix: a manifest entry whose directory component is a committed
-    # symlink pointing outside the target must be SKIPPED, never unlinked.
+    # An unsafe manifest path must stop the entire uninstall before any write.
+    import hashlib
+
     target = tmp / "target"
     victim = tmp / "victim"
     victim.mkdir(parents=True)
@@ -1008,17 +1032,353 @@ def case_uninstall_skips_symlink_traversal(tmp: Path) -> tuple[bool, str]:
     outside.write_text("precious\n")
     (target / ".quality-loop").mkdir(parents=True)
     (target / "linkdir").symlink_to(Path("..") / "victim")
-    (target / ".quality-loop" / "install-manifest.json").write_text(json.dumps({
-        "version": 1, "host": "claude-code", "files": ["linkdir/p2.txt"], "hook_groups": [],
+    manifest = target / ".quality-loop" / "install-manifest.json"
+    manifest.write_text(json.dumps({
+        "version": 2, "host": "claude-code", "files": ["linkdir/p2.txt"],
+        "hook_groups": [],
+        "file_hashes": {"linkdir/p2.txt": hashlib.sha256(outside.read_bytes()).hexdigest()},
     }))
+    before = manifest.read_bytes()
     code, out, err = run_cli(str(INSTALL), "--target", str(target), "--uninstall", cwd=ROOT)
     ok = (
-        code == 0
-        and outside.is_file()
-        and "skipped linkdir/p2.txt" in out
+        code != 0
+        and outside.read_text() == "precious\n"
+        and manifest.read_bytes() == before
+        and "unsafe" in out.lower()
         and "removed linkdir/p2.txt" not in out
     )
     return ok, f"exit={code}; victim_survives={outside.is_file()}; out={out.strip()[:220]!r}; err={err.strip()!r}"
+
+
+def case_reinstall_rejects_symlinked_managed_directory(tmp: Path) -> tuple[bool, str]:
+    target = tmp / "target"
+    target.mkdir()
+    first, _, first_err = run_cli(str(INSTALL), "--target", str(target), "--host", "codex", cwd=ROOT)
+    if first:
+        return False, f"initial install failed: {first_err.strip()!r}"
+    outside = tmp / "moved_scripts"
+    (target / "scripts").rename(outside)
+    (target / "scripts").symlink_to(outside)
+    edited = outside / "quality_loop.py"
+    edited.write_bytes(edited.read_bytes() + b"\n# keep this outside edit\n")
+    before = edited.read_bytes()
+    manifest = target / ".quality-loop" / "install-manifest.json"
+    manifest_before = manifest.read_bytes()
+    code, out, err = run_cli(str(INSTALL), "--target", str(target), "--host", "codex", cwd=ROOT)
+    ok = (code != 0 and edited.read_bytes() == before and manifest.read_bytes() == manifest_before
+          and "unsafe" in out.lower())
+    return ok, f"exit={code}; outside_preserved={edited.read_bytes() == before}; out={out.strip()[:250]!r}; err={err.strip()[:120]!r}"
+
+
+def case_first_install_rejects_symlinked_destination(tmp: Path) -> tuple[bool, str]:
+    target = tmp / "target"
+    outside = tmp / "outside_scripts"
+    target.mkdir()
+    outside.mkdir()
+    sentinel = outside / "quality_loop.py"
+    sentinel.write_text("user data\n")
+    (target / "scripts").symlink_to(outside)
+    code, out, err = run_cli(str(INSTALL), "--target", str(target), "--host", "codex", cwd=ROOT)
+    ok = (code != 0 and sentinel.read_text() == "user data\n"
+          and not (target / ".quality-loop").exists()
+          and not (target / ".codex").exists()
+          and "unsafe" in out.lower())
+    return ok, f"exit={code}; outside_preserved={sentinel.read_text() == 'user data' + chr(10)}; out={out.strip()[:220]!r}; err={err.strip()[:120]!r}"
+
+
+def case_upgrade_preserves_identical_preexisting_file(tmp: Path) -> tuple[bool, str]:
+    target = tmp / "target"
+    source = tmp / "next_source"
+    target.mkdir()
+    example_rel = Path("assets/quality-loop.config.example.json")
+    original = (ROOT / example_rel).read_bytes()
+    preexisting = target / example_rel
+    preexisting.parent.mkdir(parents=True)
+    preexisting.write_bytes(original)
+    first, out1, err1 = run_cli(str(INSTALL), "--target", str(target), "--host", "codex", cwd=ROOT)
+    if first:
+        return False, f"initial install failed: {out1[-200:]!r} {err1[-200:]!r}"
+    manifest = json.loads((target / ".quality-loop" / "install-manifest.json").read_text())
+    recorded = example_rel.as_posix() in manifest.get("preexisting", [])
+    for name in ("scripts", "hosts", "assets"):
+        shutil.copytree(ROOT / name, source / name)
+    (source / example_rel).write_bytes(original + b"\n")
+    upgraded = source / "scripts" / "install.py"
+    second, out2, err2 = run_cli(str(upgraded), "--target", str(target), "--host", "codex", cwd=source)
+    backup = preexisting.with_suffix(preexisting.suffix + ".bak")
+    backed_up = backup.is_file() and backup.read_bytes() == original
+    installed = preexisting.read_bytes() == original + b"\n"
+    preexisting.write_bytes(original + b"\n# post-upgrade user edit\n")
+    blocked, blocked_out, blocked_err = run_cli(str(upgraded), "--target", str(target), "--uninstall", cwd=source)
+    edit_preserved = (blocked != 0 and preexisting.read_bytes().endswith(b"# post-upgrade user edit\n")
+                      and backup.is_file() and backup.read_bytes() == original
+                      and "changed since install" in blocked_out)
+    preexisting.write_bytes(original + b"\n")
+    third, out3, err3 = run_cli(str(upgraded), "--target", str(target), "--uninstall", cwd=source)
+    restored = preexisting.is_file() and preexisting.read_bytes() == original and not backup.exists()
+    ok = first == second == third == 0 and recorded and backed_up and installed and edit_preserved and restored
+    return ok, (f"codes={[first, second, third]}; preexisting={recorded}; backup={backed_up}; "
+                f"upgraded={installed}; drift_blocked={edit_preserved}; restored={restored}; "
+                f"out={(out2 + out3).strip()[:180]!r}; err={(err2 + err3 + blocked_err).strip()[:120]!r}")
+
+
+def case_uninstall_ignores_unrelated_late_backup(tmp: Path) -> tuple[bool, str]:
+    target = tmp / "target"
+    destination = target / "assets" / "quality-loop.config.example.json"
+    destination.parent.mkdir(parents=True)
+    original = (ROOT / "assets" / "quality-loop.config.example.json").read_bytes()
+    destination.write_bytes(original)
+    first, _, err1 = run_cli(str(INSTALL), "--target", str(target), "--host", "codex", cwd=ROOT)
+    manifest = target / ".quality-loop" / "install-manifest.json"
+    first_data = json.loads(manifest.read_text()) if manifest.is_file() else {}
+    backup = destination.with_suffix(destination.suffix + ".bak")
+    backup.write_bytes(b"unrelated user backup\n")
+    second, out, err2 = run_cli(str(INSTALL), "--target", str(target), "--uninstall", cwd=ROOT)
+    preserved = destination.read_bytes() == original and backup.read_bytes() == b"unrelated user backup\n"
+    ok = (first == second == 0 and first_data.get("backups") == {}
+          and "assets/quality-loop.config.example.json" in first_data.get("preexisting", [])
+          and preserved and not manifest.exists())
+    return ok, f"codes={[first, second]}; provenance={first_data.get('backups')!r}; preserved={preserved}; out={out[-150:]!r}; err={(err1 + err2)[-120:]!r}"
+
+
+def case_legacy_v2_uninstall_refuses_ambiguous_backup(tmp: Path) -> tuple[bool, str]:
+    target = tmp / "target"
+    destination = target / "assets" / "quality-loop.config.example.json"
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"original user config\n")
+    first, _, err1 = run_cli(str(INSTALL), "--target", str(target), "--host", "codex", cwd=ROOT)
+    manifest = target / ".quality-loop" / "install-manifest.json"
+    data = json.loads(manifest.read_text()) if manifest.is_file() else {}
+    owned_backup = destination.with_suffix(destination.suffix + ".bak")
+    backup_before = owned_backup.read_bytes() if owned_backup.is_file() else b""
+    data.pop("backups", None)  # previous v2 layout could not attest ownership
+    manifest.write_text(json.dumps(data))
+    before = manifest.read_bytes()
+    installed = destination.read_bytes()
+    second, out, err2 = run_cli(str(INSTALL), "--target", str(target), "--uninstall", cwd=ROOT)
+    preserved = (destination.read_bytes() == installed and owned_backup.read_bytes() == backup_before
+                 and manifest.read_bytes() == before)
+    ok = (first == 0 and second != 0 and backup_before == b"original user config\n"
+          and preserved and "ambiguous" in out)
+    return ok, f"codes={[first, second]}; preserved={preserved}; out={out[-170:]!r}; err={(err1 + err2)[-100:]!r}"
+
+
+def case_legacy_v2_uninstall_refuses_late_unrelated_backup(tmp: Path) -> tuple[bool, str]:
+    target = tmp / "target"
+    destination = target / "assets" / "quality-loop.config.example.json"
+    destination.parent.mkdir(parents=True)
+    original = (ROOT / "assets" / "quality-loop.config.example.json").read_bytes()
+    destination.write_bytes(original)
+    first, _, _ = run_cli(str(INSTALL), "--target", str(target), "--host", "codex", cwd=ROOT)
+    manifest = target / ".quality-loop" / "install-manifest.json"
+    data = json.loads(manifest.read_text())
+    data.pop("backups", None)
+    manifest.write_text(json.dumps(data))
+    before = manifest.read_bytes()
+    backup = destination.with_suffix(destination.suffix + ".bak")
+    backup.write_bytes(b"unrelated user backup\n")
+    second, out, _ = run_cli(str(INSTALL), "--target", str(target), "--uninstall", cwd=ROOT)
+    preserved = (destination.read_bytes() == original and backup.read_bytes() == b"unrelated user backup\n"
+                 and manifest.read_bytes() == before)
+    return first == 0 and second != 0 and preserved and "ambiguous" in out, f"codes={[first, second]}; preserved={preserved}; out={out[-140:]!r}"
+
+
+def case_git_hook_backup_provenance(tmp: Path) -> tuple[bool, str]:
+    target = tmp / "target"
+    target.mkdir(exist_ok=True)
+    git(target, "init")
+    hook = target / ".git" / "hooks" / "pre-commit"
+    hook.write_bytes(b"#!/bin/sh\necho user\n")
+    first, out1, err1 = run_cli(str(INSTALL), "--target", str(target), "--host", "git", cwd=ROOT)
+    manifest = target / ".quality-loop" / "install-manifest.json"
+    data = json.loads(manifest.read_text()) if manifest.is_file() else {}
+    entry = data.get("backups", {}).get(".git/hooks/pre-commit", {})
+    backup = target / entry.get("path", "missing")
+    valid = (entry.get("path") == ".git/hooks/pre-commit.pre-quality-loop-backup"
+             and backup.is_file() and backup.read_bytes() == b"#!/bin/sh\necho user\n")
+    second, out2, err2 = run_cli(str(INSTALL), "--target", str(target), "--uninstall", cwd=ROOT)
+    restored = hook.read_bytes() == b"#!/bin/sh\necho user\n" and not backup.exists()
+    ok = first == second == 0 and valid and restored
+    return ok, f"codes={[first, second]}; provenance={valid}; restored={restored}; out={(out1 + out2)[-130:]!r}; err={(err1 + err2)[-100:]!r}"
+
+
+def case_git_hook_with_cql_marker_preserves_user_command(tmp: Path) -> tuple[bool, str]:
+    target = tmp / "target"
+    target.mkdir()
+    git(target, "init")
+    hook = target / ".git" / "hooks" / "pre-commit"
+    original = b"#!/bin/sh\npython3 scripts/quality_loop.py diff-audit --staged\necho user-command\n"
+    hook.write_bytes(original)
+    first, out1, err1 = run_cli(str(INSTALL), "--target", str(target), "--host", "git", cwd=ROOT)
+    manifest = target / ".quality-loop" / "install-manifest.json"
+    data = json.loads(manifest.read_text()) if manifest.is_file() else {}
+    entry = data.get("backups", {}).get(".git/hooks/pre-commit", {})
+    backup = target / entry.get("path", "missing")
+    backed_up = backup.is_file() and backup.read_bytes() == original
+    installed_without_extra = hook.is_file() and b"user-command" not in hook.read_bytes()
+    second, out2, err2 = run_cli(str(INSTALL), "--target", str(target), "--uninstall", cwd=ROOT)
+    restored = hook.is_file() and hook.read_bytes() == original and not backup.exists()
+    ok = first == second == 0 and backed_up and installed_without_extra and restored
+    return ok, f"codes={[first, second]}; backed_up={backed_up}; restored={restored}; out={(out1 + out2)[-120:]!r}; err={(err1 + err2)[-100:]!r}"
+
+
+def case_git_hook_identical_preexisting_survives_uninstall(tmp: Path) -> tuple[bool, str]:
+    target = tmp / "target"
+    target.mkdir()
+    git(target, "init")
+    hook = target / ".git" / "hooks" / "pre-commit"
+    staged, _, err0 = run_cli(str(ROOT / "hosts" / "git" / "install-git-hooks.py"), cwd=target)
+    original = hook.read_bytes() if hook.is_file() else b""
+    first, out1, err1 = run_cli(str(INSTALL), "--target", str(target), "--host", "git", cwd=ROOT)
+    manifest = target / ".quality-loop" / "install-manifest.json"
+    data = json.loads(manifest.read_text()) if manifest.is_file() else {}
+    marked = ".git/hooks/pre-commit" in data.get("preexisting", [])
+    second, out2, err2 = run_cli(str(INSTALL), "--target", str(target), "--uninstall", cwd=ROOT)
+    survives = hook.is_file() and hook.read_bytes() == original
+    ok = staged == first == second == 0 and marked and survives and bool(original)
+    return ok, f"codes={[staged, first, second]}; preexisting={marked}; survives={survives}; out={(out1 + out2)[-120:]!r}; err={(err0 + err1 + err2)[-100:]!r}"
+
+
+def case_preexisting_exact_agents_section_survives_uninstall(tmp: Path) -> tuple[bool, str]:
+    target = tmp / "target"
+    target.mkdir()
+    template = (ROOT / "assets" / "AGENTS.template.md").read_text().rstrip("\n")
+    section = ("<!-- BEGIN coding-quality-loop managed section -->\n" + template
+               + "\n<!-- END coding-quality-loop managed section -->")
+    agents = target / "AGENTS.md"
+    original = ("# User instructions\n\n" + section + "\n\n# User footer\n").encode()
+    agents.write_bytes(original)
+    first, _, err1 = run_cli(str(INSTALL), "--target", str(target), "--host", "codex", cwd=ROOT)
+    manifest = target / ".quality-loop" / "install-manifest.json"
+    data = json.loads(manifest.read_text()) if manifest.is_file() else {}
+    marked = "AGENTS.md" in data.get("preexisting", [])
+    second, _, err2 = run_cli(str(INSTALL), "--target", str(target), "--host", "codex", cwd=ROOT)
+    third, out3, err3 = run_cli(str(INSTALL), "--target", str(target), "--uninstall", cwd=ROOT)
+    preserved = agents.is_file() and agents.read_bytes() == original
+    ok = first == second == third == 0 and marked and preserved and not manifest.exists()
+    return ok, f"codes={[first, second, third]}; preexisting={marked}; preserved={preserved}; out={out3[-120:]!r}; err={(err1 + err2 + err3)[-120:]!r}"
+
+
+def case_git_late_unowned_backup_not_claimed(tmp: Path) -> tuple[bool, str]:
+    target = tmp / "target"
+    target.mkdir()
+    git(target, "init")
+    first, _, err1 = run_cli(str(INSTALL), "--target", str(target), "--host", "git", cwd=ROOT)
+    hook = target / ".git" / "hooks" / "pre-commit"
+    installed = hook.read_bytes() if hook.is_file() else b""
+    manifest = target / ".quality-loop" / "install-manifest.json"
+    manifest_before = manifest.read_bytes() if manifest.is_file() else b""
+    backup = hook.with_suffix(".pre-quality-loop-backup")
+    backup.write_bytes(b"unrelated user backup\n")
+    second, out2, err2 = run_cli(str(INSTALL), "--target", str(target), "--host", "git", cwd=ROOT)
+    refused = (second != 0 and hook.read_bytes() == installed
+               and backup.read_bytes() == b"unrelated user backup\n"
+               and manifest.read_bytes() == manifest_before)
+    third, out3, err3 = run_cli(str(INSTALL), "--target", str(target), "--uninstall", cwd=ROOT)
+    left_unrelated = third == 0 and not hook.exists() and backup.read_bytes() == b"unrelated user backup\n"
+    ok = first == 0 and refused and left_unrelated
+    return ok, f"codes={[first, second, third]}; refused={refused}; unrelated_left={left_unrelated}; out={(out2 + out3)[-140:]!r}; err={(err1 + err2 + err3)[-100:]!r}"
+
+
+def case_direct_git_helper_refuses_backup_collision(tmp: Path) -> tuple[bool, str]:
+    target = tmp / "target"
+    target.mkdir()
+    git(target, "init")
+    hook = target / ".git" / "hooks" / "pre-commit"
+    hook.write_bytes(b"#!/bin/sh\necho user\n")
+    backup = hook.with_suffix(".pre-quality-loop-backup")
+    backup.write_bytes(b"unrelated existing backup\n")
+    code, out, err = run_cli(str(ROOT / "hosts" / "git" / "install-git-hooks.py"), cwd=target)
+    preserved = (hook.read_bytes() == b"#!/bin/sh\necho user\n"
+                 and backup.read_bytes() == b"unrelated existing backup\n")
+    return code != 0 and preserved and "backup already exists" in err, f"exit={code}; preserved={preserved}; out={out[-90:]!r}; err={err[-130:]!r}"
+
+
+def case_copy_refuses_directory_swap_after_preflight(tmp: Path) -> tuple[bool, str]:
+    """A deterministic injection fires at the final copy's parent open, after
+    dry-run preflight has completed. The trigger must fire for this test to pass.
+    """
+    target = tmp / "target"
+    target.mkdir()
+    first, _, err1 = run_cli(str(INSTALL), "--target", str(target), "--host", "codex", cwd=ROOT)
+    if first:
+        return False, f"initial install failed: {err1[-120:]!r}"
+    manifest = target / ".quality-loop" / "install-manifest.json"
+    manifest_before = manifest.read_bytes()
+    script_before = (target / "scripts" / "quality_loop.py").read_bytes()
+    outside = tmp / "outside"
+    outside.mkdir()
+    sentinel = outside / "quality_loop.py"
+    sentinel.write_bytes(b"outside user data\n")
+    source = tmp / "next_source"
+    for name in ("scripts", "hosts", "assets"):
+        shutil.copytree(ROOT / name, source / name)
+    (source / "scripts" / "quality_loop.py").write_bytes(script_before + b"\n# newer source\n")
+    injector = tmp / "injector"
+    injector.mkdir()
+    (injector / "sitecustomize.py").write_text(
+        "import os\nfrom pathlib import Path\n"
+        "old_open = os.open\ntriggered = False\n"
+        "def injected_open(path, flags, *args, **kwargs):\n"
+        "    global triggered\n"
+        "    if not triggered and path == 'scripts' and kwargs.get('dir_fd') is not None and flags & os.O_DIRECTORY:\n"
+        "        triggered = True\n"
+        "        target = Path(os.environ['CQL_RACE_TARGET'])\n"
+        "        moved = Path(os.environ['CQL_RACE_MOVED'])\n"
+        "        (target / 'scripts').rename(moved)\n"
+        "        (target / 'scripts').symlink_to(Path(os.environ['CQL_RACE_OUTSIDE']))\n"
+        "        Path(os.environ['CQL_RACE_TRIGGER']).write_text('yes')\n"
+        "    return old_open(path, flags, *args, **kwargs)\n"
+        "os.open = injected_open\n"
+    )
+    moved = tmp / "moved_scripts"
+    trigger = tmp / "race_triggered"
+    env = {**os.environ, "PYTHONPATH": str(injector), "CQL_RACE_TARGET": str(target),
+           "CQL_RACE_MOVED": str(moved), "CQL_RACE_OUTSIDE": str(outside),
+           "CQL_RACE_TRIGGER": str(trigger)}
+    proc = subprocess.run(
+        [sys.executable, str(source / "scripts" / "install.py"), "--target", str(target), "--host", "codex"],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=source, env=env, check=False,
+    )
+    preserved = (sentinel.read_bytes() == b"outside user data\n"
+                 and moved.joinpath("quality_loop.py").read_bytes() == script_before
+                 and manifest.read_bytes() == manifest_before)
+    ok = proc.returncode != 0 and trigger.is_file() and preserved
+    return ok, (f"exit={proc.returncode}; triggered={trigger.is_file()}; preserved={preserved}; "
+                f"out={proc.stdout[-130:]!r}; err={proc.stderr[-130:]!r}")
+
+
+def case_direct_install_rejects_missing_runtime_helper(tmp: Path) -> tuple[bool, str]:
+    source = tmp / "source"
+    target = tmp / "target"
+    target.mkdir()
+    shutil.copytree(ROOT / "scripts", source / "scripts")
+    (source / "scripts" / "quality_loop_memory.py").unlink()
+    code, out, err = run_cli(str(source / "scripts" / "install.py"),
+                             "--target", str(target), "--host", "codex", cwd=source)
+    ok = (code != 0 and "quality_loop_memory.py" in out and not any(target.iterdir()))
+    return ok, f"exit={code}; untouched={not any(target.iterdir())}; out={out.strip()[:200]!r}; err={err.strip()[:120]!r}"
+
+
+def case_first_install_rejects_unowned_backup_collision(tmp: Path) -> tuple[bool, str]:
+    details: list[str] = []
+    all_ok = True
+    example_rel = Path("assets/quality-loop.config.example.json")
+    for backup_kind in (".bak", ".pre-quality-loop-backup"):
+        target = tmp / backup_kind.lstrip(".")
+        destination = target / example_rel
+        destination.parent.mkdir(parents=True)
+        original = b"preexisting user config\n"
+        backup = destination.with_suffix(destination.suffix + ".bak") if backup_kind == ".bak" else destination.with_suffix(backup_kind)
+        destination.write_bytes(original)
+        backup.write_bytes(b"unrelated user backup\n")
+        code, out, err = run_cli(str(INSTALL), "--target", str(target), "--host", "codex", cwd=ROOT)
+        preserved = (destination.read_bytes() == original and backup.read_bytes() == b"unrelated user backup\n"
+                     and not (target / ".quality-loop").exists() and not (target / "scripts").exists())
+        blocked = code != 0 and "backup" in out.lower()
+        all_ok &= blocked and preserved
+        details.append(f"{backup_kind}: exit={code} blocked={blocked} preserved={preserved} err={err.strip()[:60]!r}")
+    return all_ok, "; ".join(details)
 
 
 def case_installer_ships_prompts_and_routing_default(tmp: Path) -> tuple[bool, str]:
@@ -1080,8 +1440,9 @@ CASES = [
     ("Stop gate still gates an in-flight modified committed record", case_stop_gate_gates_inflight_modified_record),
     ("Stop gate still gates a dirty tree despite a closed record", case_stop_gate_gates_dirty_tree_despite_closed_record),
     ("Stop gate never closes a record in a no-origin repo", case_stop_gate_never_closes_in_no_origin_repo),
-    ("Install writes portable hooks; uninstall survives interpreter drift", case_install_hooks_portable_and_uninstall_survives_drift),
+    ("Install writes portable hooks; uninstall preserves interpreter drift", case_install_hooks_portable_and_uninstall_blocks_drift),
     ("Stop hook timeout covers the terminal verify umbrella budget", case_settings_stop_timeout_covers_verify),
+    ("Codex SessionStart matchers include compact and fork", case_host_hook_matchers),
     ("Stop gate runs the verify umbrella at terminal statuses", case_stop_gate_terminal_runs_verify_umbrella),
     ("Stop gate skips re-execution when a fresh last-verified marker matches", case_stop_gate_skips_reexec_on_fresh_marker),
     ("Stop gate re-runs the umbrella when the last-verified marker is stale", case_stop_gate_reruns_umbrella_on_stale_marker),
@@ -1102,7 +1463,22 @@ CASES = [
     ("SessionStart includes brief output when scripts present", case_sessionstart_brief),
     ("installer is idempotent for Claude/Codex wiring", case_installer_idempotent_claude_codex),
     ("installer neutralizes agent model/effort pins on copy (ship-neutral)", case_installer_neutralizes_agent_models),
-    ("uninstall skips manifest paths that traverse a symlink outside the target", case_uninstall_skips_symlink_traversal),
+    ("uninstall rejects manifest paths that traverse a symlink outside the target", case_uninstall_skips_symlink_traversal),
+    ("reinstall rejects replaced managed directory symlink before writes", case_reinstall_rejects_symlinked_managed_directory),
+    ("first install rejects symlinked destination before writes", case_first_install_rejects_symlinked_destination),
+    ("upgrade restores byte-identical preexisting file after uninstall", case_upgrade_preserves_identical_preexisting_file),
+    ("uninstall leaves late unrelated backup beside identical preexisting config", case_uninstall_ignores_unrelated_late_backup),
+    ("legacy v2 uninstall refuses ambiguous adjacent backup", case_legacy_v2_uninstall_refuses_ambiguous_backup),
+    ("legacy v2 uninstall refuses a late unrelated adjacent backup", case_legacy_v2_uninstall_refuses_late_unrelated_backup),
+    ("Git hook backup provenance restores the original hook", case_git_hook_backup_provenance),
+    ("Git hook containing CQL marker retains user commands through install/uninstall", case_git_hook_with_cql_marker_preserves_user_command),
+    ("byte-identical preexisting Git hook survives uninstall", case_git_hook_identical_preexisting_survives_uninstall),
+    ("preexisting exact AGENTS.md managed section survives Codex uninstall", case_preexisting_exact_agents_section_survives_uninstall),
+    ("late unrelated Git hook backup is not claimed on reinstall", case_git_late_unowned_backup_not_claimed),
+    ("direct Git hook helper refuses an existing backup collision", case_direct_git_helper_refuses_backup_collision),
+    ("copy refuses a managed-directory symlink swap after preflight", case_copy_refuses_directory_swap_after_preflight),
+    ("direct install rejects a missing imported runtime helper before writes", case_direct_install_rejects_missing_runtime_helper),
+    ("first install rejects unowned backup name collisions before writes", case_first_install_rejects_unowned_backup_collision),
     ("default install ships prompts+routing; render-prompt works; all skips cursor/pi", case_installer_ships_prompts_and_routing_default),
 ]
 
