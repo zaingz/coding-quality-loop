@@ -212,7 +212,14 @@ place in the repo that deliberately swallows errors; the gates stay loud.)
 
 `prices` maps a model-id substring to your rates in USD per million tokens,
 e.g. `{"fable": {"input_per_mtok": 20, "output_per_mtok": 100,
-"cache_read_per_mtok": 2}}`. Longest matching substring wins.
+"cache_read_per_mtok": 2, "cache_creation_per_mtok": 10}}`. These are
+illustrative rates, not a provider price list. Longest matching substring
+wins. If a model call has a nonzero token bucket without a configured rate,
+its USD cost is unknown; missing prices are never treated as free. A day,
+session, or overall USD total is unknown if any included model or nonzero
+bucket lacks a valid rate. Historical Codex calls also remain unpriced until
+their cache-write usage has been reindexed from available rollout files.
+Token counts remain visible.
 
 `retention_days` (default 90) prunes **every table** at index time —
 sessions, model calls, tool calls, artifacts, and events — each by its own
@@ -238,7 +245,7 @@ the per-file offset cache means an unchanged source file is never re-read.
 
 ## Eval coverage
 
-The **40 add-on cases** in `evals/run_control_evals.py` pin: exact token math,
+The **46 add-on cases** in `evals/run_control_evals.py` pin: exact token math,
 incremental/rescan dedupe, malformed-line resilience, subagent attribution,
 artifact ingestion, price arithmetic, every API endpoint, the 127.0.0.1
 bind, GET-only enforcement, dashboard self-containment, ingest no-op when

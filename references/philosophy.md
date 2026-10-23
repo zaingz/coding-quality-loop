@@ -187,13 +187,11 @@ Knowing the non-goals is how the loop stays honest and small.
 - **Not a model or an agent runtime.** It does not run models, manage sessions, recover from
   crashes, ingest traces, or hand off work between git workers. Wiring the routed steps to real
   models is the host platform's job.
-- **Not a replacement for CI, tests, scanners, or human review.** The helper checks that the
-  *evidence* of those runs is present and well-formed; it does not execute your test suite or
-  security scanner.
+- **Not a replacement for CI, tests, scanners, or human review.** The helper checks recorded
+  evidence and can re-execute allowlisted commands, including test commands, with the local
+  user's permissions. It cannot judge test quality or prove that a reviewer read the diff.
 - **Not a provenance or identity system.** Reviewer/implementer separation is compared as strings
   and fresh context is self-attested — it is a discipline, not a cryptographic guarantee.
-- **Not a marketplace plugin (yet).** It installs by copying a folder. `gh skill install` works
-  only once a maintainer publishes and validates a release.
 - **Not process theater.** It refuses to force ceremony onto trivial work. If the smallest correct
   change is a one-line edit, the loop is a one-line edit.
 - **Not a vendor lock-in.** It is portable by construction and takes no dependencies, so adopting

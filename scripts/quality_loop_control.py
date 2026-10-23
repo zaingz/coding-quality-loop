@@ -235,6 +235,7 @@ def validate_control_plane(block: Any) -> list[str]:
 #     details may carry session_id. Since v8 a version-mismatch rebuild first
 #     exports hook events to events-backup-schema<N>.jsonl (append-safe).
 SCHEMA_VERSION = 8
+CODEX_USAGE_INDEX_REV = "2"  # v2 adds cache_write_input_tokens from rollout usage
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -825,7 +826,7 @@ def _index_codex_line(
                         _as_int(last.get("input_tokens")),
                         _as_int(last.get("output_tokens")),
                         _as_int(last.get("cached_input_tokens")),
-                        0,  # codex does not report cache-creation separately
+                        _as_int(last.get("cache_write_input_tokens")),
                     ),
                 )
                 stats["model_calls"] += cur.rowcount if cur.rowcount > 0 else 0
@@ -1308,6 +1309,21 @@ def index_all(root: Path, all_projects: bool = False) -> dict[str, Any]:
         conn.execute(
             "INSERT INTO meta(key, value) VALUES('repo_roots', ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (roots_now,))
+        if _meta_get(conn, "codex_usage_index_rev") != CODEX_USAGE_INDEX_REV:
+            # Re-read only previously indexed Codex model calls to populate
+            # cached writes in schema-8 DBs. Retain sessions, tool calls, and
+            # hook events: hook-first sessions use source='hook', and their
+            # ended_at/events cannot be regenerated from a rollout.
+            session_ids = {r["id"] for r in conn.execute(
+                "SELECT DISTINCT s.id FROM sessions s JOIN model_calls m ON m.session_id=s.id "
+                "WHERE s.host='codex'"
+            ).fetchall()}
+            rollouts_by_id = {_codex_session_id(path): path for path in codex_rollout_files()}
+            if session_ids.issubset(rollouts_by_id):
+                for session_id in session_ids:
+                    conn.execute("DELETE FROM model_calls WHERE session_id=?", (session_id,))
+                    conn.execute("DELETE FROM file_state WHERE path=?", (str(rollouts_by_id[session_id]),))
+                _meta_set(conn, "codex_usage_index_rev", CODEX_USAGE_INDEX_REV)
         for tdir, cwd_check_roots in transcript_dirs(root, all_projects):
             for path in sorted(tdir.glob("*.jsonl")):
                 if cwd_check_roots is not None and not _file_in_roots(path, cwd_check_roots):
@@ -1408,16 +1424,57 @@ def _price_for(model: str | None, prices: dict[str, Any]) -> dict[str, float] | 
     return best[1] if best else None
 
 
-def _cost(row: dict[str, Any], rates: dict[str, float] | None) -> float | None:
-    if not rates:
+def _cost(row: dict[str, Any], rates: dict[str, float] | None,
+          host: str | None, codex_usage_current: bool) -> float | None:
+    if not rates or host is None:
         return None
-    per = {
-        "input_tokens": rates.get("input_per_mtok", 0.0),
-        "output_tokens": rates.get("output_per_mtok", 0.0),
-        "cache_read_tokens": rates.get("cache_read_per_mtok", 0.0),
-        "cache_creation_tokens": rates.get("cache_creation_per_mtok", 0.0),
-    }
-    return round(sum(row.get(col, 0) * rate / 1_000_000 for col, rate in per.items()), 6)
+    input_tokens = row.get("input_tokens", 0)
+    output_tokens = row.get("output_tokens", 0)
+    cache_read_tokens = row.get("cache_read_tokens", 0)
+    cache_creation_tokens = row.get("cache_creation_tokens", 0)
+    # A negative row must not be hidden by a positive row when SQL groups
+    # calls. Direct callers may also supply malformed/nonfinite values.
+    if row.get("invalid_negative_usage"):
+        return None
+    for tokens in (input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens):
+        if not isinstance(tokens, (int, float)) or isinstance(tokens, bool):
+            return None
+        try:
+            if tokens < 0 or not math.isfinite(tokens):
+                return None
+        except (OverflowError, TypeError, ValueError):
+            return None
+    if host == "codex":
+        # Codex reports cached and cache-write input as subsets of input_tokens.
+        # Keep the reported total for dashboards, but price only the uncached
+        # remainder at the ordinary input rate. Old rows without a completed
+        # usage refresh may be missing cache writes entirely; their USD is
+        # unknown until their rollout is available and reindexed.
+        if (not codex_usage_current or row.get("invalid_codex_usage")
+                or cache_read_tokens + cache_creation_tokens > input_tokens):
+            return None
+        input_tokens -= cache_read_tokens + cache_creation_tokens
+    buckets = (
+        ("input_per_mtok", input_tokens),
+        ("output_per_mtok", output_tokens),
+        ("cache_read_per_mtok", cache_read_tokens),
+        ("cache_creation_per_mtok", cache_creation_tokens),
+    )
+    # Missing or malformed rates for nonzero buckets are unknown, not zero.
+    # The config validator reports invalid input, but read-side pricing must
+    # remain total even when called before validation or on an older config.
+    total = 0.0
+    for key, tokens in buckets:
+        if not tokens:
+            continue
+        rate = rates.get(key)
+        if (not isinstance(rate, (int, float)) or isinstance(rate, bool)
+                or not math.isfinite(rate) or rate < 0):
+            return None
+        total += tokens * rate
+        if not math.isfinite(total):
+            return None
+    return round(total / 1_000_000, 6)
 
 
 # Claude Code writes a "<synthetic>" model on placeholder assistant turns that
@@ -1428,25 +1485,37 @@ _REAL_MODEL_SQL = "(model IS NULL OR model != '<synthetic>')"
 
 
 def spend(conn: sqlite3.Connection, by: str = "model", prices: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    codex_usage_current = _meta_get(conn, "codex_usage_index_rev") == CODEX_USAGE_INDEX_REV
     group = {
-        "model": "COALESCE(model, 'unknown')",
-        "day": "COALESCE(substr(ts, 1, 10), 'unknown')",
-        "session": "session_id",
-        "agent": "COALESCE(agent, 'main')",
-    }.get(by, "COALESCE(model, 'unknown')")
-    # Grouped per (key, model) so USD is priced per model even when the group
-    # mixes models (a day or session with two models must not bill one price).
+        "model": "COALESCE(m.model, 'unknown')",
+        "day": "COALESCE(substr(m.ts, 1, 10), 'unknown')",
+        "session": "m.session_id",
+        "agent": "COALESCE(m.agent, 'main')",
+    }.get(by, "COALESCE(m.model, 'unknown')")
+    # Grouped per (key, model, host): the same model can occur in both Claude
+    # and Codex sessions, whose input/cache token fields have different units.
     rows = conn.execute(
-        f"SELECT {group} AS key, COALESCE(model, 'unknown') AS model, COUNT(*) AS calls, "  # noqa: S608 - group is whitelisted above
-        "SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, "
-        "SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_creation_tokens) AS cache_creation_tokens "
-        f"FROM model_calls WHERE {_REAL_MODEL_SQL} GROUP BY {group}, model"  # noqa: S608
+        f"SELECT {group} AS key, COALESCE(m.model, 'unknown') AS model, s.host AS host, "  # noqa: S608 - group is whitelisted above
+        "COUNT(*) AS calls, SUM(m.input_tokens) AS input_tokens, SUM(m.output_tokens) AS output_tokens, "
+        "SUM(m.cache_read_tokens) AS cache_read_tokens, SUM(m.cache_creation_tokens) AS cache_creation_tokens, "
+        "MAX(CASE WHEN m.input_tokens < 0 OR m.output_tokens < 0 OR m.cache_read_tokens < 0 "
+        "OR m.cache_creation_tokens < 0 THEN 1 ELSE 0 END) AS invalid_negative_usage, "
+        "MAX(CASE WHEN m.cache_read_tokens + m.cache_creation_tokens > m.input_tokens "
+        "THEN 1 ELSE 0 END) AS invalid_codex_usage "
+        f"FROM model_calls m LEFT JOIN sessions s ON s.id=m.session_id WHERE {_REAL_MODEL_SQL} "  # noqa: S608
+        f"GROUP BY {group}, m.model, s.host"  # noqa: S608
     ).fetchall()
     merged: dict[str, dict[str, Any]] = {}
+    unknown_cost_keys: set[str] = set()
     for row in rows:
         sub = {k: row[k] if row[k] is not None else 0 for k in
                ("calls", "input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens")}
-        sub_cost = _cost(sub, _price_for(row["model"], prices or {}))
+        sub["invalid_negative_usage"] = row["invalid_negative_usage"]
+        sub["invalid_codex_usage"] = row["invalid_codex_usage"]
+        rates = _price_for(row["model"], prices or {})
+        sub_cost = _cost(sub, rates, row["host"], codex_usage_current)
+        if sub_cost is None:
+            unknown_cost_keys.add(row["key"])
         item = merged.setdefault(row["key"], {
             "key": row["key"], "calls": 0, "input_tokens": 0, "output_tokens": 0,
             "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": None,
@@ -1455,6 +1524,8 @@ def spend(conn: sqlite3.Connection, by: str = "model", prices: dict[str, Any] | 
             item[k] += sub[k]
         if sub_cost is not None:
             item["cost_usd"] = round((item["cost_usd"] or 0.0) + sub_cost, 6)
+    for key in unknown_cost_keys:
+        merged[key]["cost_usd"] = None
     return sorted(merged.values(), key=lambda item: -item["output_tokens"])
 
 
@@ -1469,7 +1540,10 @@ def overview(conn: sqlite3.Connection, prices: dict[str, Any] | None = None) -> 
     totals["tool_calls"] = conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0]
     by_model = spend(conn, "model", prices)
     costs = [r["cost_usd"] for r in by_model if r["cost_usd"] is not None]
-    totals["cost_usd"] = round(sum(costs), 4) if costs else None
+    totals["cost_usd"] = (
+        round(sum(costs), 4) if costs and all(r["cost_usd"] is not None for r in by_model)
+        else None
+    )
     by_day = sorted(spend(conn, "day", prices), key=lambda r: str(r["key"]), reverse=True)
     return {
         "totals": totals,
@@ -1485,6 +1559,7 @@ def overview(conn: sqlite3.Connection, prices: dict[str, Any] | None = None) -> 
 
 def list_sessions(conn: sqlite3.Connection, limit: int = 200,
                   prices: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    codex_usage_current = _meta_get(conn, "codex_usage_index_rev") == CODEX_USAGE_INDEX_REV
     rows = conn.execute(
         "SELECT s.*, "
         "(SELECT COUNT(*) FROM model_calls m WHERE m.session_id = s.id) AS model_calls, "
@@ -1500,31 +1575,47 @@ def list_sessions(conn: sqlite3.Connection, limit: int = 200,
     # when the user configured prices; otherwise cost_usd stays None and the UI
     # hides the column. Real models only, matching every other spend grouping.
     cost_by_session: dict[str, float] = {}
+    unknown_cost_sessions: set[str] = set()
     if prices:
         for row in conn.execute(
-            f"SELECT session_id, COALESCE(model,'unknown') AS model, "  # noqa: S608
-            "SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, "
-            "SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_creation_tokens) AS cache_creation_tokens "
-            f"FROM model_calls WHERE {_REAL_MODEL_SQL} GROUP BY session_id, model"  # noqa: S608
+            f"SELECT m.session_id, COALESCE(m.model,'unknown') AS model, s.host AS host, "  # noqa: S608
+            "SUM(m.input_tokens) AS input_tokens, SUM(m.output_tokens) AS output_tokens, "
+            "SUM(m.cache_read_tokens) AS cache_read_tokens, SUM(m.cache_creation_tokens) AS cache_creation_tokens, "
+            "MAX(CASE WHEN m.input_tokens < 0 OR m.output_tokens < 0 OR m.cache_read_tokens < 0 "
+            "OR m.cache_creation_tokens < 0 THEN 1 ELSE 0 END) AS invalid_negative_usage, "
+            "MAX(CASE WHEN m.cache_read_tokens + m.cache_creation_tokens > m.input_tokens "
+            "THEN 1 ELSE 0 END) AS invalid_codex_usage "
+            f"FROM model_calls m LEFT JOIN sessions s ON s.id=m.session_id WHERE {_REAL_MODEL_SQL} "  # noqa: S608
+            "GROUP BY m.session_id, m.model, s.host"
         ).fetchall():
             sub = {k: row[k] or 0 for k in
                    ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens")}
-            c = _cost(sub, _price_for(row["model"], prices))
+            sub["invalid_negative_usage"] = row["invalid_negative_usage"]
+            sub["invalid_codex_usage"] = row["invalid_codex_usage"]
+            rates = _price_for(row["model"], prices)
+            c = _cost(sub, rates, row["host"], codex_usage_current)
+            if c is None:
+                unknown_cost_sessions.add(row["session_id"])
             if c is not None:
                 cost_by_session[row["session_id"]] = round(cost_by_session.get(row["session_id"], 0.0) + c, 6)
     for s in out:
-        s["cost_usd"] = cost_by_session.get(s["id"])
+        s["cost_usd"] = None if s["id"] in unknown_cost_sessions else cost_by_session.get(s["id"])
     return out
 
 
 def session_detail(conn: sqlite3.Connection, session_id: str, prices: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    codex_usage_current = _meta_get(conn, "codex_usage_index_rev") == CODEX_USAGE_INDEX_REV
     row = conn.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
     if row is None:
         return None
     models = conn.execute(
         "SELECT COALESCE(model,'unknown') AS key, COALESCE(agent,'main') AS agent, COUNT(*) AS calls, "
         "SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, "
-        "SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_creation_tokens) AS cache_creation_tokens "
+        "SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_creation_tokens) AS cache_creation_tokens, "
+        "MAX(CASE WHEN input_tokens < 0 OR output_tokens < 0 OR cache_read_tokens < 0 "
+        "OR cache_creation_tokens < 0 THEN 1 ELSE 0 END) AS invalid_negative_usage, "
+        "MAX(CASE WHEN cache_read_tokens + cache_creation_tokens > input_tokens "
+        "THEN 1 ELSE 0 END) AS invalid_codex_usage "
         "FROM model_calls WHERE session_id=? GROUP BY key, agent ORDER BY output_tokens DESC",
         (session_id,),
     ).fetchall()
@@ -1533,7 +1624,10 @@ def session_detail(conn: sqlite3.Connection, session_id: str, prices: dict[str, 
         item = dict(m)
         for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens"):
             item[k] = item[k] or 0
-        item["cost_usd"] = _cost(item, _price_for(m["key"], prices or {}))
+        item["cost_usd"] = _cost(item, _price_for(m["key"], prices or {}), row["host"],
+                                 codex_usage_current)
+        item.pop("invalid_negative_usage")
+        item.pop("invalid_codex_usage")
         model_rows.append(item)
     tools = conn.execute(
         "SELECT ts, tool, target, agent, sidechain, status FROM tool_calls "
@@ -1890,6 +1984,7 @@ def loop_metrics(conn: sqlite3.Connection, root: Path, prices: dict[str, Any] | 
         except (ValueError, OSError):
             topo_agents = {}
     by_role: dict[str, dict[str, Any]] = {}
+    unknown_role_costs: set[str] = set()
     for row in spend(conn, "agent", prices):
         role = _role_for_agent(row["key"], topo_agents)
         item = by_role.setdefault(role, {"role": role, "calls": 0, "input_tokens": 0,
@@ -1897,8 +1992,12 @@ def loop_metrics(conn: sqlite3.Connection, root: Path, prices: dict[str, Any] | 
                                           "cache_creation_tokens": 0, "cost_usd": None})
         for k in ("calls", "input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens"):
             item[k] += row.get(k, 0)
-        if row.get("cost_usd") is not None:
+        if row.get("cost_usd") is None:
+            unknown_role_costs.add(role)
+        else:
             item["cost_usd"] = round((item["cost_usd"] or 0.0) + row["cost_usd"], 6)
+    for role in unknown_role_costs:
+        by_role[role]["cost_usd"] = None
 
     durations = []
     for s in conn.execute(
@@ -1942,6 +2041,7 @@ def loop_metrics(conn: sqlite3.Connection, root: Path, prices: dict[str, Any] | 
         agg: dict[str, Any] = {"task_id": task, "sessions": 0, "input_tokens": 0,
                                "output_tokens": 0, "cache_read_tokens": 0,
                                "cache_creation_tokens": 0, "cost_usd": None}
+        unknown_cost = False
         for d in deleg_rows:
             sess = d.get("session")
             if d.get("task_id") != task or not isinstance(sess, dict) or "tokens" not in sess:
@@ -1953,8 +2053,12 @@ def loop_metrics(conn: sqlite3.Connection, root: Path, prices: dict[str, Any] | 
             for k in ("input_tokens", "output_tokens", "cache_read_tokens",
                       "cache_creation_tokens"):
                 agg[k] += srow.get(k) or 0
-            if srow.get("cost_usd") is not None:
+            if srow.get("cost_usd") is None:
+                unknown_cost = True
+            else:
                 agg["cost_usd"] = round((agg["cost_usd"] or 0.0) + srow["cost_usd"], 6)
+        if unknown_cost:
+            agg["cost_usd"] = None
         accepted_rows.append(agg)
 
     return {

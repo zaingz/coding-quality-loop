@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -96,6 +97,18 @@ MINIMALITY_RUNGS = {
 }
 # Optional per-run process-tax metrics (R3). All fields are optional numbers.
 RUN_METRICS_FIELDS = {"tokens_in", "tokens_out", "cost_usd", "duration_sec"}
+
+
+def _finite_non_negative_number(value: Any) -> bool:
+    # JSON integers are finite even when too large for float conversion.
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and value >= 0
+        and (not isinstance(value, float) or math.isfinite(value))
+    )
+
+
 COMMAND_RESULTS = {"pass", "fail", "blocked"}
 COMMAND_CLASSES = {
     "format",
@@ -631,6 +644,7 @@ def record_add_evidence(args: argparse.Namespace) -> int:
             _require_nonempty("--cmd", args.cmd),
             _require_nonempty("--evidence", args.evidence),
             _require_nonempty("--reason", args.reason) if args.reason is not None else None,
+            _require_nonempty("--expected-red", args.expected_red) if args.expected_red is not None else None,
         ) if e
     ]
     commands = record.setdefault("commands_run", [])
@@ -648,6 +662,8 @@ def record_add_evidence(args: argparse.Namespace) -> int:
     }
     if args.reason is not None:
         row["reason"] = args.reason
+    if args.expected_red is not None:
+        row["expected_red"] = args.expected_red
     commands.append(row)
     return _commit_record_mutation(
         path, record, errors_before,
@@ -728,7 +744,7 @@ def record_outcome(args: argparse.Namespace) -> int:
     return 0
 
 
-def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
+def record_validation_issues(record: Any) -> tuple[list[str], list[str]]:
     """Structural + shape + lifecycle-stage validation, shared by `check-record`
     and the `record` mutation verbs. Returns (errors, warnings); the caller
     decides how to surface them. A mutation verb refuses to write when it would
@@ -736,6 +752,8 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
     can never persist a record it just made invalid."""
     errors: list[str] = []
     warnings: list[str] = []
+    if not isinstance(record, dict):
+        return ["record must be an object"], warnings
 
     required = [
         "task_id",
@@ -756,11 +774,20 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         errors.append("task_id must be a non-empty string")
     if not isinstance(record.get("goal"), str) or not record.get("goal", "").strip():
         errors.append("goal must be a non-empty string")
-    if record.get("risk_tier") not in RISK_TIERS:
+    risk_tier = record.get("risk_tier")
+    if not isinstance(risk_tier, str) or risk_tier not in RISK_TIERS:
         errors.append("risk_tier must be one of: low, medium, high")
-    status = record.get("status")
+    raw_status = record.get("status")
+    status = raw_status if isinstance(raw_status, str) else None
     if status not in STATUSES:
         errors.append("status is not a valid lifecycle state")
+    task_class = record.get("task_class")
+    if task_class is not None and (
+        not isinstance(task_class, str) or task_class not in {"tiny", "small", "medium", "mission"}
+    ):
+        errors.append("task_class must be one of: tiny, small, medium, mission, null")
+    if "security_sensitive" in record and not isinstance(record["security_sensitive"], bool):
+        errors.append("security_sensitive must be a boolean")
     # A legacy `phase` field (from the retired three-phase model) is tolerated and
     # ignored — no gate consumes it, so its value is never validated.
 
@@ -769,7 +796,8 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         if not isinstance(minimality, dict):
             errors.append("minimality_decision must be an object")
         else:
-            if minimality.get("rung") not in MINIMALITY_RUNGS:
+            rung = minimality.get("rung")
+            if not isinstance(rung, str) or rung not in MINIMALITY_RUNGS:
                 errors.append("minimality_decision.rung is invalid")
             if not minimality.get("reason"):
                 errors.append("minimality_decision.reason is required")
@@ -790,6 +818,18 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
         if array_key in record and not isinstance(record[array_key], list):
             errors.append(f"{array_key} must be an array")
 
+    repo_map = record.get("repo_map")
+    if "repo_map" in record:
+        if not isinstance(repo_map, dict):
+            errors.append("repo_map must be an object")
+        else:
+            for key in ("entry_points", "likely_files", "callers_checked", "tests", "patterns_to_follow"):
+                if key in repo_map and (
+                    not isinstance(repo_map[key], list)
+                    or not all(isinstance(item, str) for item in repo_map[key])
+                ):
+                    errors.append(f"repo_map.{key} must be an array of strings")
+
     commands = record.get("commands_run")
     if isinstance(commands, list):
         for idx, cmd in enumerate(commands):
@@ -798,10 +838,11 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
                 continue
             if not isinstance(cmd.get("cmd"), str) or not cmd.get("cmd", "").strip():
                 errors.append(f"commands_run[{idx}].cmd must be a non-empty string")
-            if cmd.get("result") not in COMMAND_RESULTS:
+            result = cmd.get("result")
+            if not isinstance(result, str) or result not in COMMAND_RESULTS:
                 errors.append(f"commands_run[{idx}].result must be one of: pass, fail, blocked")
             cls = cmd.get("class")
-            if cls is not None and cls not in COMMAND_CLASSES:
+            if cls is not None and (not isinstance(cls, str) or cls not in COMMAND_CLASSES):
                 errors.append(
                     f"commands_run[{idx}].class is not a recognized class: {cls!r}"
                 )
@@ -817,6 +858,12 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
                     errors.append(
                         f"commands_run[{idx}].{reason_key} must be a non-empty string when present"
                     )
+            if "expected_red" in cmd and (
+                not isinstance(cmd["expected_red"], str) or not cmd["expected_red"].strip()
+            ):
+                errors.append(
+                    f"commands_run[{idx}].expected_red must be a non-empty string when present"
+                )
 
     for artifact_key in ("validation_contract", "completion_record", "harness_update"):
         value = record.get(artifact_key)
@@ -850,10 +897,8 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
             for key, value in run_metrics.items():
                 if key not in RUN_METRICS_FIELDS:
                     errors.append(f"run_metrics has unknown key: {key!r}")
-                elif isinstance(value, bool) or not isinstance(value, (int, float)):
-                    errors.append(f"run_metrics.{key} must be a number")
-                elif value < 0:
-                    errors.append(f"run_metrics.{key} must be >= 0")
+                elif not _finite_non_negative_number(value):
+                    errors.append(f"run_metrics.{key} must be a finite number >= 0")
 
     # Optional shipped-work outcome (v6.2): {verdict, note, recorded_at}, set by
     # `record outcome`. Absence is valid and no gate requires it; when present
@@ -920,10 +965,8 @@ def record_validation_issues(record: dict) -> tuple[list[str], list[str]]:
                     errors.append(f"models_used[{idx}].attempts must be an integer >= 1")
                 for num_key in ("tokens_in", "tokens_out", "cost_usd"):
                     val = entry.get(num_key)
-                    if val is not None and (
-                        isinstance(val, bool) or not isinstance(val, (int, float)) or val < 0
-                    ):
-                        errors.append(f"models_used[{idx}].{num_key} must be a non-negative number")
+                    if val is not None and not _finite_non_negative_number(val):
+                        errors.append(f"models_used[{idx}].{num_key} must be a finite non-negative number")
     escalations = record.get("escalations")
     if escalations is not None:
         if not isinstance(escalations, list):
@@ -1929,23 +1972,130 @@ def check_config(args: argparse.Namespace) -> int:
 
 
 def _latest_record_summary(cwd: Path) -> dict[str, Any]:
-    """Return open risks and status from the most recent agent record."""
+    """Return resume details from the most recent agent record."""
     for path in (cwd / ".quality-loop" / "agent-record.json", cwd / "agent-record.json"):
         if path.is_file():
             try:
-                data = load_json(path)
-            except (json.JSONDecodeError, OSError):
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
                 return {"path": str(path), "error": "invalid JSON"}
+            if not isinstance(data, dict):
+                return {"path": str(path), "error": "record must be a JSON object"}
+            for field in ("task_id", "goal", "status", "risk_tier", "next_action", "escalation_reason"):
+                if field in data and data[field] is not None and not isinstance(data[field], str):
+                    return {"path": str(path), "error": f"invalid {field}: expected a string"}
+            for field in ("task_id", "goal"):
+                if not isinstance(data.get(field), str) or not data[field].strip():
+                    return {"path": str(path), "error": f"missing or empty {field}"}
+            if data.get("status") not in STATUSES:
+                return {"path": str(path), "error": "invalid or missing status"}
+            if data.get("risk_tier") not in RISK_TIERS:
+                return {"path": str(path), "error": "invalid or missing risk_tier"}
+            if data["status"] in TERMINAL_STATUSES:
+                # A terminal handoff must not say "done" when the same record
+                # fails check-record. In-progress legacy summaries stay usable.
+                errors, _ = record_validation_issues(data)
+                if errors:
+                    return {"path": str(path), "error": "invalid terminal record: " + "; ".join(errors[:3])}
+            for field in ("open_risks", "review_findings"):
+                if field in data and (not isinstance(data[field], list)
+                                      or not all(isinstance(item, str) for item in data[field])):
+                    return {"path": str(path), "error": f"invalid {field}: expected a list of strings"}
             return {
                 "path": str(path),
                 "task_id": data.get("task_id", "?"),
                 "goal": data.get("goal", ""),
                 "status": data.get("status", "?"),
                 "risk_tier": data.get("risk_tier", "?"),
+                "next_action": data.get("next_action"),
+                "escalation_reason": data.get("escalation_reason"),
                 "open_risks": data.get("open_risks", []),
                 "review_findings": data.get("review_findings", []),
             }
     return {}
+
+
+def _brief_recovery(cwd: Path, record_summary: dict[str, Any]) -> dict[str, str]:
+    """Read-only comparison with saved local inputs; never run commands.
+
+    A matching marker means raw source, index, allowlist and record bytes still
+    match one local passing verify. Review freshness is compared with the
+    current canonical diff when Git can compute it without executing filters.
+    Local records and markers are forgeable; neither result proves authenticity,
+    repeatability of commands, or an external effect's outcome.
+    """
+    result = {
+        "local_verification": "unknown",
+        "review_diff": "unknown",
+        "external_effects": "not_inspected",
+    }
+    if not record_summary or "error" in record_summary:
+        return result
+    marker_path = cwd / ".quality-loop" / "last-verified.json"
+    try:
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return result
+    if not isinstance(marker, dict):
+        return result
+    base = marker.get("base")
+    marker_diff = marker.get("diff_sha256")
+    marker_record = marker.get("record_sha256")
+    marker_path_record = marker.get("record_path")
+    marker_snapshot = marker.get("source_snapshot_sha256")
+    if not all(isinstance(value, str) and value for value in (base, marker_diff, marker_record, marker_snapshot)):
+        return result
+    # The marker is local data, not a trusted CLI argument. A leading dash
+    # could turn its base into a git diff option such as --output=<path>.
+    if base.startswith("-"):
+        return result
+    record_path = Path(record_summary["path"])
+    # A passing verify for a different record can have identical bytes while
+    # resolving path-relative artifacts differently. Older unbound markers
+    # remain unknown until the user deliberately runs verify again.
+    if not isinstance(marker_path_record, str):
+        return result
+    try:
+        if Path(marker_path_record).resolve() != record_path.resolve():
+            return result
+    except (OSError, RuntimeError):
+        return result
+    record_hash = _file_sha256(record_path)
+    if record_hash is None:
+        return result
+    try:
+        # Read raw files and Git's NUL-delimited index only. Calling git diff
+        # here can execute repository-configured clean/process filters.
+        current_snapshot = qlreal.source_snapshot_sha256(base, cwd)
+    except (OSError, SystemExit, ValueError, RuntimeError):
+        return result
+    result["local_verification"] = (
+        "unchanged_since_pass"
+        if marker.get("status") == record_summary.get("status")
+        and marker_record == record_hash and marker_snapshot == current_snapshot
+        else "stale"
+    )
+    try:
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return result
+    if not isinstance(record, dict):
+        return result
+    reviews = [record.get(name) for name in ("independent_review", "security_review")]
+    hashes = [review.get("diff_sha256") for review in reviews if isinstance(review, dict)]
+    if hashes:
+        # Never take the marker's diff hash as authority. A writable marker
+        # and review can agree with each other while both disagreeing with
+        # the actual source diff. When Git has an executable clean/process
+        # filter configured, passive inspection cannot safely compute that
+        # diff, so review freshness remains unknown.
+        current_diff = qlreal.passive_canonical_diff_sha256(base, cwd)
+        if current_diff is not None:
+            result["review_diff"] = (
+                "hash_match" if all(isinstance(value, str) and value == current_diff for value in hashes)
+                else "stale"
+            )
+    return result
 
 
 def _outcomes_tally(cwd: Path) -> str | None:
@@ -2087,6 +2237,7 @@ def _heterogeneity_warning(cwd: Path, config_path: Path | None) -> str | None:
 def cmd_brief(args: argparse.Namespace) -> int:
     cwd = Path(getattr(args, "cwd", ".")).resolve()
     record_summary = _latest_record_summary(cwd)
+    recovery = _brief_recovery(cwd, record_summary)
     progress = _progress_tail(cwd)
 
     budget = max(100, getattr(args, "budget", 800))
@@ -2139,6 +2290,13 @@ def cmd_brief(args: argparse.Namespace) -> int:
         sections.append(f"## Progress (tail)\n{progress}")
     else:
         sections.append("## Progress\nno progress.md found")
+    if record_summary:
+        sections.append(
+            "## Recovery\n"
+            f"local verification: {recovery['local_verification']}; "
+            f"review diff: {recovery['review_diff']}; "
+            "external effects: not inspected"
+        )
 
     config_path = getattr(args, "config", None)
     routing_info = qlroute.brief_routing_info(cwd, Path(config_path) if config_path else None)
@@ -2156,13 +2314,27 @@ def cmd_brief(args: argparse.Namespace) -> int:
         sections.append("## Reviewer heterogeneity\n" + het_warning)
 
     next_hint = "Run the loop on the next task, or resume an incomplete one."
+    if record_summary and "error" in record_summary:
+        next_hint = "Repair the invalid record before continuing."
     if record_summary and "error" not in record_summary and record_summary.get("status") not in ("done", "?"):
-        next_hint = f"Resume incomplete task: {record_summary.get('goal', '?')} (status: {record_summary.get('status', '?')})"
+        escalation_reason = record_summary.get("escalation_reason")
+        recorded_action = record_summary.get("next_action")
+        if record_summary.get("status") == "escalated":
+            next_hint = (
+                f"Resolve escalation: {escalation_reason.strip()}"
+                if isinstance(escalation_reason, str) and escalation_reason.strip()
+                else "Resolve escalation before continuing."
+            )
+        elif isinstance(recorded_action, str) and recorded_action.strip():
+            next_hint = recorded_action.strip()
+        else:
+            next_hint = f"Resume incomplete task: {record_summary.get('goal', '?')} (status: {record_summary.get('status', '?')})"
     sections.append(f"## Suggested next step\n{next_hint}")
 
     if getattr(args, "json", False):
         payload = {
             "record": record_summary,
+            "recovery": recovery,
             "lessons_recalled": len(selected),
             "lessons_digest": lessons_text,
             "progress": progress,
@@ -2404,8 +2576,30 @@ def verify(args: argparse.Namespace) -> int:
     import contextlib
     import io
 
+    def _report_shape_failure(shape_errors: list[str]) -> int:
+        print("VERIFY — unified gate report")
+        print("\n[FAIL] check-record (shape)")
+        for error in shape_errors:
+            print(f"  error: {error}")
+        try:
+            (Path.cwd() / ".quality-loop" / "last-verified.json").unlink(missing_ok=True)
+        except OSError:
+            pass
+        print("\nOverall: FAIL")
+        return 1
+
     record_path = Path(args.record)
-    record = load_json(record_path)
+    try:
+        with contextlib.redirect_stderr(io.StringIO()) as load_errors:
+            record = load_json(record_path)
+    except SystemExit:
+        return _report_shape_failure([load_errors.getvalue().strip().removeprefix("error: ")])
+    # The CI action calls verify directly, so it must reject the same invalid
+    # record shapes as check-record before considering evidence or running any
+    # commands declared by that record.
+    shape_errors, _ = record_validation_issues(record)
+    if shape_errors:
+        return _report_shape_failure(shape_errors)
     requested_base = getattr(args, "base", None)
     # Resolve the base once and reuse it for every diff-grounded section. With
     # no explicit --base, auto-resolve (merge-base of the origin/main ladder and
@@ -2419,6 +2613,14 @@ def verify(args: argparse.Namespace) -> int:
     else:
         base, base_hint = _resolve_default_base(require_terminal=require_terminal)
         requested_base = "auto"
+    try:
+        # Evidence commands can modify source or the allowlist while they run.
+        # Capture inputs before any gate section so a post-command marker cannot
+        # silently bless code that the earlier diff checks never inspected.
+        snapshot_before = qlreal.source_snapshot_sha256(base, Path.cwd())
+    except (OSError, SystemExit, ValueError, RuntimeError):
+        snapshot_before = None
+    record_hash_before = _file_sha256(record_path)
     all_findings: list[str] = []
     all_warnings: list[str] = []
     if base_hint:
@@ -2562,6 +2764,32 @@ def verify(args: argparse.Namespace) -> int:
                 f"status={rec_status!r}; diff_nonempty={diff_nonempty}",
             ))
 
+    # The saved canonical hash must be computed before the final raw snapshot:
+    # explicit Git diff can itself execute configured filters. Any local change
+    # made by checks or filters invalidates this verification run.
+    marker_diff: str | None = None
+    if snapshot_before is not None and not all_findings and not any(rc for _, rc, _ in sections):
+        try:
+            marker_diff = qlreal.canonical_diff_sha256(base, Path.cwd())
+        except (OSError, SystemExit, ValueError, RuntimeError):
+            pass
+    try:
+        snapshot_after = qlreal.source_snapshot_sha256(base, Path.cwd())
+    except (OSError, SystemExit, ValueError, RuntimeError):
+        snapshot_after = None
+    record_hash_after = _file_sha256(record_path)
+    input_findings: list[str] = []
+    if snapshot_before is not None and snapshot_after != snapshot_before:
+        input_findings.append("source or allowlist changed during verification; inspect the change and rerun verify")
+    if record_hash_before is not None and record_hash_after != record_hash_before:
+        input_findings.append("agent record changed during verification; inspect the change and rerun verify")
+    if input_findings:
+        all_findings.extend(input_findings)
+        sections.append(("verification input stability", 1, "\n".join(input_findings)))
+    elif (not all_findings and not any(rc for _, rc, _ in sections)
+          and (snapshot_before is None or record_hash_before is None or marker_diff is None)):
+        all_warnings.append("saved verification marker unavailable; Stop will rerun the full umbrella")
+
     # Unified report
     print("=" * 60)
     print("VERIFY — unified gate report")
@@ -2594,30 +2822,34 @@ def verify(args: argparse.Namespace) -> int:
     overall = 1 if (all_findings or section_fail) else 0
 
     # Last-verified marker for the stop-gate fast path: written ONLY on an
-    # overall PASS, under .quality-loop/ (hash-excluded, so writing it never
-    # stales a review). The hook skips re-running the umbrella only when the
-    # marker's canonical diff hash, the record's own content hash, AND the
-    # record status all still match; a FAIL removes any stale marker so absence
-    # always means "run the full umbrella". The record hash is load-bearing:
+    # overall PASS with stable inputs, under .quality-loop/ (hash-excluded, so
+    # writing it never stales a review). The hook skips re-running the umbrella
+    # only when the marker's raw source snapshot (including the allowlist),
+    # record path and content hash, AND status still match; a FAIL removes any
+    # stale marker so absence means "run the full umbrella". The record hash is load-bearing:
     # the umbrella verdict depends on the record (it re-executes commands_run
     # and checks AC coverage), and the record lives under .quality-loop/, which
     # the canonical DIFF hash excludes — so without binding the record content
     # a post-verify `record add-evidence` could flip the umbrella to FAIL while
-    # the marker still matched. Purely a latency optimization — best-effort,
-    # never exit-affecting.
+    # the marker still matched. The marker is a latency optimization; the
+    # separate input-stability check above is an exit-affecting gate.
     marker = Path.cwd() / ".quality-loop" / "last-verified.json"
     try:
-        if overall == 0:
+        if (overall == 0 and snapshot_before is not None
+                and snapshot_after == snapshot_before and marker_diff is not None
+                and record_hash_after == record_hash_before and record_hash_after is not None):
             write_json(marker, {
-                "diff_sha256": qlreal.canonical_diff_sha256(base, Path.cwd()),
-                "record_sha256": _file_sha256(record_path),
+                "diff_sha256": marker_diff,
+                "source_snapshot_sha256": snapshot_after,
+                "record_sha256": record_hash_after,
+                "record_path": str(record_path.resolve()),
                 "base": base,
                 "status": record.get("status"),
                 "verified_at": _utc_now_iso(),
             })
         else:
             marker.unlink(missing_ok=True)
-    except (OSError, SystemExit):
+    except (OSError, SystemExit, ValueError, RuntimeError):
         pass
 
     print(f"\nOverall: {'FAIL' if overall else 'PASS'}")
@@ -2769,6 +3001,7 @@ def main() -> int:
     p_rev.add_argument("--class", dest="cmd_class", required=True, choices=sorted(COMMAND_CLASSES))
     p_rev.add_argument("--evidence", required=True, help="Verifiable evidence handle (output tail, artifact path)")
     p_rev.add_argument("--reason", help="Why a result=blocked row could not run (verify-gates requires one on blocked rows)")
+    p_rev.add_argument("--expected-red", help="Literal output substring expected from the base failure before replay")
     p_rev.set_defaults(func=record_add_evidence)
 
     p_rac = record_sub.add_parser("add-ac", help="Append an object acceptance criterion {criterion, proving_command}")

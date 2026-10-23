@@ -64,8 +64,8 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
 ```
 
 - `check-record` validates the record shape: object acceptance criteria, the minimality rung
-  enum, statuses, and the optional `reason`/`rationale` fields on blocked `commands_run` rows
-  (optional, but must be non-empty strings when present).
+  enum, statuses, and the optional `reason`/`rationale`/`expected_red` fields on
+  `commands_run` rows (non-empty strings when present).
 - `verify-gates` prints blocking findings with an `error:` prefix and advisories with `note:`
   (`warning:` is no longer emitted). AC-to-command coverage runs inside `verify-gates` itself
   — so it fires at the host Stop gate and in CI loops, not only under the `verify` umbrella.
@@ -90,12 +90,18 @@ python3 scripts/quality_loop.py eval-cases evals/cases --config assets/quality-l
   recorded `cmd` string; `#` lines are comments; glob (fnmatch) patterns are allowed.** A
   command not on the allowlist is reported, never silently run. For medium+ work with changed
   test files, each acceptance criterion's proving command also runs against the base source
-  with the proposed tests overlaid. It must fail there and pass in the current tree; this
-  fix-revert replay is the blocking proof that the new test distinguishes the change.
+  with the proposed tests overlaid. Put a literal substring from the intended
+  old failure in that pass-labeled command row's `expected_red` field before
+  replay. Base must exit nonzero *and* include the substring, and current must
+  pass. Missing or mismatched text is `not_proven`. Inspect the captured RED
+  output anyway: a weak or self-selected marker can also match an unrelated
+  import, setup, or environment failure.
 - A bugfix whose failing test was already committed may record
   `{"bugfix_test": {"path": "tests/test_bug.py", "precommitted": true}}`. The path must
-  exist at the base ref and a pass-labeled `commands_run` row must carry `red_green: true`;
-  `run-evidence` then replays RED at base and GREEN at HEAD automatically.
+  exist at the base ref and a pass-labeled `commands_run` row must carry
+  `red_green: true` and `expected_red`; `run-evidence` then replays base and
+  current automatically. Existing records lacking the marker become
+  `not_proven` on replay until updated with an inspected expected failure.
 - `render-prompt --role reviewer|security-reviewer --record <record.json> [--base REF]`
   substitutes `{contract}`/`{diff}`/`{evidence}` into `assets/prompts/<role>.md` and prints to
   stdout — pipe it to the reviewing CLI (see `docs/cross-cli-recipe.md`).
@@ -109,14 +115,15 @@ shelling out a heredoc. Malformed input (missing file, unknown status, bad
 
 ```bash
 python3 scripts/quality_loop.py record set-status .quality-loop/agent-record.json implement
-python3 scripts/quality_loop.py record add-evidence .quality-loop/agent-record.json --cmd "pytest -q" --result pass --class unit --evidence "42 passed"
+python3 scripts/quality_loop.py record add-evidence .quality-loop/agent-record.json --cmd "pytest -q tests/test_round.py" --result pass --class unit --evidence "1 passed" --expected-red "FAILED tests/test_round.py::test_total_rounding"
 python3 scripts/quality_loop.py record add-ac .quality-loop/agent-record.json --criterion "totals round once" --proving-command "pytest -q tests/test_round.py"
 python3 scripts/quality_loop.py record outcome .quality-loop/agent-record.json clean --note "shipped, no regressions after a week"
 ```
 
 - `record set-status` validates the status against the known lifecycle statuses.
-- `record add-evidence` appends a `commands_run` row (`--reason` optional, for a
-  `blocked` result).
+- `record add-evidence` appends a `commands_run` row (`--reason` optional for a
+  `blocked` result; `--expected-red` supplies a literal base-output marker for
+  red-green replay). Choose the marker from an inspected intended failure.
 - `record add-ac` appends an object acceptance criterion with its proving command.
 - `record outcome <clean|regressed|reverted>` sets `record["outcome"] =
   {verdict, note, recorded_at}` **and** appends one line to

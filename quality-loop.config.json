@@ -48,7 +48,7 @@
       ]
     },
     "minimality_reviewer": {
-      "role": "COMPLEXITY BRAKE: pick highest valid rung; simplicity review",
+      "role": "COMPLEXITY BRAKE: pick first safe rung; simplicity review",
       "model": "<strong-reasoning-model>",
       "tools": [
         "read"

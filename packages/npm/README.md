@@ -12,7 +12,7 @@ One-command installer for the [Coding Quality Loop](https://github.com/zaingz/co
 npx coding-quality-loop init
 ```
 
-That's it. The installer auto-detects your host, copies the skill files, wires the hooks, and prints next steps. No prerequisites beyond Node 18+ and Python 3. The routed loop runs **Claude Code (implementer) + Codex (independent reviewer)**; Droid is a supported install target outside that two-vendor kernel.
+That's it. The installer auto-detects your host, copies the skill files, wires the hooks, and prints next steps. Requires Node 18+ and Python 3.10+. The routed loop runs **Claude Code (implementer) + Codex (independent reviewer)**; Droid is a supported install target outside that two-vendor kernel.
 
 ## Commands
 
@@ -27,7 +27,9 @@ npx coding-quality-loop remove            # uninstall: remove installed files, r
 npx cql --help                            # short alias also works
 ```
 
-Every install writes a manifest at `.quality-loop/install-manifest.json` recording each file written and each hook group merged. `cql check` verifies the install against that manifest, and `cql remove` uninstalls from it — restoring any `.bak` backups of your pre-install files and leaving your own files alone.
+Every install writes a manifest at `.quality-loop/install-manifest.json` recording each file written and each hook group merged. `cql check` verifies the install against that manifest, and `cql remove` uses it to restore backups it can identify as belonging to the install. Ambiguous legacy backup state requires manual reconciliation before removal.
+
+If a v1 manifest or older v2 backup causes a refusal, stop and preserve the manifest, managed files, hooks, and all adjacent backups. Work from a separate project copy, compare each manifest-listed path and backup with independent ownership evidence, and reconcile manually only after ownership is clear. A `.bak` name or matching bytes do not prove who owns a file. Do not rename or delete the manifest or backups, overwrite managed files, or rerun `init`/`remove` as a shortcut. If ownership remains uncertain, leave the original project unchanged and seek manual review.
 
 ## What it installs
 
@@ -40,7 +42,9 @@ Depending on the host you pick:
 
 Cursor and Pi are not runtime install targets: advisory rules recipes for them live in the repository's [`examples/`](https://github.com/zaingz/coding-quality-loop/tree/main/examples) directory.
 
-All installs are idempotent, non-destructive (your pre-existing files are backed up as `.bak`), and can be previewed with `--dry-run`.
+Supported installs can be previewed with `--dry-run`. The installer checks managed files and backup ownership before changing them; it refuses unsafe or ambiguous paths, including legacy manifests that cannot be upgraded automatically. Preserve your project changes and reconcile any refusal before retrying.
+
+Run init and remove while no other process is changing the target project. On POSIX, managed-file writes use a no-follow path boundary that rejects a directory symlink swap observed during the write. Full install and removal, including hooks and backups, are not transactions against concurrent target mutation. After an interrupted operation, inspect the manifest, files, hooks, and backups before retrying; a failed operation may have changed some of them.
 
 ## After install
 

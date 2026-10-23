@@ -6,7 +6,7 @@ Goal:
 Context map:
 {repo_map}
 
-Choose the highest valid rung before planning. Rungs in order:
+Choose the first safe rung before planning. Rungs in order:
 skip | delete | reuse | stdlib | native | existing_dependency | one_liner | minimal_new_code
 
 Lower rungs must be considered before higher rungs. Never trade away security, validation,

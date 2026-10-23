@@ -1,26 +1,22 @@
 # Agentic Orchestration
 
-The Coding Quality Loop is **orchestrator-first**. The main session is the **orchestrator**:
-it reasons, holds the state machine, and makes *every* decision — task class, context map,
-validation contract, right-size rung, plan, model routing, the verdict on findings, and the
-stop-if-unsafe call. Everything else is a **worker**: a bounded, stateless task that receives a
-**brief, not context** (canonical definition: SKILL.md §Orchestrator Layer). A
-worker never sees the skill, the references, or the repository tour; it does the one job in the
-brief and hands back a result the orchestrator judges.
+The main session owns scope, risk, and final decisions. It may delegate a bounded task with a
+**brief, not context** (canonical definition: SKILL.md §Orchestrator Layer). The brief names
+the goal, relevant contract, files, checks, and done condition. A host may load its own
+instructions into a worker; do not assume the brief controls all of that worker's context.
+Tiny and small work need no worker topology. The patterns below are optional for larger work.
 
 This file defines the routing model; its machine-readable form is
 `assets/quality-loop.config.example.json`. Phases and sub-steps are canonical in
-**SKILL.md §Lifecycle** (expanded in `references/lifecycle.md`); task classes are canonical in **SKILL.md** (§Task Class); the
+**SKILL.md §Lifecycle** (expanded in `references/lifecycle.md`); task classes are canonical in **SKILL.md** (§Task Classes); the
 canonical role table is **§Role architecture** below. This file adds only the routing surface.
 
 ## The routed loop: two hosts, two vendors
 
-The default topology is deliberately small: **one implementer on Claude Code and one independent
-reviewer on Codex**, plus deterministic policy hooks. The orchestrator runs the Claude Code
-main session; it dispatches the diff to the implementer and the review to a Codex worker on a
-**different vendor**, then decides on the findings. That two-vendor split is the load-bearing
-part — `check-config` hard-fails a medium+ config where the implementer and reviewer resolve to
-the same model family, so "one model grading its own work" cannot happen by accident.
+The supplied routing recipe uses **Claude Code for implementation and Codex for review**,
+plus deterministic policy hooks. `check-config` rejects a same-family pair when both
+families resolve; if they do not, it reports `SKIPPED`. Confirm live model identity and
+reviewer independence separately.
 
 Other hosts (Cursor, Pi, Droid, standalone git/GitHub) are **install targets**: the skill and
 gates drop into them cleanly and `setup-models` can wire their model frontmatter, but they sit
@@ -40,9 +36,8 @@ lives in SKILL.md §Orchestrator Layer; expanded, a worker brief is one screen:
 - **Commands** — how to build, test, and verify.
 - **Done-check** — the observable condition that ends the task.
 
-No skill text, no references, no repo tour, no prior worker's transcript. This keeps each
-worker's token footprint tiny and its judgment uncontaminated by the orchestrator's running
-context — the reviewer in particular must arrive with **fresh context** so it does not inherit
+Keep copied context to what the worker needs; the host may still supply instructions or
+repository context. The reviewer must arrive with **fresh context** so it does not inherit
 the implementer's confidence.
 
 ### Record each hand-off in the delegation ledger
@@ -71,12 +66,10 @@ half-flushed line is skipped by the indexer rather than being fatal.
 ### Persistent workers (fix rounds); fresh reviewers (always)
 
 Workers are stateless per **slice**, not per message. When review findings come back on a
-slice, send the fix brief to the **same implementer worker session** instead of briefing a
-fresh one: the brief, the diff it wrote, and the commands it ran are already in that session's
-prompt cache, so a follow-up round bills at cache-read rates (~0.1× input) instead of a cold
-re-brief, and the worker keeps the working state it built on round one. Hosts with persistent
-agent sessions support this natively (Claude Code agent teams / follow-up messages; Codex
-`resume`).
+slice, send the fix brief to the **same implementer worker session** when continuity helps:
+the worker retains its prior task context. Session continuity does not guarantee prompt-cache
+hits or discounted input; measure the actual host usage and cost. Hosts with persistent agent
+sessions support follow-ups (Claude Code agent teams / follow-up messages; Codex `resume`).
 
 Three edges keep the pattern honest:
 
@@ -120,7 +113,7 @@ platform provides. The names below are stable handles used by the config and the
 | `contract_agent` | INTAKE: turn the goal into a task contract | cheap/fast, structured output |
 | `repo_mapper` | EXPLORE: find the smallest relevant code map | cheap/fast with repo/search tools |
 | `planner` | PLAN: design the smallest correct change | strong reasoning |
-| `minimality_reviewer` | MINIMALITY_GATE: pick the highest valid rung | strong reasoning |
+| `minimality_reviewer` | MINIMALITY_GATE: pick the first safe rung | strong reasoning |
 | `implementer` | IMPLEMENT_SLICE: write the diff | code-specialized |
 | `verification_runner` | VERIFY: run checks, capture evidence | cheap/fast + sandboxed exec |
 | `fresh_reviewer` | REVIEW: independent diff review vs contract | strong reasoning, separate vendor |
@@ -135,12 +128,12 @@ and class grow (tiny/small need none of the specialist roles).
 
 | Role | Maps to profile(s) | Responsibilities | Independent? |
 |---|---|---|---|
-| `orchestrator` | the main session (Claude Code) | Reason and decide everything: set scope, classify the task, gather context, write the spec + validation contract, decompose into worker briefs, route models, collect findings, create fix tasks, and **stop if unsafe**. Workers never see its context. | n/a |
+| `orchestrator` | the main session (Claude Code in the supplied recipe) | Own scope, risk, the task contract, delegation, findings, and the **stop if unsafe** decision. | n/a |
 | `context_mapper` | `repo_mapper` | Repo layout, relevant modules, entry points, data flow, existing helpers/patterns, tests and commands. Outputs **findings, not raw dumps**. | no |
 | `implementer` | `implementer` | One bounded task from a one-screen brief: no speculative abstraction, no unrelated cleanup, smallest meaningful test, a coherent slice. | no |
-| `validator` | `fresh_reviewer` | Fresh context, **different vendor**; does **not** implement. Checks acceptance criteria, behavior contract, regression risk, edge cases, and evidence against the validation contract. | **yes** |
+| `validator` | `fresh_reviewer` | Fresh context, preferably a different model family; does **not** implement. Checks acceptance criteria, behavior contract, regression risk, edge cases, and evidence against the validation contract. | **yes** |
 | `simplicity_reviewer` | `minimality_reviewer` | Deletion / reuse / stdlib / native / dependency / abstraction review — the right-size gate as a reviewer, run before plan and before review. | optional |
-| `security_reviewer` | (boundary only) | Reviews changes at any risk boundary (canonical list: SKILL.md §Task Class). | **yes** |
+| `security_reviewer` | (boundary only) | Reviews changes at any risk boundary (canonical list: SKILL.md §Task Classes). | **yes** |
 | `policy_guard` | `policy_guard` | Deterministic safety blocks. Never a model. | enforced |
 
 The `orchestrator` is the main session itself. `security_reviewer` is a boundary role, not a
@@ -189,13 +182,12 @@ the cheap/fast tier to explore, draft, and gather information; when its output d
 the bar, escalate to a more capable model and redo the work — without asking. Judge the output,
 not the price tag.
 
-Route reasoning effort at **`high`**. Effort is *per step*, not per-task endurance: a higher
-setting does not buy more steps, it makes the model think harder on each one. Above `high`
-(`xhigh`, `max`), models second-guess, over-produce, and ship larger diffs at higher cost, and
-their reviews get noisier rather than sharper. `check-config` rejects `xhigh`/`max` in
-`model_routing` unless the specific model-class block sets `"allow_overthink": true` — an
-explicit, greppable escape hatch for a genuinely ambiguous, architecture-sensitive one-off,
-never a default and never bulk work.
+CQL defaults reasoning effort to **`high`** as a cost-control policy pending a controlled
+comparison of accepted outcomes and cost. Higher effort can help demanding tasks; it is not
+intrinsically worse or unsupported by the providers (see [Codex best practices](https://developers.openai.com/codex/learn/best-practices)).
+For now, `check-config` rejects `xhigh`/`max` in `model_routing` unless the specific
+model-class block sets `"allow_overthink": true`. Treat that as an explicit project policy
+exception, then measure the result rather than inferring quality from the setting.
 
 A higher-level harness may own effort routing instead of `model_routing`. One user's agent-os
 setup (not shipped; see `docs/cross-cli-recipe.md` §One user's setup) does this explicitly:
@@ -263,11 +255,12 @@ CQL` banner, and there is no print-host drift detection because their config liv
 repo — `brief` says "declared, not verified" instead of pretending. `--host` splits by config
 shape: on a single-host config it keeps its historical meaning (retarget the default host); on a
 multi-host topology it is a pure filter — it applies only that host's slice and never drags
-default-host roles onto the selected host. Three pre-validated variants along the
+default-host roles onto the selected host. Three config-checked presets along the
 intelligence↔cost dial (`max-intelligence` / `balanced` / `max-throughput`) ship in
 `assets/routing/` with a dated model-menu README; each is pinned by an eval case that requires
 `check-config` to pass with the floors held (strong-reasoning tier for plan/review classes,
-different-family review, effort at the `high` ceiling).
+different-family review, effort at the `high` ceiling). These checks do not establish
+live model access or capability.
 
 ### Per-host role wiring
 

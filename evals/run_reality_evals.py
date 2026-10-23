@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -214,7 +215,7 @@ def case_auth_path_low_tier(tmp: Path) -> tuple[bool, str]:
     tests.mkdir()
     (tests / "test_login.py").write_text(
         "from pathlib import Path\n"
-        "assert (Path(__file__).parents[1] / 'src/auth/login.py').is_file()\n"
+        "assert (Path(__file__).parents[1] / 'src/auth/login.py').is_file(), 'auth helper path must exist'\n"
     )
     command = f"{sys.executable} tests/test_login.py"
     write_allowlist(repo, [command])
@@ -234,6 +235,7 @@ def case_auth_path_low_tier(tmp: Path) -> tuple[bool, str]:
             "class": "unit",
             "result": "pass",
             "evidence": "process exited 0",
+            "expected_red": "AssertionError: auth helper path must exist",
         }],
         validation_contract=None,
         independent_review=None,
@@ -347,6 +349,107 @@ def case_red_green_catch(tmp: Path) -> tuple[bool, str]:
     code, out, err = run_cli("run-evidence", str(path), "--red-green", "--base", "HEAD", cwd=str(repo))
     ok = code == 1 and "red not proven" in (out + err).lower()
     return ok, f"exit={code}; output={ (out + err).strip()[:200]!r}"
+
+
+def case_red_green_requires_expected_output(tmp: Path) -> tuple[bool, str]:
+    """A missing runner is not a RED; a selected assertion signature is."""
+    short_missing, _ = qlreal._expected_red_outcome(
+        {"exit_code": 2, "stdout": "", "stderr": "can't open file runner.py", "timed_out": False},
+        "can't open file",
+    )
+    intended_assertion, _ = qlreal._expected_red_outcome(
+        {"exit_code": 1, "stdout": "", "stderr": "AssertionError: expected two", "timed_out": False},
+        "AssertionError: expected two",
+    )
+    shell_missing, _ = qlreal._expected_red_outcome(
+        {"exit_code": 2, "stdout": "", "stderr": "sh: 1: runner: not found", "timed_out": False},
+        "sh: 1: runner: not found",
+    )
+    repo = make_repo(tmp)
+    (repo / "runner.py").write_text("print('fixed')\n")
+    cmd = f"{sys.executable} runner.py"
+    write_allowlist(repo, [cmd])
+    record = passing_record(repo, commands_run=[{
+        "cmd": cmd, "class": "unit", "result": "pass", "evidence": "fixed",
+        "red_green": True,
+    }])
+    write_record(repo, record)
+    absent_code, _, _ = run_cli(
+        "run-evidence", "agent-record.json", "--red-green", "--base", "HEAD",
+        cwd=str(repo),
+    )
+    absent = json.loads((repo / ".quality-loop" / "rerun-t-reality.json").read_text())["red_green"][0]
+
+    record["commands_run"][0]["expected_red"] = "AssertionError: value must return two"
+    write_record(repo, record)
+    missing_code, _, _ = run_cli(
+        "run-evidence", "agent-record.json", "--red-green", "--base", "HEAD",
+        cwd=str(repo),
+    )
+    missing = json.loads((repo / ".quality-loop" / "rerun-t-reality.json").read_text())["red_green"][0]
+
+    record["commands_run"][0]["expected_red"] = "can't open file"
+    write_record(repo, record)
+    infrastructure_code, _, _ = run_cli(
+        "run-evidence", "agent-record.json", "--red-green", "--base", "HEAD",
+        cwd=str(repo),
+    )
+    infrastructure = json.loads((repo / ".quality-loop" / "rerun-t-reality.json").read_text())["red_green"][0]
+
+    (repo / "runner.py").write_text("raise AssertionError('value must return two')\n")
+    _git(repo, "add", "runner.py")
+    _git(repo, "commit", "-m", "broken behavior")
+    (repo / "runner.py").write_text("print('fixed')\n")
+    record["commands_run"][0]["expected_red"] = "AssertionError: value must return two"
+    write_record(repo, record)
+    good_code, _, _ = run_cli(
+        "run-evidence", "agent-record.json", "--red-green", "--base", "HEAD",
+        cwd=str(repo),
+    )
+    good = json.loads((repo / ".quality-loop" / "rerun-t-reality.json").read_text())["red_green"][0]
+    ok = (
+        short_missing == "not_proven" and shell_missing == "not_proven"
+        and intended_assertion == "fail"
+        and absent_code == 1 and absent.get("red") == "not_proven"
+        and missing_code == 1 and missing.get("red") == "not_proven"
+        and "runner.py" in missing.get("red_stderr_tail", "")
+        and infrastructure_code == 1 and infrastructure.get("red") == "not_proven"
+        and "runner" in infrastructure.get("red_reason", "")
+        and good_code == 0 and good.get("red") == "fail"
+        and good.get("green") == "pass"
+        and "value must return two" in good.get("red_stderr_tail", "")
+    )
+    return ok, (
+        f"short_missing={short_missing}; shell_missing={shell_missing}; "
+        f"intended_assertion={intended_assertion}; "
+        f"absent={absent_code}/{absent.get('red')}; "
+        f"missing_runner={missing_code}/{missing.get('red')}; "
+        f"matching_infrastructure_marker={infrastructure_code}/{infrastructure.get('red')}; "
+        f"assertion={good_code}/{good.get('red')}/{good.get('green')}"
+    )
+
+
+def case_red_green_assertion_not_found(tmp: Path) -> tuple[bool, str]:
+    """An assertion message ending in 'not found' is not a missing runner."""
+    repo = make_repo(tmp)
+    (repo / "runner.py").write_text("raise AssertionError('not found')\n")
+    _git(repo, "add", "runner.py")
+    _git(repo, "commit", "-m", "record failing behavior")
+    (repo / "runner.py").write_text("print('fixed')\n")
+    cmd = f"{sys.executable} runner.py"
+    write_allowlist(repo, [cmd])
+    record = passing_record(repo, commands_run=[{
+        "cmd": cmd, "class": "unit", "result": "pass", "evidence": "fixed",
+        "red_green": True, "expected_red": "AssertionError: not found",
+    }])
+    write_record(repo, record)
+    code, out, err = run_cli(
+        "run-evidence", "agent-record.json", "--red-green", "--base", "HEAD",
+        cwd=str(repo),
+    )
+    replay = json.loads((repo / ".quality-loop" / "rerun-t-reality.json").read_text())["red_green"][0]
+    ok = code == 0 and replay.get("red") == "fail" and replay.get("green") == "pass"
+    return ok, f"exit={code}; red={replay.get('red')}; green={replay.get('green')}; output={(out + err).strip()[:160]!r}"
 
 
 def case_staged_secret(tmp: Path) -> tuple[bool, str]:
@@ -1765,6 +1868,121 @@ def _low_risk_done_record() -> dict:
     }
 
 
+def case_verify_rejects_invalid_record_shape(tmp: Path) -> tuple[bool, str]:
+    """The CI entry point must enforce the same record shape as check-record."""
+    repo = make_repo(tmp)
+    (repo / "README.md").write_text("# updated\n")
+    record = _low_risk_done_record()
+    record["constraints"] = "not an array"
+    record["commands_run"] = [{"cmd": "true", "result": "pass", "expected_red": " "}]
+    write_record(repo, record)
+    marker = repo / ".quality-loop" / "last-verified.json"
+    marker.parent.mkdir()
+    marker.write_text("{}\n")
+
+    shape_code, shape_out, shape_err = run_cli("check-record", "agent-record.json", cwd=str(repo))
+    verify_code, verify_out, _ = run_cli(
+        "verify", "agent-record.json", "--base", "HEAD", "--require-terminal",
+        cwd=str(repo),
+    )
+    ok = (
+        shape_code == 1
+        and "constraints must be an array" in shape_out + shape_err
+        and "commands_run[0].expected_red" in shape_out + shape_err
+        and verify_code == 1
+        and "constraints must be an array" in verify_out
+        and "commands_run[0].expected_red" in verify_out
+        and "Overall: FAIL" in verify_out
+        and not marker.exists()
+    )
+    return ok, f"check-record={shape_code}; verify={verify_code}; shape_reported={ok}"
+
+
+def case_verify_rejects_adversarial_json_shapes(tmp: Path) -> tuple[bool, str]:
+    """Malformed JSON values get diagnostics, never a traceback or stale PASS."""
+    repo = make_repo(tmp)
+    (repo / "README.md").write_text("# updated\n")
+    marker = repo / ".quality-loop" / "last-verified.json"
+    marker.parent.mkdir()
+    cases = [
+        ("risk_tier", [], "risk_tier must be one of"),
+        ("status", [], "status is not a valid lifecycle state"),
+        ("task_class", [], "task_class must be one of"),
+        ("repo_map", "truthy scalar", "repo_map must be an object"),
+        ("repo_map", {"entry_points": "not an array"}, "repo_map.entry_points"),
+        ("run_metrics", {"tokens_in": float("nan")}, "run_metrics.tokens_in"),
+        ("run_metrics", {"cost_usd": float("inf")}, "run_metrics.cost_usd"),
+        ("models_used", [{"role": "implementer", "model": "test", "cost_usd": float("nan")}], "models_used[0].cost_usd"),
+        ("minimality_decision", {"rung": [], "reason": "test"}, "minimality_decision.rung"),
+        ("commands_run", [{"cmd": "true", "result": []}], "commands_run[0].result"),
+    ]
+    outcomes = []
+    for key, value, diagnostic in cases:
+        record = _low_risk_done_record()
+        record[key] = value
+        write_record(repo, record)
+        marker.write_text("{}\n")
+        check_code, check_out, check_err = run_cli("check-record", "agent-record.json", cwd=str(repo))
+        verify_code, verify_out, verify_err = run_cli(
+            "verify", "agent-record.json", "--base", "HEAD", "--require-terminal",
+            cwd=str(repo),
+        )
+        outcomes.append((
+            key,
+            check_code == 1 and diagnostic in check_out + check_err
+            and verify_code == 1 and diagnostic in verify_out
+            and "Overall: FAIL" in verify_out and "Traceback" not in verify_out + verify_err
+            and not marker.exists(),
+        ))
+    (repo / "agent-record.json").write_text("[]\n")
+    marker.write_text("{}\n")
+    check_code, _, check_err = run_cli("check-record", "agent-record.json", cwd=str(repo))
+    verify_code, verify_out, verify_err = run_cli(
+        "verify", "agent-record.json", "--base", "HEAD", "--require-terminal",
+        cwd=str(repo),
+    )
+    outcomes.append((
+        "top-level array",
+        check_code == 1 and "record must be an object" in check_err
+        and verify_code == 1 and "record must be an object" in verify_out
+        and "Traceback" not in verify_out + verify_err and not marker.exists(),
+    ))
+    (repo / "agent-record.json").write_text("{ malformed JSON\n")
+    marker.write_text("{}\n")
+    check_code, _, check_err = run_cli("check-record", "agent-record.json", cwd=str(repo))
+    verify_code, verify_out, verify_err = run_cli(
+        "verify", "agent-record.json", "--base", "HEAD", "--require-terminal",
+        cwd=str(repo),
+    )
+    outcomes.append((
+        "invalid JSON syntax",
+        check_code == 2 and "invalid JSON" in check_err
+        and verify_code == 1 and "invalid JSON" in verify_out
+        and "Overall: FAIL" in verify_out
+        and "Traceback" not in verify_out + verify_err and not marker.exists(),
+    ))
+    return all(ok for _, ok in outcomes), str(outcomes)
+
+
+def case_mixed_case_risk_path_forces_high(tmp: Path) -> tuple[bool, str]:
+    """A mixed-case auth path must not evade the built-in diff risk floor."""
+    repo = make_repo(tmp)
+    path = repo / "src" / "Auth" / "session.py"
+    path.parent.mkdir(parents=True)
+    path.write_text("ENABLED = True\n")
+    record = _low_risk_done_record()
+    record["goal"] = "Update widget behavior"
+    record["plan"] = ["edit code"]
+    write_record(repo, record)
+
+    code, out, _ = run_cli(
+        "verify-gates", "agent-record.json", "--against-diff", "--base", "HEAD",
+        cwd=str(repo),
+    )
+    ok = code == 1 and "diff-derived risk floor" in out
+    return ok, f"exit={code}; mixed_case_floor={ok}"
+
+
 def case_verify_writes_last_verified_marker(tmp: Path) -> tuple[bool, str]:
     """The verify umbrella writes .quality-loop/last-verified.json ONLY on an
     overall PASS — {diff_sha256 (canonical), base (resolved), status,
@@ -1787,6 +2005,7 @@ def case_verify_writes_last_verified_marker(tmp: Path) -> tuple[bool, str]:
     expected_hash = qlreal.canonical_diff_sha256("HEAD", cwd=repo)
     marker_ok = bool(
         marker.get("diff_sha256") == expected_hash
+        and marker.get("record_path") == str(record_path.resolve())
         and marker.get("base") == "HEAD"
         and marker.get("status") == "done"
         and isinstance(marker.get("verified_at"), str) and marker["verified_at"]
@@ -1799,17 +2018,35 @@ def case_verify_writes_last_verified_marker(tmp: Path) -> tuple[bool, str]:
     code_fail, out_fail, _ = run_cli("verify", "record.json", "--base", "HEAD", cwd=str(repo))
     removed_on_fail = code_fail != 0 and not marker_path.exists()
 
-    ok = wrote_on_pass and removed_on_fail
+    # Re-execution itself can return PASS while rewriting the source that the
+    # earlier diff checks inspected. Such a run must fail, not mint a marker
+    # for the post-command state.
+    mutate_command = "sh -c 'printf MUTATED > src/mod.py'"
+    mutating = _low_risk_done_record()
+    mutating["verification_plan"] = [mutate_command]
+    mutating["commands_run"] = [{
+        "cmd": mutate_command, "class": "unit", "result": "pass",
+        "evidence": "command exited zero",
+    }]
+    record_path.write_text(json.dumps(mutating))
+    (repo / ".quality-loop" / "allowed-commands").write_text(mutate_command + "\n")
+    code_mutate, out_mutate, _ = run_cli("verify", "record.json", "--base", "HEAD", cwd=str(repo))
+    mutation_blocked = (
+        code_mutate == 1 and "source or allowlist changed during verification" in out_mutate
+        and "Overall: FAIL" in out_mutate and not marker_path.exists()
+    )
+
+    ok = wrote_on_pass and removed_on_fail and mutation_blocked
     return ok, (
         f"pass(exit={code_pass},marker_ok={marker_ok}); "
         f"fail(exit={code_fail},removed={removed_on_fail}); "
+        f"mutating_pass_command_blocked={mutation_blocked}; "
         f"marker={marker!r}"[:300]
     )
 
 
 def case_canonical_diff_sha256_single_source(tmp: Path) -> tuple[bool, str]:
-    """canonical_diff_sha256 IS the hash attest-review embeds and freshness
-    checks (one implementation), and it stales when untracked content changes."""
+    """Review and passive snapshots pin exact untracked path and file bytes."""
     repo = make_repo(tmp)
     (repo / "mod.py").write_text("def helper():\n    return 2\n")
     review_path = repo / "review.json"
@@ -1827,8 +2064,57 @@ def case_canonical_diff_sha256_single_source(tmp: Path) -> tuple[bool, str]:
     )
     (repo / "extra.py").write_text("x = 1\n")
     stales = qlreal.canonical_diff_sha256("HEAD", cwd=repo) != canonical
-    ok = same_impl and stales
-    return ok, f"exit={code}; same_impl={same_impl}; stales_on_new_content={stales}"
+    names = ("new\nfile.py", "sp ace.py", "unicode-☃.py")
+    exact_paths = True
+    for name in names:
+        path = repo / name
+        path.write_bytes(b"first\n")
+        old_review = qlreal.canonical_diff_sha256("HEAD", cwd=repo)
+        old_snapshot = qlreal.source_snapshot_sha256("HEAD", cwd=repo)
+        path.write_bytes(b"second\n")
+        exact_paths &= (
+            qlreal.canonical_diff_sha256("HEAD", cwd=repo) != old_review
+            and qlreal.source_snapshot_sha256("HEAD", cwd=repo) != old_snapshot
+        )
+    # Fault-inject a file that disappears after Git lists it. Its unreadable
+    # name cannot contribute a constant placeholder to either digest.
+    special_closed = True
+    original_git_bytes = qlreal._git_bytes
+
+    def missing_file_listing(args: list[str], cwd: Path) -> bytes:
+        output = original_git_bytes(args, cwd)
+        if args[:3] == ["ls-files", "--others", "--exclude-standard"]:
+            return output + b"vanished-file.py\0"
+        return output
+
+    from unittest.mock import patch
+    with patch.object(qlreal, "_git_bytes", side_effect=missing_file_listing):
+        for fingerprint in (qlreal.canonical_diff_sha256, qlreal.source_snapshot_sha256):
+            try:
+                fingerprint("HEAD", cwd=repo)
+                special_closed = False
+            except (OSError, ValueError, SystemExit):
+                pass
+    # Scaffold-like names can be legitimate TRACKED source. The passive
+    # snapshot must follow the tracked diff for these paths.
+    tracked_names = ("src/agent-record.json", "src/__pycache__/cache.pyc",
+                     "src/.quality-loop/config.json")
+    for name in tracked_names:
+        path = repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"before\n")
+        _git(repo, "add", "--", name)
+    _git(repo, "commit", "-m", "track named source")
+    tracked_names_pinned = True
+    for name in tracked_names:
+        path = repo / name
+        prior = qlreal.source_snapshot_sha256("HEAD", cwd=repo)
+        path.write_bytes(b"after\n")
+        tracked_names_pinned &= qlreal.source_snapshot_sha256("HEAD", cwd=repo) != prior
+    ok = same_impl and stales and exact_paths and special_closed and tracked_names_pinned
+    return ok, (f"exit={code}; same_impl={same_impl}; stales_on_new_content={stales}; "
+                f"exact_paths={exact_paths}; special_closed={special_closed}; "
+                f"tracked_names_pinned={tracked_names_pinned}")
 
 
 def _behavior_record(repo: Path, command: str, goal: str) -> dict:
@@ -1844,6 +2130,7 @@ def _behavior_record(repo: Path, command: str, goal: str) -> dict:
                 "class": "unit",
                 "result": "pass",
                 "evidence": "process exited 0",
+                "expected_red": "AssertionError: value must return two",
             }
         ],
         plan=["change calc.py and verify the focused behavior"],
@@ -1872,7 +2159,7 @@ def case_test_integrity_fix_revert_replay(tmp: Path) -> tuple[bool, str]:
         "sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
         "from calc import value\n"
         "sys.stdout.buffer.write(b'\\xff\\n')\n"
-        "assert value() == 2\n"
+        "assert value() == 2, 'value must return two'\n"
     )
     command = f"{sys.executable} tests/test_calc.py"
     write_allowlist(repo, [command])
@@ -1963,6 +2250,77 @@ def case_test_integrity_fix_revert_replay(tmp: Path) -> tuple[bool, str]:
     )
 
 
+def case_test_integrity_requires_expected_output(tmp: Path) -> tuple[bool, str]:
+    """An import failure at base must not masquerade as a failing assertion."""
+    repo = make_repo(tmp)
+    (repo / "calc.py").write_text("def value():\n    return 1\n")
+    _git(repo, "add", "calc.py")
+    _git(repo, "commit", "-m", "broken behavior")
+    (repo / "calc.py").write_text("def value():\n    return 2\n")
+    (repo / "helper.py").write_text(
+        "def check(value):\n    assert value == 2, 'value must return two'\n"
+    )
+    tests = repo / "tests"
+    tests.mkdir()
+    test_path = tests / "test_calc.py"
+    test_path.write_text(
+        "import pathlib, sys\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
+        "from calc import value\n"
+        "from helper import check\n"
+        "check(value())\n"
+    )
+    command = f"{sys.executable} tests/test_calc.py"
+    write_allowlist(repo, [command])
+    record = _behavior_record(repo, command, "Fix the broken value behavior")
+    write_record(repo, record)
+    missing_code, _, _ = run_cli(
+        "run-evidence", "agent-record.json", "--base", "HEAD", cwd=str(repo)
+    )
+    missing = json.loads((repo / ".quality-loop" / "rerun-t-reality.json").read_text())["test_integrity"][0]
+
+    record["commands_run"][0]["expected_red"] = "ModuleNotFoundError"
+    write_record(repo, record)
+    matched_import_code, _, _ = run_cli(
+        "run-evidence", "agent-record.json", "--base", "HEAD", cwd=str(repo)
+    )
+    matched_import = json.loads((repo / ".quality-loop" / "rerun-t-reality.json").read_text())["test_integrity"][0]
+
+    test_path.write_text(
+        "import pathlib, sys\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
+        "from calc import value\n"
+        "assert value() == 2, 'value must return two'\n"
+    )
+    del record["commands_run"][0]["expected_red"]
+    write_record(repo, record)
+    absent_code, _, _ = run_cli(
+        "run-evidence", "agent-record.json", "--base", "HEAD", cwd=str(repo)
+    )
+    absent = json.loads((repo / ".quality-loop" / "rerun-t-reality.json").read_text())["test_integrity"][0]
+    record["commands_run"][0]["expected_red"] = "AssertionError: value must return two"
+    write_record(repo, record)
+    good_code, _, _ = run_cli(
+        "run-evidence", "agent-record.json", "--base", "HEAD", cwd=str(repo)
+    )
+    good = json.loads((repo / ".quality-loop" / "rerun-t-reality.json").read_text())["test_integrity"][0]
+    ok = (
+        missing_code == 1 and missing.get("old_code_with_new_tests") == "not_proven"
+        and "helper" in missing.get("old_stderr_tail", "")
+        and matched_import_code == 1
+        and matched_import.get("old_code_with_new_tests") == "not_proven"
+        and absent_code == 1 and absent.get("old_code_with_new_tests") == "not_proven"
+        and good_code == 0 and good.get("old_code_with_new_tests") == "fail"
+        and good.get("green") == "pass"
+    )
+    return ok, (
+        f"missing_import={missing_code}/{missing.get('old_code_with_new_tests')}; "
+        f"matched_import={matched_import_code}/{matched_import.get('old_code_with_new_tests')}; "
+        f"absent={absent_code}/{absent.get('old_code_with_new_tests')}; "
+        f"assertion={good_code}/{good.get('old_code_with_new_tests')}/{good.get('green')}"
+    )
+
+
 def case_precommitted_bugfix_test(tmp: Path) -> tuple[bool, str]:
     repo = make_repo(tmp)
     (repo / "calc.py").write_text("def value():\n    return 1\n")
@@ -1973,7 +2331,7 @@ def case_precommitted_bugfix_test(tmp: Path) -> tuple[bool, str]:
         "sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
         "from calc import value\n"
         "sys.stdout.buffer.write(b'\\xff\\n')\n"
-        "assert value() == 2\n"
+        "assert value() == 2, 'value must return two'\n"
     )
     _git(repo, "add", "calc.py", "tests/test_calc.py")
     _git(repo, "commit", "-m", "commit known failing test")
@@ -2104,6 +2462,19 @@ def case_standalone_test_integrity_skill(tmp: Path) -> tuple[bool, str]:
         (plugin_root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
     )
     script = plugin_root / "scripts" / "test_integrity.py"
+    standalone_guard = runpy.run_path(str(script))["known_runner_failure"]
+    synthetic_missing_guarded = standalone_guard({
+        "exit_code": 2, "stdout_tail": "", "stderr_tail": "can't open file runner.py",
+    })
+    synthetic_assertion_accepted = not standalone_guard({
+        "exit_code": 1, "stdout_tail": "", "stderr_tail": "AssertionError: expected two",
+    })
+    synthetic_not_found_assertion_accepted = not standalone_guard({
+        "exit_code": 1, "stdout_tail": "", "stderr_tail": "AssertionError: not found",
+    })
+    synthetic_shell_missing_guarded = standalone_guard({
+        "exit_code": 2, "stdout_tail": "", "stderr_tail": "sh: 1: runner: not found",
+    })
     manifests_ok = (
         marketplace.get("name") == "coding-quality-loop"
         and source == "./skills/test-integrity-gate"
@@ -2127,9 +2498,38 @@ def case_standalone_test_integrity_skill(tmp: Path) -> tuple[bool, str]:
         "sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
         "from calc import value\n"
         "sys.stdout.buffer.write(b'\\xff\\n')\n"
-        "assert value() == 2\n"
+        "assert value() == 2, 'not found'\n"
     )
     command = f"{sys.executable} tests/test_calc.py"
+    (repo / "runner.py").write_text("print('current command succeeds')\n")
+    missing_runner = subprocess.run(
+        [sys.executable, str(script), "--base", "HEAD", "--command",
+         f"{sys.executable} runner.py", "--expected-red",
+         "can't open file"],
+        cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        check=False,
+    )
+    missing_runner_result = json.loads(missing_runner.stdout or "{}")
+    missing_runner_blocked = (
+        missing_runner.returncode == 1
+        and missing_runner_result.get("status") == "not_proven"
+        and "runner.py" in missing_runner_result.get("old_code_with_proposed_tests", {}).get("stderr_tail", "")
+        and synthetic_missing_guarded
+        and synthetic_assertion_accepted
+        and synthetic_not_found_assertion_accepted
+        and synthetic_shell_missing_guarded
+    )
+    no_marker = subprocess.run(
+        [sys.executable, str(script), "--base", "HEAD", "--command", command],
+        cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        check=False,
+    )
+    no_marker_result = json.loads(no_marker.stdout or "{}")
+    no_marker_blocked = (
+        no_marker.returncode == 1
+        and no_marker_result.get("status") == "not_proven"
+        and "expected" in no_marker_result.get("reason", "").lower()
+    )
     proc = subprocess.run(
         [
             sys.executable,
@@ -2138,6 +2538,8 @@ def case_standalone_test_integrity_skill(tmp: Path) -> tuple[bool, str]:
             "HEAD",
             "--command",
             command,
+            "--expected-red",
+            "AssertionError: not found",
         ],
         cwd=repo,
         text=True,
@@ -2183,10 +2585,11 @@ def case_standalone_test_integrity_skill(tmp: Path) -> tuple[bool, str]:
         and empty_result.get("test_files_overlaid") == []
         and "no changed test files" in empty_result.get("reason", "")
     )
-    ok = manifests_ok and replay_ok and empty_blocks
+    ok = manifests_ok and replay_ok and empty_blocks and missing_runner_blocked and no_marker_blocked
     return ok, (
         f"manifests={manifests_ok}; replay(exit={proc.returncode},ok={replay_ok}); "
         f"empty(exit={empty.returncode},blocked={empty_blocks}); "
+        f"missing_runner={missing_runner_blocked}; no_marker={no_marker_blocked}; "
         f"stderr={proc.stderr.strip()[:100]!r}"
     )
 
@@ -2196,15 +2599,19 @@ CASES = [
     ("phantom completion (done + empty diff) is caught", case_phantom_completion),
     ("unmapped changed file is caught (scope integrity)", case_unmapped_file),
     ("auth path under a low tier is caught (diff-derived risk floor)", case_auth_path_low_tier),
+    ("mixed-case auth path still forces the high-risk diff floor", case_mixed_case_risk_path_forces_high),
     ("high-tier changed path forces high gates even from medium", case_high_tier_path_forces_high_from_medium),
     ("missing bugfix test is caught (bugfix-test co-presence)", case_missing_bugfix_test),
     ("fix-revert replay accepts a real test and blocks a hollow one", case_test_integrity_fix_revert_replay),
+    ("test-integrity replay requires expected assertion output", case_test_integrity_requires_expected_output),
     ("precommitted failing test is accepted only when git and RED→GREEN prove it", case_precommitted_bugfix_test),
     ("new test-tamper signals are advisory, not heuristic blockers", case_test_tamper_signals_are_advisory),
     ("standalone test-integrity skill manifest and replay script work", case_standalone_test_integrity_skill),
     ("stale review hash is caught (review freshness)", case_stale_review_hash),
     ("lying evidence (recorded pass fails on rerun) is caught", case_lying_evidence),
     ("faked RED (command passes at base) is caught by --red-green", case_red_green_catch),
+    ("red-green replay rejects missing runner and requires expected assertion output", case_red_green_requires_expected_output),
+    ("red-green replay accepts an AssertionError ending in not found", case_red_green_assertion_not_found),
     ("staged secret is caught by diff-audit --staged", case_staged_secret),
     ("attest-review embeds a recomputed diff sha256", case_attest_review_embeds_hash),
     ("scan-text --stdin catches a secret", case_scan_text_secret),
@@ -2247,6 +2654,8 @@ CASES = [
     ("security_review freshness is checked, not only independent_review", case_security_review_freshness_checked),
     ("render-prompt keeps a literal {evidence} token in the diff intact (single pass)", case_render_prompt_literal_token_survives),
     ("verify writes the last-verified marker on PASS and removes it on FAIL", case_verify_writes_last_verified_marker),
+    ("verify rejects a record shape that check-record rejects", case_verify_rejects_invalid_record_shape),
+    ("verify diagnoses adversarial JSON shapes and clears stale PASS", case_verify_rejects_adversarial_json_shapes),
     ("canonical_diff_sha256 is the one attest/freshness hash and stales on new content", case_canonical_diff_sha256_single_source),
 ]
 

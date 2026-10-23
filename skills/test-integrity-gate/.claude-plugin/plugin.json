@@ -1,7 +1,7 @@
 {
   "name": "test-integrity-gate",
   "displayName": "Test Integrity Gate",
-  "version": "6.7.0",
+  "version": "6.8.0",
   "description": "Prove a new test fails against the old code before trusting green.",
   "author": {
     "name": "Zain Zafar",

@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
 import re
 import shlex
+import stat
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +19,13 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 
 MANIFEST_REL = ".quality-loop/install-manifest.json"
+REQUIRED_RUNTIME_MODULES = (
+    "quality_loop.py",
+    "quality_loop_core.py",
+    "quality_loop_memory.py",
+    "quality_loop_reality.py",
+    "quality_loop_routing.py",
+)
 
 AGENTS_BEGIN = "<!-- BEGIN coding-quality-loop managed section -->"
 AGENTS_END = "<!-- END coding-quality-loop managed section -->"
@@ -38,12 +47,14 @@ _MANIFEST_HOOK_GROUPS: list[dict[str, str]] = []
 # first touched them — byte-identical coincidences we must NOT delete on
 # uninstall. Overwritten user files are handled separately via .bak restore.
 _MANIFEST_PREEXISTING: set[Path] = set()
+_MANIFEST_BACKUPS: dict[str, dict[str, str]] = {}
 
-# Paths a previous install manifest already records as ours. Overwriting our
-# own files (idempotent re-install, upgrade) must NOT create .bak backups —
-# a .bak always means "the user's pre-install file", which uninstall restores.
+# Paths created or replaced by a previous install. Inventory alone does not
+# confer ownership: a byte-identical file can have predated the first install.
+# Its original bytes need a backup if a later release replaces it.
 _TARGET: Path | None = None
 _OWNED: set[str] = set()
+_PREVIOUS_BACKUPS: dict[str, dict[str, str]] = {}
 
 # Host installs that failed (reported honestly; makes main() exit nonzero).
 _FAILURES: list[str] = []
@@ -55,6 +66,8 @@ def _say(msg: str) -> None:
 
 
 def _record_file(dest: Path) -> None:
+    _assert_safe_destination(dest)
+    _assert_no_unowned_backup(dest)
     if dest not in _MANIFEST_FILES:
         _MANIFEST_FILES.append(dest)
 
@@ -81,7 +94,13 @@ def _backup_before_overwrite(path: Path) -> None:
         return
     backup = path.with_suffix(path.suffix + ".bak")
     if not backup.exists():
-        shutil.copy2(path, backup)
+        _write_managed_bytes(backup, path.read_bytes(), stat.S_IMODE(path.stat().st_mode),
+                             create_only=True)
+        if _TARGET is not None:
+            _MANIFEST_BACKUPS[path.relative_to(_TARGET).as_posix()] = {
+                "path": backup.relative_to(_TARGET).as_posix(),
+                "sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
+            }
         _say(f"backup: {backup}")
 
 
@@ -98,6 +117,79 @@ def _note_preexisting(path: Path) -> None:
         _MANIFEST_PREEXISTING.add(path)
 
 
+def _write_managed_bytes(path: Path, body: bytes, mode: int | None = None,
+                         *, create_only: bool = False) -> None:
+    """Commit a managed file relative to an opened target directory.
+
+    Opening each parent with O_NOFOLLOW prevents a directory changed to a
+    symlink after preflight from redirecting this write outside the target.
+    This does not make an actively renamed target tree transactional; callers
+    must not mutate the target concurrently with install/uninstall.
+    """
+    _assert_safe_destination(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _assert_safe_destination(path)
+    if (_TARGET is None or os.name != "posix" or not hasattr(os, "O_NOFOLLOW")
+            or not hasattr(os, "O_DIRECTORY")):
+        if create_only:
+            with path.open("xb") as out:
+                out.write(body)
+        else:
+            path.write_bytes(body)
+        if mode is not None:
+            path.chmod(mode)
+        return
+
+    rel = path.relative_to(_TARGET)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    directory_fd = os.open(_TARGET, flags)
+    temp_name: str | None = None
+    try:
+        for part in rel.parts[:-1]:
+            child_fd = os.open(part, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child_fd
+        name = rel.name
+        try:
+            old = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            old = None
+        if old is not None and stat.S_ISLNK(old.st_mode):
+            raise ValueError(f"{rel.as_posix()}: unsafe symlink at destination")
+        if create_only and old is not None:
+            raise FileExistsError(f"{rel.as_posix()}: backup appeared during install")
+        temp_name = f".quality-loop-install-{os.urandom(8).hex()}"
+        temp_fd = os.open(temp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                          0o666, dir_fd=directory_fd)
+        with os.fdopen(temp_fd, "wb") as out:
+            out.write(body)
+            final_mode = mode if mode is not None else (stat.S_IMODE(old.st_mode) if old else None)
+            if final_mode is not None:
+                os.fchmod(out.fileno(), final_mode)
+        # If the opened directory was replaced with a symlink during staging,
+        # do not commit into the old directory through its still-live fd.
+        opened = os.fstat(directory_fd)
+        named = os.stat(path.parent, follow_symlinks=False)
+        if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
+            raise ValueError(f"{rel.as_posix()}: managed directory changed during install")
+        if create_only:
+            # link() fails atomically if another process created this backup;
+            # rename/replace would silently overwrite that unrelated file.
+            os.link(temp_name, name, src_dir_fd=directory_fd,
+                    dst_dir_fd=directory_fd, follow_symlinks=False)
+            os.unlink(temp_name, dir_fd=directory_fd)
+        else:
+            os.replace(temp_name, name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+        temp_name = None
+    finally:
+        if temp_name is not None:
+            try:
+                os.unlink(temp_name, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+        os.close(directory_fd)
+
+
 def write_json(path: Path, data: dict[str, Any], dry_run: bool) -> bool:
     _record_file(path)
     body = json.dumps(data, indent=2) + "\n"
@@ -109,7 +201,7 @@ def write_json(path: Path, data: dict[str, Any], dry_run: bool) -> bool:
         return True
     path.parent.mkdir(parents=True, exist_ok=True)
     _backup_before_overwrite(path)
-    path.write_text(body, encoding="utf-8")
+    _write_managed_bytes(path, body.encode("utf-8"))
     return True
 
 
@@ -123,7 +215,7 @@ def copy_file(src: Path, dest: Path, dry_run: bool) -> bool:
         return True
     dest.parent.mkdir(parents=True, exist_ok=True)
     _backup_before_overwrite(dest)
-    shutil.copy2(src, dest)
+    _write_managed_bytes(dest, src.read_bytes(), stat.S_IMODE(src.stat().st_mode))
     return True
 
 
@@ -157,18 +249,20 @@ def copy_agent_neutral(src: Path, dest: Path, dry_run: bool) -> bool:
         return True
     dest.parent.mkdir(parents=True, exist_ok=True)
     _backup_before_overwrite(dest)
-    dest.write_text(body, encoding="utf-8")
+    _write_managed_bytes(dest, body.encode("utf-8"))
     return True
 
 
 def _write_text(path: Path, body: str, dry_run: bool) -> None:
     """Write text with the same backup discipline as copy_file/write_json."""
+    _assert_safe_destination(path)
+    _assert_no_unowned_backup(path)
     if dry_run:
         _say(f"would write {path}")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     _backup_before_overwrite(path)
-    path.write_text(body, encoding="utf-8")
+    _write_managed_bytes(path, body.encode("utf-8"))
 
 
 def install_runtime(target: Path, dry_run: bool) -> list[str]:
@@ -216,6 +310,30 @@ def merge_hooks(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str,
     for event, groups in (incoming.get("hooks") or {}).items():
         current = list(hooks.get(event) or [])
         for group in groups:
+            # Replace older copies of this managed shim instead of appending a
+            # second invocation when a release changes its timeout or message.
+            markers = set(re.findall(r"hosts/[\w.-]+/[\w.-]+\.py", json.dumps(group)))
+            if markers:
+                positions = [i for i, item in enumerate(current)
+                             if any(marker in json.dumps(item) for marker in markers)]
+                if positions:
+                    first = positions[0]
+                    matched = set(positions)
+                    kept = []
+                    for i, item in enumerate(current):
+                        if i not in matched or not isinstance(item, dict) or not isinstance(item.get("hooks"), list):
+                            kept.append(item)
+                            continue
+                        # A user may have placed another command in the same
+                        # hook group. Keep it with the original matcher and
+                        # replace only the entries that invoke our shim.
+                        other_hooks = [hook for hook in item["hooks"]
+                                       if not any(marker in json.dumps(hook) for marker in markers)]
+                        if other_hooks:
+                            kept.append({**item, "hooks": other_hooks})
+                    current = kept
+                    current.insert(first, group)
+                    continue
             if group not in current:
                 current.append(group)
         hooks[event] = current
@@ -258,6 +376,7 @@ def install_claude(target: Path, dry_run: bool) -> list[str]:
     if launcher:
         _rewrite_python_launcher(incoming, launcher)
     dest = target / ".claude" / "settings.json"
+    _assert_safe_destination(dest)
     write_json(dest, merge_hooks(load_json(dest), incoming), dry_run)
     for event in (incoming.get("hooks") or {}):
         _record_hook_group(".claude/settings.json", event)
@@ -271,6 +390,7 @@ def install_agents_md(target: Path, dry_run: bool) -> str:
     (or refresh) a clearly-marked managed section so user content is preserved."""
     src = ROOT / "assets" / "AGENTS.template.md"
     dest = target / "AGENTS.md"
+    _assert_safe_destination(dest)
     if not src.is_file():
         return "Codex: assets/AGENTS.template.md not found in this distribution; AGENTS.md not written"
     body = src.read_text(encoding="utf-8").rstrip("\n")
@@ -280,6 +400,7 @@ def install_agents_md(target: Path, dry_run: bool) -> str:
     existing = dest.read_text(encoding="utf-8")
     if existing.rstrip("\n") == body:
         _record_file(dest)
+        _note_preexisting(dest)
         return "Codex: AGENTS.md already matches the template; left as-is"
     section = f"{AGENTS_BEGIN}\n{body}\n{AGENTS_END}"
     if AGENTS_BEGIN in existing and AGENTS_END in existing:
@@ -288,6 +409,8 @@ def install_agents_md(target: Path, dry_run: bool) -> str:
         _, _, tail = rest.partition(AGENTS_END)
         updated = head + section + tail
         if updated == existing:
+            _record_file(dest)
+            _note_preexisting(dest)
             return "Codex: AGENTS.md managed section already up to date"
         _write_text(dest, updated, dry_run)
         return "Codex: refreshed the managed Quality Loop section in AGENTS.md"
@@ -309,6 +432,7 @@ def install_codex(target: Path, dry_run: bool) -> list[str]:
     if launcher:
         _rewrite_python_launcher(incoming, launcher)
     dest = target / ".codex" / "hooks.json"
+    _assert_safe_destination(dest)
     write_json(dest, merge_hooks(load_json(dest), incoming), dry_run)
     for event in (incoming.get("hooks") or {}):
         _record_hook_group(".codex/hooks.json", event)
@@ -464,6 +588,10 @@ def install_git(target: Path, dry_run: bool) -> list[str]:
     else:
         # `target` may not exist yet on a fresh install; create it so `cwd=` does not raise.
         target.mkdir(parents=True, exist_ok=True)
+        hook = target / ".git" / "hooks" / "pre-commit"
+        hook_before = hook.read_bytes() if hook.is_file() else None
+        backup = hook.with_suffix(".pre-quality-loop-backup")
+        backup_before = backup.exists() or backup.is_symlink()
         proc = subprocess.run(
             [_resolve_python(), str(ROOT / "hosts" / "git" / "install-git-hooks.py")],
             cwd=target,
@@ -473,7 +601,15 @@ def install_git(target: Path, dry_run: bool) -> list[str]:
             stderr=subprocess.PIPE,
         )
         if proc.returncode == 0:
-            _record_file(target / ".git" / "hooks" / "pre-commit")
+            rel = hook.relative_to(target).as_posix()
+            if backup.is_file() and not backup_before and rel not in _PREVIOUS_BACKUPS:
+                _MANIFEST_BACKUPS[rel] = {
+                    "path": backup.relative_to(target).as_posix(),
+                    "sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
+                }
+            _record_file(hook)
+            if hook_before is not None and hook.read_bytes() == hook_before:
+                _note_preexisting(hook)
             report.append("Git: pre-commit blocks staged diff-audit findings; --no-verify bypass remains explicit")
         else:
             detail = (proc.stderr or proc.stdout or "").strip().splitlines()
@@ -506,6 +642,7 @@ def write_manifest(target: Path, hosts_installed: list[str], dry_run: bool) -> N
     if dry_run:
         return
     path = target / MANIFEST_REL
+    _assert_safe_destination(path)
     hosts = set(hosts_installed)
     files = {p.relative_to(target).as_posix() for p in _MANIFEST_FILES}
     groups = list(_MANIFEST_HOOK_GROUPS)
@@ -523,16 +660,38 @@ def write_manifest(target: Path, hosts_installed: list[str], dry_run: bool) -> N
     for group in previous.get("hook_groups") or []:
         if isinstance(group, dict) and group not in groups:
             groups.append(group)
+    previous_hashes = previous.get("file_hashes")
+    previous_hashes = previous_hashes if isinstance(previous_hashes, dict) else {}
+    previous_backups = previous.get("backups")
+    previous_backups = previous_backups if isinstance(previous_backups, dict) else {}
+    backups = dict(previous_backups)
+    backups.update(_MANIFEST_BACKUPS)
+    current_paths = {p.relative_to(target).as_posix() for p in _MANIFEST_FILES}
+    current_paths.update(g["file"] for g in _MANIFEST_HOOK_GROUPS)
+    tracked_paths = files | {g["file"] for g in groups if isinstance(g, dict) and isinstance(g.get("file"), str)}
+    file_hashes: dict[str, str] = {}
+    for rel in sorted(tracked_paths):
+        if not _rel_inside_target(rel) or not _resolves_inside_target(target, rel):
+            continue
+        path_on_disk = target / rel
+        if rel in current_paths and path_on_disk.is_file():
+            file_hashes[rel] = hashlib.sha256(path_on_disk.read_bytes()).hexdigest()
+        elif isinstance(previous_hashes.get(rel), str):
+            file_hashes[rel] = previous_hashes[rel]
     manifest = {
-        "version": 1,
+        "version": 2,
         "host": ",".join(sorted(hosts)),
         "files": sorted(files),
         "preexisting": sorted(preexisting),
         "hook_groups": groups,
+        "file_hashes": file_hashes,
+        # Presence of this key, even when empty, separates an installer-owned
+        # backup from an unrelated adjacent file created by the user later.
+        "backups": backups,
         "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    _write_managed_bytes(path, (json.dumps(manifest, indent=2) + "\n").encode("utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -555,16 +714,162 @@ def _resolves_inside_target(target: Path, rel: str) -> bool:
         return False
 
 
-def _existing_backup(path: Path) -> Path | None:
-    """Return the backup this installer (or install-git-hooks.py) would have
-    written for ``path``, if it exists on disk."""
-    for backup in (
-        path.with_suffix(path.suffix + ".bak"),
-        path.with_suffix(".pre-quality-loop-backup"),
-    ):
-        if backup != path and backup.is_file():
-            return backup
+def _path_safety_issue(target: Path, rel: str) -> str | None:
+    """Reject managed paths that could write through a symlink or leave target.
+
+    A symlink into the target is also unsafe for ownership: the manifest would
+    name one path while writes affect another. Check backup names too, since
+    uninstall can move those files into managed destinations.
+    """
+    if not _rel_inside_target(rel) or not Path(rel).parts:
+        return "unsafe relative path"
+    for candidate in (rel, str(Path(rel).with_suffix(Path(rel).suffix + ".bak")),
+                      str(Path(rel).with_suffix(".pre-quality-loop-backup"))):
+        path = target
+        try:
+            for part in Path(candidate).parts:
+                path = path / part
+                if path.is_symlink():
+                    return f"unsafe symlink at {path.relative_to(target).as_posix()}"
+        except OSError:
+            return f"unsafe unreadable path {candidate}"
+        if not _resolves_inside_target(target, candidate):
+            return f"unsafe path outside install target: {candidate}"
     return None
+
+
+def _assert_safe_destination(dest: Path) -> None:
+    if _TARGET is None:
+        return
+    try:
+        rel = dest.relative_to(_TARGET).as_posix()
+    except ValueError as exc:
+        raise ValueError(f"unsafe destination outside install target: {dest}") from exc
+    issue = _path_safety_issue(_TARGET, rel)
+    if issue:
+        raise ValueError(f"{rel}: {issue}")
+
+
+def _assert_no_unowned_backup(dest: Path) -> None:
+    """Do not take over an adjacent backup on a newly managed path, or use an
+    unrelated backup when upgrading a previously identical user file."""
+    if _TARGET is None:
+        return
+    rel = dest.relative_to(_TARGET).as_posix()
+    if rel in _MANIFEST_BACKUPS or rel in _PREVIOUS_BACKUPS:
+        return
+    # Inventory or owned runtime bytes do not imply ownership of a late
+    # adjacent backup. Refuse on reinstall before another managed path changes.
+    for backup in (dest.with_suffix(dest.suffix + ".bak"),
+                   dest.with_suffix(".pre-quality-loop-backup")):
+        if backup.exists() or backup.is_symlink():
+            raise ValueError(
+                f"{rel}: unowned backup collision at {backup.relative_to(_TARGET).as_posix()}; "
+                "preserve and reconcile it before installation"
+            )
+
+
+def _backup_candidates(path: Path) -> tuple[Path, Path]:
+    return (path.with_suffix(path.suffix + ".bak"),
+            path.with_suffix(".pre-quality-loop-backup"))
+
+
+def _proven_backup(target: Path, rel: str, manifest: dict[str, Any]) -> Path | None:
+    """Use only a backup explicitly claimed by a v2 manifest. The conflict
+    preflight checks its path and digest before this function is used."""
+    backups = manifest.get("backups")
+    entry = backups.get(rel) if isinstance(backups, dict) else None
+    if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+        return None
+    return target / entry["path"]
+
+
+def _backup_conflicts(target: Path, manifest: dict[str, Any], paths: set[str]) -> list[str]:
+    """Legacy v2 did not identify its backups. Never restore an adjacent file
+    merely because its name matches; old ambiguous restores need manual review."""
+    backups = manifest.get("backups")
+    if backups is not None and not isinstance(backups, dict):
+        return ["manifest backups field is malformed; preserve and reconcile backups manually"]
+    conflicts: list[str] = []
+    if isinstance(backups, dict):
+        for rel in backups:
+            if rel not in paths:
+                conflicts.append(f"{rel} (backup provenance names an untracked path)")
+    for rel in sorted(paths):
+        if not _rel_inside_target(rel):
+            continue
+        path = target / rel
+        entry = backups.get(rel) if isinstance(backups, dict) else None
+        if entry is None:
+            if backups is None and any(p.exists() or p.is_symlink() for p in _backup_candidates(path)):
+                conflicts.append(f"{rel} (legacy v2 backup ownership is ambiguous; preserve and reconcile it manually)")
+            continue
+        candidates = {p.relative_to(target).as_posix() for p in _backup_candidates(path)}
+        backup_rel = entry.get("path") if isinstance(entry, dict) else None
+        digest = entry.get("sha256") if isinstance(entry, dict) else None
+        if (not isinstance(backup_rel, str) or backup_rel not in candidates
+                or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+            conflicts.append(f"{rel} (invalid backup provenance; preserve and reconcile it manually)")
+            continue
+        issue = _path_safety_issue(target, backup_rel)
+        if issue:
+            conflicts.append(f"{rel} (unsafe recorded backup: {issue})")
+            continue
+        backup = target / backup_rel
+        if not backup.is_file():
+            conflicts.append(f"{rel} (recorded backup is missing; preserve and reconcile it manually)")
+        elif hashlib.sha256(backup.read_bytes()).hexdigest() != digest:
+            conflicts.append(f"{rel} (recorded backup changed; preserve and reconcile it manually)")
+    return conflicts
+
+
+def _legacy_migration_message() -> str:
+    return (
+        "Legacy v1 install manifests have no file checksums, so this installer cannot "
+        "distinguish a pristine install from later edits or prove backup ownership. "
+        "No files changed; automatic migration stopped. Preserve "
+        ".quality-loop/install-manifest.json, managed files, hooks, and adjacent backups. "
+        "Follow the npm README's legacy reconciliation guidance on a separate project "
+        "copy, or use a separate clean target. Do not rename or delete the manifest or "
+        "backups, overwrite managed files, or rerun cql init/remove to bypass this refusal. "
+        "If ownership is uncertain, stop."
+    )
+
+
+def _managed_file_conflicts(target: Path, manifest: dict[str, Any], *, uninstalling: bool) -> list[str]:
+    """Refuse to overwrite or remove files whose post-install bytes changed.
+
+    A changed hook file may contain edits inside a managed group. Without a
+    per-group baseline, block the whole uninstall and leave every edit intact.
+    """
+    hashes = manifest.get("file_hashes")
+    hashes = hashes if isinstance(hashes, dict) else {}
+    groups = {g["file"] for g in (manifest.get("hook_groups") or [])
+              if isinstance(g, dict) and isinstance(g.get("file"), str)}
+    preexisting = {f for f in (manifest.get("preexisting") or []) if isinstance(f, str)}
+    paths = ({f for f in (manifest.get("files") or []) if isinstance(f, str)}
+             | preexisting | groups)
+    conflicts = _backup_conflicts(target, manifest, paths)
+    for rel in sorted(paths):
+        issue = _path_safety_issue(target, rel)
+        if issue:
+            conflicts.append(f"{rel} ({issue})")
+            continue
+        path_on_disk = target / rel
+        if not path_on_disk.is_file():
+            if uninstalling and rel in preexisting and _proven_backup(target, rel, manifest):
+                conflicts.append(f"{rel} (managed file missing; preserve its original backup)")
+            continue
+        if uninstalling:
+            if rel in preexisting and rel not in groups and _proven_backup(target, rel, manifest) is None:
+                continue
+        expected = hashes.get(rel)
+        if not isinstance(expected, str) or len(expected) != 64:
+            conflicts.append(f"{rel} (legacy manifest has no installed checksum; preserve and compare this file before migration)")
+        elif hashlib.sha256(path_on_disk.read_bytes()).hexdigest() != expected:
+            detail = "; reconcile even unrelated hook edits before uninstall" if uninstalling and rel in groups else ""
+            conflicts.append(f"{rel} (changed since install{detail})")
+    return conflicts
 
 
 def _quality_loop_hook_markers() -> set[str]:
@@ -593,10 +898,9 @@ def _is_quality_loop_group(group: dict[str, Any], markers: set[str]) -> bool:
     return any(marker in text for marker in markers)
 
 
-def _remove_agents_section(path: Path, rel: str, dry_run: bool) -> list[str]:
+def _remove_agents_section(path: Path, rel: str, dry_run: bool, backup: Path | None) -> list[str]:
     """Strip the marked managed section from a user AGENTS.md, preferring the
     pre-install backup when one exists."""
-    backup = _existing_backup(path)
     if backup is not None:
         if dry_run:
             return [f"would restore {rel} from {backup.name}"]
@@ -632,17 +936,31 @@ def uninstall(target: Path, dry_run: bool) -> tuple[int, list[str]]:
     if not manifest_path.is_file():
         report.append(
             f"No install manifest found at {MANIFEST_REL}, so there is nothing recorded "
-            "to remove. Installs before v6.0.0 wrote no manifest — re-run the installer "
-            "once (npx cql init or python3 scripts/install.py) to record one, then uninstall."
+            "to remove. No files changed. Preserve the current files and any backups, "
+            "then reconcile the install inventory and hook wiring manually before removal; "
+            "reinstalling cannot recover the original file ownership."
         )
         return 1, report
     try:
         manifest = load_json(manifest_path)
     except (json.JSONDecodeError, OSError) as exc:
         report.append(
-            f"Could not parse {MANIFEST_REL} ({exc}). Delete it and re-run the installer "
-            "to regenerate the manifest, then uninstall."
+            f"Could not parse {MANIFEST_REL} ({exc}). No files changed. Preserve the "
+            "manifest and reconcile it manually with the installed files and any backups."
         )
+        return 1, report
+    if not isinstance(manifest, dict):
+        return 1, [f"Could not use {MANIFEST_REL}: expected a JSON object; no files changed."]
+    if manifest.get("version") == 1:
+        return 1, [_legacy_migration_message()]
+    if manifest.get("version") != 2:
+        return 1, [f"Unsupported install manifest version {manifest.get('version')!r}; no files changed."]
+
+    conflicts = _managed_file_conflicts(target, manifest, uninstalling=True)
+    if conflicts:
+        report.append("Uninstall stopped before changing files: managed paths are unsafe or installed files have changed. "
+                      "Keep those edits and resolve these conflicts manually:")
+        report.extend(conflicts)
         return 1, report
 
     preexisting = {
@@ -650,7 +968,8 @@ def uninstall(target: Path, dry_run: bool) -> tuple[int, list[str]]:
     }
     listed = sorted({
         f for f in (manifest.get("files") or [])
-        if isinstance(f, str) and _rel_inside_target(f) and f not in preexisting
+        if isinstance(f, str) and _rel_inside_target(f)
+        and (f not in preexisting or _proven_backup(target, f, manifest) is not None)
     })
     files = [f for f in listed if _resolves_inside_target(target, f)]
     lexical_groups = [
@@ -679,10 +998,13 @@ def uninstall(target: Path, dry_run: bool) -> tuple[int, list[str]]:
         handled.add(rel)
         if not path.is_file():
             continue
-        if AGENTS_SECTION_KEY in keys:
-            report.extend(_remove_agents_section(path, rel, dry_run))
+        backup = _proven_backup(target, rel, manifest)
+        if rel in preexisting and backup is None:
+            report.append(f"left {rel} alone (preexisting file with no installer-owned backup)")
             continue
-        backup = _existing_backup(path)
+        if AGENTS_SECTION_KEY in keys:
+            report.extend(_remove_agents_section(path, rel, dry_run, backup))
+            continue
         if backup is not None:
             if dry_run:
                 report.append(f"would restore {rel} from {backup.name}")
@@ -741,7 +1063,7 @@ def uninstall(target: Path, dry_run: bool) -> tuple[int, list[str]]:
         ):
             report.append(f"left {rel} alone (it no longer runs the Quality Loop diff-audit)")
             continue
-        backup = _existing_backup(path)
+        backup = _proven_backup(target, rel, manifest)
         if dry_run:
             report.append(f"would {'restore' if backup else 'remove'} {rel}")
             continue
@@ -802,10 +1124,28 @@ def main() -> int:
 
     target = Path(args.target).resolve()
     _TARGET = target
+    manifest_issue = _path_safety_issue(target, MANIFEST_REL)
+    if manifest_issue:
+        failure = f"Install stopped before changing files: {MANIFEST_REL}: {manifest_issue}"
+        if args.json:
+            print(json.dumps({"failures": [failure], "report": [failure]}, indent=2))
+        else:
+            print(failure)
+        return 1
     try:
-        for f in load_json(target / MANIFEST_REL).get("files") or []:
-            if isinstance(f, str):
+        raw_manifest = load_json(target / MANIFEST_REL)
+        if isinstance(raw_manifest, dict) and raw_manifest.get("version") == 2:
+            prior_backups = raw_manifest.get("backups")
+            if isinstance(prior_backups, dict):
+                _PREVIOUS_BACKUPS.update(prior_backups)
+        preexisting = {f for f in (raw_manifest.get("preexisting") or [])
+                       if isinstance(f, str)} if isinstance(raw_manifest, dict) else set()
+        for f in (raw_manifest.get("files") or []) if isinstance(raw_manifest, dict) else []:
+            if isinstance(f, str) and f not in preexisting:
                 _OWNED.add(f)
+        for group in (raw_manifest.get("hook_groups") or []) if isinstance(raw_manifest, dict) else []:
+            if isinstance(group, dict) and isinstance(group.get("file"), str) and group["file"] not in preexisting:
+                _OWNED.add(group["file"])
     except (json.JSONDecodeError, OSError):
         pass  # unreadable manifest: treat everything as user files (safe default)
 
@@ -841,17 +1181,105 @@ def main() -> int:
     else:
         selected = {args.host: installers[args.host]}
     report: list[str] = []
+    if "git" in selected and (target / ".git").is_file():
+        failure = (
+            "Git: linked worktrees use a .git file and share hook storage with the main checkout; "
+            "this installer cannot safely own or uninstall that shared hook. "
+            "No files were installed. Wire a worktree-specific hook manually if needed."
+        )
+        _FAILURES.append(failure)
+    if (target / MANIFEST_REL).is_file():
+        try:
+            previous_manifest = load_json(target / MANIFEST_REL)
+        except (json.JSONDecodeError, OSError) as exc:
+            _FAILURES.append(
+                f"Install stopped before changing files: cannot read {MANIFEST_REL} ({exc}). "
+                "Preserve the existing install and reconcile its manifest manually."
+            )
+        else:
+            if not isinstance(previous_manifest, dict):
+                _FAILURES.append(f"Install stopped before changing files: {MANIFEST_REL} must be a JSON object.")
+            else:
+                if previous_manifest.get("version") == 1:
+                    _FAILURES.append(_legacy_migration_message())
+                elif previous_manifest.get("version") != 2:
+                    _FAILURES.append(
+                        f"Install stopped before changing files: unsupported manifest version "
+                        f"{previous_manifest.get('version')!r}."
+                    )
+                if not _FAILURES:
+                    conflicts = _managed_file_conflicts(target, previous_manifest, uninstalling=False)
+                    if conflicts:
+                        _FAILURES.append(
+                            "Install stopped before changing files: installed files differ from their "
+                            "recorded or bundled baseline. Preserve and reconcile these edits first: "
+                            + ", ".join(conflicts)
+                        )
+    if {"claude-code", "codex", "droid", "pi", "git"} & set(selected):
+        missing = [name for name in REQUIRED_RUNTIME_MODULES
+                   if not (ROOT / "scripts" / name).is_file()]
+        if missing:
+            _FAILURES.append(
+                "Install stopped before changing files: source runtime is incomplete; "
+                "missing scripts/" + ", scripts/".join(missing)
+            )
+    if _FAILURES:
+        if args.json:
+            print(json.dumps({"host": args.host, "target": str(target), "dry_run": args.dry_run,
+                              "hosts_installed": [], "report": list(_FAILURES),
+                              "failures": list(_FAILURES), "manifest": None, "footer": []}, indent=2))
+        else:
+            for failure in _FAILURES:
+                print(failure)
+        return 1
+    # Run the same host selection in dry-run mode before any writes. This
+    # catches unsafe paths already present at preflight; a concurrent target
+    # mutation is still outside the supported install/uninstall contract.
+    quiet_before = _QUIET
+    _QUIET = True
+    try:
+        if "git" in selected:
+            _assert_safe_destination(target / ".git" / "hooks" / "pre-commit")
+            _assert_no_unowned_backup(target / ".git" / "hooks" / "pre-commit")
+        if {"claude-code", "codex", "droid", "pi", "git"} & set(selected):
+            install_runtime(target, True)
+        for installer in selected.values():
+            installer(target, True)
+    except (ValueError, OSError) as exc:
+        _FAILURES.append(f"Install stopped before changing files: {exc}")
+    finally:
+        _QUIET = quiet_before
+    if _FAILURES:
+        if args.json:
+            print(json.dumps({"host": args.host, "target": str(target), "dry_run": args.dry_run,
+                              "hosts_installed": [], "report": list(_FAILURES),
+                              "failures": list(_FAILURES), "manifest": None, "footer": []}, indent=2))
+        else:
+            for failure in _FAILURES:
+                print(failure)
+        return 1
     if args.with_control_plane and not control_plane_available:
         report.append(
             "Control plane: --with-control-plane was requested but quality_loop_control.py is "
             "not in this distribution (the npm tarball excludes it) — clone "
             "https://github.com/zaingz/coding-quality-loop and run scripts/install.py from the repo"
         )
-    if {"claude-code", "codex", "droid", "pi", "git"} & set(selected):
-        report.extend(install_runtime(target, args.dry_run))
-    for installer in selected.values():
-        report.extend(installer(target, args.dry_run))
-    write_manifest(target, sorted(selected.keys()), args.dry_run)
+    try:
+        if {"claude-code", "codex", "droid", "pi", "git"} & set(selected):
+            report.extend(install_runtime(target, args.dry_run))
+        for installer in selected.values():
+            report.extend(installer(target, args.dry_run))
+        write_manifest(target, sorted(selected.keys()), args.dry_run)
+    except (ValueError, OSError) as exc:
+        failure = (f"Install stopped during file writes: {exc}. The target may have changed "
+                   "concurrently; inspect any partial files and the unchanged manifest before retrying.")
+        if args.json:
+            print(json.dumps({"host": args.host, "target": str(target), "dry_run": args.dry_run,
+                              "hosts_installed": [], "report": [failure], "failures": [failure],
+                              "manifest": None, "footer": []}, indent=2))
+        else:
+            print(failure)
+        return 1
     if (target / ".quality-loop" / "config.json").is_file():
         report.append(
             "Config: legacy .quality-loop/config.json found — the canonical config is "

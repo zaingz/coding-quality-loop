@@ -29,6 +29,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -47,7 +48,7 @@ _HIGH_TIER_DIR_COMPONENTS = {
 _HIGH_TIER_FILE_NAMES = {
     # lockfiles
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
-    "Pipfile.lock", "go.sum", "Cargo.lock", "Gemfile.lock",
+    "pipfile.lock", "go.sum", "cargo.lock", "gemfile.lock",
 }
 # Explicit inflections, word-boundary matched: "fix"/"fixed"/"fixes"/"fixing"
 # and "bugfix" count, but "fixture"/"prefix" do not (the old greedy \w* suffix
@@ -65,6 +66,159 @@ _WAIVER_KEYS = ("test_waiver", "no_test_waiver", "bugfix_test_waiver")
 # redacted stderr and exits on failure).
 _git = qlc.git_capture
 _git_or_fail = qlc.run_git
+
+
+def _git_bytes(args: list[str], cwd: Path) -> bytes:
+    """Capture a Git metadata command without text/path decoding or fsmonitor."""
+    proc = subprocess.run(
+        ["git", "-c", "core.fsmonitor=false", *args], cwd=cwd,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+    )
+    if proc.returncode:
+        error = qlc.redact(proc.stderr.decode("utf-8", errors="replace").strip())
+        raise ValueError(f"git {args[0]} failed ({proc.returncode}): {error or 'no details'}")
+    return proc.stdout
+
+
+def _nul_paths(output: bytes, label: str) -> list[bytes]:
+    if output and not output.endswith(b"\0"):
+        raise ValueError(f"incomplete NUL-delimited {label} listing")
+    return output[:-1].split(b"\0") if output else []
+
+
+def _regular_bytes(path: Path) -> bytes:
+    """Read a regular file without following a final-component symlink."""
+    before = os.lstat(path)
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError(f"not a regular file: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(path, flags)
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            raise ValueError(f"file changed while opening: {path}")
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            data = stream.read()
+        after = os.fstat(fd)
+        if (after.st_size, after.st_mtime_ns) != (opened.st_size, opened.st_mtime_ns):
+            raise ValueError(f"file changed while reading: {path}")
+        return data
+    finally:
+        os.close(fd)
+
+
+def _source_path(cwd: Path, raw_path: bytes) -> Path:
+    """Resolve one Git path, refusing traversal and symlinked parent folders."""
+    parts = raw_path.split(b"/")
+    if not raw_path or raw_path.startswith(b"/") or any(part in (b"", b".", b"..") for part in parts):
+        raise ValueError(f"invalid path in Git listing: {raw_path!r}")
+    path = cwd
+    for part in parts[:-1]:
+        path /= os.fsdecode(part)
+        if not stat.S_ISDIR(os.lstat(path).st_mode):
+            raise ValueError(f"source path has a non-directory parent: {path}")
+    return path / os.fsdecode(parts[-1])
+
+
+def _is_scaffolding_raw_path(raw_path: bytes) -> bool:
+    """Match real Git path components, including literal backslashes in names."""
+    parts = raw_path.split(b"/")
+    return (
+        b".quality-loop" in parts
+        or b"__pycache__" in parts
+        or parts[-1] == b"agent-record.json"
+        or parts[-1].endswith(b".pyc")
+    )
+
+
+def source_snapshot_sha256(base: str, cwd: Path) -> str:
+    """Fingerprint raw source and verification inputs without executing Git filters.
+
+    The digest covers the resolved base object, index stages, and exact tracked
+    and untracked worktree paths, modes and bytes. Only root .quality-loop/
+    tracked artifacts and untracked loop scaffolding are excluded; tracked
+    source with a scaffold-like name remains covered. The presence and content
+    of .quality-loop/allowed-commands are always included. Missing
+    or unreadable listed files fail closed. This is a passive recovery snapshot,
+    not proof that recorded commands or an independent review still passed.
+    """
+    if not isinstance(base, str) or not base or base.startswith("-"):
+        raise ValueError("invalid base ref for source snapshot")
+    cwd = Path(cwd)
+    base_oid = _git_bytes(["rev-parse", "--verify", "--quiet", base], cwd).strip()
+    if not re.fullmatch(rb"[0-9a-fA-F]{40,64}", base_oid):
+        raise ValueError("base ref did not resolve to one Git object")
+    index = _nul_paths(_git_bytes(["ls-files", "--cached", "--stage", "-z"], cwd), "index")
+    untracked = _nul_paths(
+        _git_bytes(["ls-files", "--others", "--exclude-standard", "-z"], cwd),
+        "untracked files",
+    )
+    digest = hashlib.sha256()
+
+    def add(*parts: bytes) -> None:
+        for part in parts:
+            digest.update(len(part).to_bytes(8, "big"))
+            digest.update(part)
+
+    add(b"CQL raw source snapshot v2", base_oid.lower())
+    tracked_paths: set[bytes] = set()
+    for entry in sorted(index):
+        header, sep, raw_path = entry.partition(b"\t")
+        match = re.fullmatch(rb"([0-7]{6}) ([0-9a-fA-F]{40,64}) ([0-3])", header)
+        if not sep or not match or not raw_path:
+            raise ValueError("malformed Git index entry")
+        # The canonical tracked diff excludes only the root loop directory.
+        # A tracked src/agent-record.json, .pyc, or nested .quality-loop file
+        # remains source under review even if an untracked counterpart would
+        # be treated as generated scaffolding.
+        if raw_path.startswith(b".quality-loop/"):
+            continue
+        _source_path(cwd, raw_path)
+        add(b"index", raw_path, match[1], match[2].lower(), match[3])
+        tracked_paths.add(raw_path)
+
+    untracked_paths = set(untracked)
+    if len(untracked_paths) != len(untracked):
+        raise ValueError("duplicate untracked path in Git listing")
+    for raw_path in sorted(tracked_paths | untracked_paths):
+        if raw_path not in tracked_paths and _is_scaffolding_raw_path(raw_path):
+            continue
+        path = _source_path(cwd, raw_path)
+        mode = os.lstat(path).st_mode
+        mode_bytes = f"{mode & 0o177777:06o}".encode("ascii")
+        if stat.S_ISLNK(mode):
+            content = os.fsencode(os.readlink(path))
+            kind = b"symlink"
+        elif stat.S_ISREG(mode):
+            content = _regular_bytes(path)
+            kind = b"file"
+        else:
+            raise ValueError(f"unsupported source file type: {path}")
+        add(b"tracked" if raw_path in tracked_paths else b"untracked",
+            raw_path, kind, mode_bytes, len(content).to_bytes(8, "big"),
+            hashlib.sha256(content).digest())
+
+    marker_dir = cwd / ".quality-loop"
+    try:
+        dir_mode = os.lstat(marker_dir).st_mode
+    except FileNotFoundError:
+        add(b"allowed-commands", b"absent")
+    else:
+        if not stat.S_ISDIR(dir_mode):
+            raise ValueError(".quality-loop is not a regular directory")
+        marker = marker_dir / "allowed-commands"
+        try:
+            marker_mode = os.lstat(marker).st_mode
+        except FileNotFoundError:
+            add(b"allowed-commands", b"absent")
+        else:
+            if not stat.S_ISREG(marker_mode):
+                raise ValueError(".quality-loop/allowed-commands is not a regular file")
+            marker_bytes = _regular_bytes(marker)
+            add(b"allowed-commands", b"present", len(marker_bytes).to_bytes(8, "big"),
+                hashlib.sha256(marker_bytes).digest())
+    return digest.hexdigest()
 
 
 def changed_files(base: str = "HEAD", cwd: Path | None = None) -> list[str]:
@@ -108,12 +262,9 @@ def _changed_files_for_replay(base: str, cwd: Path) -> tuple[list[str], str]:
 
 
 # Loop scaffolding (the record, .quality-loop/, caches) is process output, not
-# the change under review — one shared predicate with diff-audit's untracked
-# sweep (quality_loop_core.is_scaffolding_path). Deliberately called WITHOUT an
-# install-manifest set here: the attestation hash must keep pinning untracked
-# copies of shipped files, so manifest membership only relaxes scope-integrity
-# and the diff-size advisory, never review freshness.
-_is_scaffolding_untracked = qlc.is_scaffolding_path
+# the change under review. This raw-path check preserves Git's exact filename
+# bytes, including a literal backslash that is not a directory separator on
+# Unix. Install-manifest-listed files remain part of the review hash.
 
 
 def _untracked_pseudo_diff(cwd: Path) -> str:
@@ -125,46 +276,50 @@ def _untracked_pseudo_diff(cwd: Path) -> str:
     without staling the review. Appending the content in a stable pseudo-diff
     closes that hole for render and hash alike.
     """
-    code, out, _ = _git(["ls-files", "--others", "--exclude-standard"], cwd)
-    if code != 0:
-        return ""
-    chunks: list[str] = []
-    for f in sorted(p.strip() for p in out.splitlines() if p.strip()):
-        if _is_scaffolding_untracked(f):
-            continue
-        path = cwd / f
-        # Never follow an untracked symlink: reading its target would disclose a
-        # file outside the tree through render-prompt. Represent it by its link
-        # value so a change still stales the hash, without reading the target.
-        if path.is_symlink():
-            try:
-                target = os.readlink(path)
-            except OSError:
-                target = "(unreadable)"
-            chunks.append(f"diff --untracked a/{f} b/{f}\nsymlink -> {target}\n")
-            continue
-        try:
-            raw = path.read_bytes()
-        except OSError as exc:
-            chunks.append(
-                f"diff --untracked a/{f} b/{f}\n(unreadable untracked file: {exc.__class__.__name__})\n"
-            )
-            continue
-        # A raw-byte sha keeps the hash byte-faithful (CRLF/final-newline/
-        # invalid-byte changes all stale it); the decoded +lines stay human-
-        # reviewable in the rendered prompt.
-        digest = hashlib.sha256(raw).hexdigest()
-        content = raw.decode("utf-8", errors="replace")
-        body = "".join("+" + line + "\n" for line in content.splitlines())
-        chunks.append(
-            f"diff --untracked a/{f} b/{f}\n--- /dev/null\n+++ b/{f}\nsha256 {digest}\n{body}"
+    try:
+        paths = _nul_paths(
+            _git_bytes(["ls-files", "--others", "--exclude-standard", "-z"], cwd),
+            "untracked files",
         )
-    return "".join(chunks)
+        if len(set(paths)) != len(paths):
+            raise ValueError("duplicate untracked path in Git listing")
+        chunks: list[str] = []
+        for raw_path in sorted(paths):
+            if _is_scaffolding_raw_path(raw_path):
+                continue
+            f = os.fsdecode(raw_path)
+            plain_label = f.isascii() and all(
+                32 < ord(c) < 127 and c not in '\\"' for c in f
+            )
+            label = f if plain_label else json.dumps(f, ensure_ascii=True)
+            path = _source_path(cwd, raw_path)
+            mode = os.lstat(path).st_mode
+            # Never follow an untracked symlink: rendering its target could
+            # disclose a file outside the tree.
+            if stat.S_ISLNK(mode):
+                target = json.dumps(os.readlink(path), ensure_ascii=True)
+                chunks.append(f"diff --untracked a/{label} b/{label}\nsymlink -> {target}\n")
+                continue
+            raw = _regular_bytes(path)
+            # The digest preserves raw-byte changes; decoded lines are only a
+            # human-readable view of the content.
+            digest = hashlib.sha256(raw).hexdigest()
+            content = raw.decode("utf-8", errors="replace")
+            body = "".join("+" + line + "\n" for line in content.splitlines())
+            chunks.append(
+                f"diff --untracked a/{label} b/{label}\n--- /dev/null\n+++ b/{label}\nsha256 {digest}\n{body}"
+            )
+        return "".join(chunks)
+    except (OSError, ValueError) as exc:
+        print(f"error: untracked diff unavailable: {qlc.redact(str(exc))}", file=sys.stderr)
+        raise SystemExit(2) from exc
 
 
 def diff_patch(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir: bool = False) -> str:
     cwd = cwd or Path.cwd()
-    args = ["diff", base]
+    # Git diff can run repository-configured textconv, external-diff, and
+    # fsmonitor programs. Evidence inspection must only read the repository.
+    args = ["-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv", base]
     if exclude_record_dir:
         # Record artifacts under .quality-loop/ (progress, rerun sidecars, the
         # record itself) legitimately change after a review is attested; they
@@ -182,19 +337,57 @@ def canonical_diff_sha256(base: str = "HEAD", cwd: Path | None = None) -> str:
     """THE canonical diff hash for a base: sha256 of the tracked diff vs base
     excluding .quality-loop/, plus the untracked pseudo-diff.
 
-    The single implementation shared by attest-review, the review-freshness
-    gate, and the `verify` umbrella's last-verified marker — the stop-gate fast
-    path imports this same helper to recompute the hash, so the marker writer
-    and the marker reader can never diverge on hash semantics. Raises
-    SystemExit (via run_git) outside a git repository.
+    Shared by attest-review and the explicit review-freshness gate. Passive
+    recovery uses source_snapshot_sha256 for local verification; brief uses
+    passive_canonical_diff_sha256 for review freshness only when no executable
+    clean/process filter is configured. Raises SystemExit (via run_git) outside
+    a git repository.
     """
     return diff_sha256(base, cwd, exclude_record_dir=True)
+
+
+def passive_canonical_diff_sha256(base: str, cwd: Path) -> str | None:
+    """Compute the actual review hash only when Git diff cannot run filters.
+
+    A configured clean/process driver can run arbitrary repository code while
+    Git reads worktree content. A passive brief reports review freshness as
+    unknown in that case. It never substitutes a locally writable marker's
+    claimed diff hash for the current diff. External diff, textconv and
+    fsmonitor are disabled for the filter-free path.
+    """
+    if not isinstance(base, str) or not base or base.startswith("-"):
+        return None
+    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+    try:
+        filters = subprocess.run(
+            ["git", "-c", "core.fsmonitor=false", "config", "--null",
+             "--name-only", "--get-regexp", r"^filter\..*\.(clean|process)$"],
+            cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            check=False,
+        )
+        # Exit 1 with no names means no configured driver. Every other state
+        # is either an executable filter or an uncertain config read.
+        if filters.returncode != 1 or filters.stdout or filters.stderr:
+            return None
+        diff = subprocess.run(
+            ["git", "-c", "core.fsmonitor=false", "diff", "--no-ext-diff",
+             "--no-textconv", base, "--", ".", ":(exclude).quality-loop"],
+            cwd=cwd, env=env, text=True, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, check=False,
+        )
+        if diff.returncode:
+            return None
+        patch = diff.stdout + _untracked_pseudo_diff(cwd)
+        return hashlib.sha256(patch.encode("utf-8")).hexdigest()
+    except (OSError, ValueError, SystemExit):
+        return None
 
 
 def _path_matches_high_tier(path: str, extra: tuple[str, ...] = ()) -> bool:
     """Built-in high-tier paths, extended (never replaced) by the config's
     high_risk_paths entries: an entry matches as a path component, a basename,
     or (when it contains a slash) a path prefix."""
+    path = path.replace("\\", "/").lower()
     name = path.split("/")[-1]
     if name in _HIGH_TIER_FILE_NAMES:
         return True
@@ -205,6 +398,7 @@ def _path_matches_high_tier(path: str, extra: tuple[str, ...] = ()) -> bool:
         if component in _HIGH_TIER_DIR_COMPONENTS:
             return True
     for token in extra:
+        token = token.replace("\\", "/").lower()
         if "/" in token:
             if path == token or path.startswith(token + "/"):
                 return True
@@ -602,6 +796,40 @@ def _run_command(cmd: str, cwd: Path, timeout: int) -> dict[str, Any]:
         return {"exit_code": None, "stdout": "", "stderr": str(exc), "timed_out": False}
 
 
+def _expected_red_outcome(
+    result: dict[str, Any], expected_red: Any,
+) -> tuple[str, str]:
+    """Count a selected base failure, excluding recognizable runner failures.
+
+    This is a bounded negative check, not proof that an arbitrary marker came
+    from the intended assertion. The old output still needs inspection.
+    """
+    if result["timed_out"]:
+        return "timeout", "command timed out at base"
+    if result["exit_code"] == 0:
+        return "pass", "command passed against old source with the proposed tests"
+    if result["exit_code"] is None:
+        return "not_proven", "command could not start at base"
+    if result["exit_code"] in (126, 127):
+        return "not_proven", "test command or runner was unavailable at base"
+    output = result["stdout"] + "\n" + result["stderr"]
+    infrastructure_errors = (
+        r"\b(?:ModuleNotFoundError|ImportError):",
+        r"\b(?:Cannot find module|ERR_MODULE_NOT_FOUND)\b",
+        r"(?im)^(?:[^\n]*?:\s*)?can't open file\b",
+        r"(?im)^ERROR: file or directory not found:",
+        r"(?im)^\s*(?:no tests ran|Ran 0 tests)\b",
+        r"(?im)^(?:/[^:\n]+/)?(?:sh|bash|dash|zsh):[^\n]*(?:command not found|:\s*not found)(?::[^\n]*)?$",
+    )
+    if any(re.search(pattern, output) for pattern in infrastructure_errors):
+        return "not_proven", "base output indicates a runner, import, or test-discovery failure"
+    if not isinstance(expected_red, str) or not expected_red.strip():
+        return "not_proven", "expected_red output substring was not supplied before replay"
+    if expected_red not in result["stdout"] and expected_red not in result["stderr"]:
+        return "not_proven", "expected_red output substring was not found in captured base output"
+    return "fail", "base command failed with the selected expected_red output substring"
+
+
 def _acceptance_proving_commands(record: dict[str, Any]) -> list[str]:
     commands: list[str] = []
     for criterion in record.get("acceptance_criteria", []) or []:
@@ -681,6 +909,7 @@ def _test_integrity_replay(
     timeout: int,
     allowlist: list[str],
     head_outcomes: dict[str, dict[str, Any]],
+    expected_red_by_command: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Run AC commands against base source plus the proposed test files."""
     if not test_paths or not proving_commands:
@@ -744,10 +973,9 @@ def _test_integrity_replay(
         for cmd in runnable:
             old_result = _run_command(cmd, worktree, timeout)
             head_result = head_outcomes[cmd]
-            old_state = (
-                "timeout"
-                if old_result["timed_out"]
-                else ("pass" if old_result["exit_code"] == 0 else "fail")
+            old_state, old_reason = _expected_red_outcome(
+                old_result,
+                (expected_red_by_command or {}).get(cmd),
             )
             green = (
                 "timeout"
@@ -759,18 +987,16 @@ def _test_integrity_replay(
                 "old_code_with_new_tests": old_state,
                 "green": green,
                 "test_files": test_paths,
-                "reason": "",
+                "reason": old_reason,
+                "old_exit_code": old_result["exit_code"],
+                "old_stdout_tail": qlc.redact(old_result["stdout"]),
+                "old_stderr_tail": qlc.redact(old_result["stderr"]),
             }
             results.append(result)
             if old_state != "fail":
-                detail = (
-                    "command timed out"
-                    if old_state == "timeout"
-                    else "command passed against old source with the proposed tests"
-                )
                 findings.append(
-                    "test-integrity replay: %s — %s; the proving command does not "
-                    "distinguish the change" % (qlc.redact(cmd), detail)
+                    "test-integrity replay not proven for %s: %s"
+                    % (qlc.redact(cmd), old_reason)
                 )
             if green != "pass":
                 findings.append(
@@ -860,6 +1086,7 @@ def run_evidence(
                 cwd,
                 timeout,
                 head_outcomes.get(cmd),
+                cmd_entry.get("expected_red"),
             )
             red_green_results.append(rg)
             if rg["red"] != "fail":
@@ -899,6 +1126,10 @@ def run_evidence(
         or diff_forces_high
     )
     proving_commands = _acceptance_proving_commands(record)
+    expected_red_by_command = {
+        str(entry.get("cmd", "")).strip(): entry.get("expected_red")
+        for entry in commands if isinstance(entry.get("cmd"), str)
+    }
     test_integrity_results: list[dict[str, Any]] = []
     if changed_error:
         test_integrity_results = [
@@ -920,6 +1151,7 @@ def run_evidence(
             timeout,
             allowlist,
             head_outcomes,
+            expected_red_by_command,
         )
         findings.extend(integrity_findings)
 
@@ -950,6 +1182,7 @@ def _red_green_check(
     cwd: Path,
     timeout: int,
     green_result: dict[str, Any] | None,
+    expected_red: Any = None,
 ) -> dict[str, Any]:
     """Replay a command at base (expect fail) and HEAD (expect pass).
 
@@ -974,15 +1207,10 @@ def _red_green_check(
             return out
 
         red_result = _run_command(cmd, worktree, timeout)
-        if red_result["timed_out"]:
-            out["red"] = "timeout"
-            out["red_reason"] = "command timed out at base"
-        elif red_result["exit_code"] == 0:
-            out["red"] = "pass"
-            out["red_reason"] = "command passed at base (RED was not real — test does not reproduce the bug)"
-        else:
-            out["red"] = "fail"
-            out["red_reason"] = "command failed at base as expected (RED proven)"
+        out["red"], out["red_reason"] = _expected_red_outcome(red_result, expected_red)
+        out["red_exit_code"] = red_result["exit_code"]
+        out["red_stdout_tail"] = qlc.redact(red_result["stdout"])
+        out["red_stderr_tail"] = qlc.redact(red_result["stderr"])
         if green_result["timed_out"]:
             out["green"] = "timeout"
             out["green_reason"] = "command timed out at HEAD"

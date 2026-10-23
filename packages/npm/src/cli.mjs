@@ -2,6 +2,7 @@
 // and shave ~200ms off cold start.
 import { resolve, join } from "node:path";
 import { existsSync } from "node:fs";
+import { lstat } from "node:fs/promises";
 import { detectHosts, KNOWN_HOSTS } from "./detect.mjs";
 import { confirm, select } from "./prompts.mjs";
 import { runInstall, runUninstall, checkInstall, readSkillVersion } from "./install.mjs";
@@ -102,6 +103,14 @@ async function commandInit(args) {
     assumeYes,
   });
 
+  // A linked worktree's .git is a pointer to shared hook storage. Reject the
+  // optional Git step before installing the primary host, so a failed backstop
+  // cannot leave a surprise partial install behind.
+  if (wireGit && (await lstat(join(target, ".git")).catch(() => null))?.isFile()) {
+    fail("Git hooks in a linked worktree use shared storage; no files were installed. Skip the Git backstop here or wire a worktree-specific hook manually.");
+    return 1;
+  }
+
   console.log("");
   info(`Installing loop for ${c.bold(host)}${dryRun ? c.yellow(" (dry run)") : ""}...`);
   const primary = await runInstall({ host, target, dryRun });
@@ -181,7 +190,7 @@ async function commandCheck(args) {
   const result = await checkInstall(target);
   console.log("");
   if (result.findings.length > 0) {
-    warn(`${result.findings.length} missing item${result.findings.length === 1 ? "" : "s"} — run \`cql init\` to fix`);
+    warn(`${result.findings.length} verification issue${result.findings.length === 1 ? "" : "s"}; review the findings above before reinstalling`);
     return 1;
   }
   ok("Install looks healthy.");

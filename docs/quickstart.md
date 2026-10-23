@@ -3,17 +3,19 @@
 Three ways to try the Coding Quality Loop, ordered by commitment. Pick the lightest one
 that fits your task.
 
-## Verify it works (10 seconds)
+## Verify the record gate (10 seconds)
 
-Before anything else, run the shipped walkthrough record through the gates. It exits 0:
+Before anything else, run the illustrative walkthrough record through the record gate. It exits 0:
 
 ```bash
 python3 scripts/quality_loop.py verify-gates examples/walkthrough/agent-record.json
 # verification gates look sufficient for recorded risk tier   (exit 0)
 ```
 
-Green means the gates ran and this complete, honest record passes every one — that is the
-target shape for your own records.
+Green here means the example record satisfies the shape and policy checks in
+`verify-gates`. The example has no invoice code or executable invoice tests, so this
+command does not prove the described fix. On your own change, run `verify` and inspect
+the test output, diff, and reviewer findings.
 
 <div align="center">
 <img src="images/terminal-demo.gif" alt="Animated terminal capture — the quality loop detects the host, copies the skill, wires hooks, and runs verify to a green Overall: PASS." width="820">
@@ -54,7 +56,7 @@ npx coding-quality-loop init
 ```
 
 Shipped on [npm](https://www.npmjs.com/package/coding-quality-loop) with signed
-provenance. Requires Node 18+ and Python 3; zero runtime dependencies. Interactive by
+provenance. Requires Node 18+ and Python 3.10+; zero runtime dependencies. Interactive by
 default:
 
 ```bash
@@ -62,12 +64,15 @@ npx coding-quality-loop init --dry-run --yes   # preview only
 npx coding-quality-loop init --host codex      # skip host detection
 npx coding-quality-loop add git                # add the pre-commit backstop later
 npx coding-quality-loop check                  # verify a prior install against its manifest
-npx coding-quality-loop remove                 # uninstall from the manifest; restores your .bak backups
+npx coding-quality-loop remove                 # use the manifest; restore verified installer backups
 ```
 
-The installer is a thin UX wrapper around
-[`scripts/install.py`](../scripts/install.py), so the npx and manual paths land the
-exact same files. The npm tarball does **not** ship `evals/` or the control-plane
+If `init` or `remove` refuses a legacy v1 manifest or an older v2 backup, preserve the manifest, files, hooks, and backups. Reconcile ownership on a separate copy; do not rename/delete the manifest, trust a `.bak` filename as ownership proof, or overwrite/retry to bypass the refusal. Stop if ownership cannot be established. Keep other processes from changing the target during install or removal; see the [npm installer notes](../packages/npm/README.md) for the concurrent-mutation limit.
+
+The npx installer is a thin UX wrapper around
+[`scripts/install.py`](../scripts/install.py); both full installer entry points
+install the runtime files and host wiring. The manual skill copy below is
+instruction-only. The npm tarball does **not** ship `evals/` or the control-plane
 module — those live in the repo checkout (control is an opt-in add-on:
 `python3 scripts/install.py --with-control-plane`).
 
@@ -80,19 +85,29 @@ python3 scripts/quality_loop.py setup-models --host claude-code      # 2. apply 
 claude "Use coding-quality-loop to fix a small bug"                  # 3. try it
 ```
 
+The relocatable example omits `$schema` because its relative path changes when
+copied to the project root. Run `python3 scripts/quality_loop.py check-config`
+to check the installed config; the repo's own root config points to the schema.
+
 ## C. Manual copy — per host
 
-Copy the whole repo as a skill folder. Every host that speaks the [Agent Skills spec](https://agentskills.io/specification)
-will discover it, keep the frontmatter always-loaded, and lazy-load the rest.
+Copy the skill bundle from a separate source checkout into your target project. Hosts
+that load [Agent Skills](https://agentskills.io/specification) can discover the bundle.
+This is instruction-only: the `scripts/quality_loop.py` commands in `SKILL.md`
+are unavailable until you install the full package with `npx coding-quality-loop init`
+or the reviewed `scripts/install.py` from the separate source checkout.
+The recipes below assume empty destination paths; review and merge an existing
+file before copying over it.
 
 <details open>
 <summary><strong>Claude Code</strong></summary>
 
 ```bash
-# project scope
-cp -r . .claude/skills/coding-quality-loop
-# or user scope
-cp -r . ~/.claude/skills/coding-quality-loop
+# Run from the target project; set this to a separate CQL source checkout.
+CQL_SOURCE=/absolute/path/to/coding-quality-loop
+mkdir -p .claude/skills/coding-quality-loop
+cp -R "$CQL_SOURCE/SKILL.md" "$CQL_SOURCE/assets" "$CQL_SOURCE/references" .claude/skills/coding-quality-loop/
+# For user scope, use ~/.claude/skills/coding-quality-loop/ as the destination.
 ```
 
 ```bash
@@ -104,7 +119,13 @@ claude "Use the coding-quality-loop skill to fix the failing test and open a PR.
 <summary><strong>Codex</strong></summary>
 
 ```bash
-cp examples/codex/AGENTS.md ./AGENTS.md
+# Run from the target project; use the separate CQL source checkout.
+CQL_SOURCE=/absolute/path/to/coding-quality-loop
+if [ -e AGENTS.md ]; then
+  echo "AGENTS.md exists; review and merge the CQL example manually."
+else
+  cp "$CQL_SOURCE/examples/codex/AGENTS.md" AGENTS.md
+fi
 ```
 
 ```bash
@@ -116,11 +137,14 @@ codex "Follow the Coding Quality Loop in AGENTS.md to fix the bug."
 <summary><strong>Droid (Factory)</strong></summary>
 
 ```bash
-cp examples/droid/.factory/droids/*.md .factory/droids/
+# Run from the target project; use the separate CQL source checkout.
+CQL_SOURCE=/absolute/path/to/coding-quality-loop
+mkdir -p .factory/droids
+cp "$CQL_SOURCE"/examples/droid/.factory/droids/*.md .factory/droids/
 ```
 
 ```bash
-droid exec "Follow the Coding Quality Loop in SKILL.md to fix the bug and summarize verification evidence."
+droid exec "Use the quality-loop-planner droid to plan the smallest fix and summarize verification evidence."
 ```
 </details>
 
@@ -128,7 +152,10 @@ droid exec "Follow the Coding Quality Loop in SKILL.md to fix the bug and summar
 <summary><strong>Cursor — advisory rules only, no runtime</strong></summary>
 
 ```bash
-cp -r examples/cursor/.cursor ./.cursor
+# Run from the target project; use the separate CQL source checkout.
+CQL_SOURCE=/absolute/path/to/coding-quality-loop
+mkdir -p .cursor/rules
+cp "$CQL_SOURCE/examples/cursor/.cursor/rules/coding-quality-loop.mdc" .cursor/rules/
 ```
 
 In chat:
@@ -145,7 +172,10 @@ you invoke `scripts/quality_loop.py` yourself.
 <summary><strong>Pi — advisory rules only, no runtime</strong></summary>
 
 ```bash
-cp -r . ~/.agents/skills/coding-quality-loop
+# Run from the target project; use the separate CQL source checkout.
+CQL_SOURCE=/absolute/path/to/coding-quality-loop
+mkdir -p "$HOME/.agents/skills/coding-quality-loop"
+cp -R "$CQL_SOURCE/SKILL.md" "$CQL_SOURCE/assets" "$CQL_SOURCE/references" "$HOME/.agents/skills/coding-quality-loop/"
 ```
 
 ```text
@@ -160,7 +190,8 @@ Pi loads the skill text; the hook runtime is not wired by the npm installer.
 Once you like the loop, install every host integration a repo needs in one command:
 
 ```bash
-python3 scripts/install.py --host all
+CQL_SOURCE=/absolute/path/to/coding-quality-loop
+python3 "$CQL_SOURCE/scripts/install.py" --target . --host all
 ```
 
 This copies the stdlib runtime, Claude/Codex host hooks, `.claude/settings.json`,
