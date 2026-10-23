@@ -2,9 +2,33 @@
 
 ## Unreleased
 
+## 6.8.0
+
 The current checkout has 22 static + 66 behavioral + 33 memory + 62 reality +
-30 routing + 72 hook = **285 core gate cases** (+46 control add-on). The
-v6.7.0 release figures below remain its published snapshot.
+30 routing + 72 hook = **285 core gate cases** (+46 control add-on).
+
+- Shortened the default skill guidance around understanding, changing, checking,
+  and independently reviewing a task. Advanced orchestration remains optional.
+- Made test replay and verification evidence more conservative: recognizable
+  runner failures are reported as not proven; malformed or missing records are
+  diagnostic; a passing
+  verification is bound to the record, allowlist, and source bytes it checked.
+- Preserved ownership of pre-existing install files and backups. Ambiguous
+  legacy manifests require manual reconciliation; installation refuses unsafe
+  managed paths instead of overwriting user data.
+- Corrected Codex cached-token accounting and reports unknown cost when a
+  required usage or price bucket is unavailable rather than a precise subtotal.
+- Added a read-only recovery brief and source-checked Pi 1.4.0 and DeepSeek
+  Harness 0.2.1-rc.3 recipes. Recovery inspection does not replay commands or
+  settle unknown external side effects. The host recipes were not certified by
+  live host sessions.
+- npm now packages both optional recipes. CQL still requires Node >=18;
+  using the optional DeepSeek Harness recipe requires its own Node >=24.9.0.
+
+**Upgrade note:** Old pass markers without a bound source snapshot report
+unknown freshness. Verification can fail if its commands mutate checked files.
+Existing installs with legacy or ambiguous backup ownership should preserve
+their files and reconcile manually before upgrading.
 
 ## 6.7.0
 

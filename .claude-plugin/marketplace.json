@@ -10,7 +10,7 @@
       "name": "test-integrity-gate",
       "source": "./skills/test-integrity-gate",
       "description": "Prove a new test fails against the old code before trusting green.",
-      "version": "6.7.0",
+      "version": "6.8.0",
       "author": {
         "name": "Zain Zafar",
         "url": "https://github.com/zaingz"

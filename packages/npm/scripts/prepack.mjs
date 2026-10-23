@@ -3,7 +3,7 @@
 // self-contained. Runs automatically before `npm pack` / `npm publish`.
 //
 // Copies only what the CLI needs at runtime: scripts/, hosts/, assets/,
-// examples/{claude-code,codex,cursor,droid,pi,standalone}/, .claude/,
+// examples/{claude-code,codex,cursor,deepseek-harness,droid,pi,standalone}/, .claude/,
 // the standalone test-integrity skill/marketplace, SKILL.md, README.md,
 // LICENSE. The evals and the optional control plane
 // (assets/control-plane/, scripts/quality_loop_control.py) stay out of the
@@ -31,6 +31,7 @@ const INCLUDE = [
   "examples/claude-code",
   "examples/codex",
   "examples/cursor",
+  "examples/deepseek-harness",
   "examples/droid",
   "examples/pi",
   "examples/standalone",

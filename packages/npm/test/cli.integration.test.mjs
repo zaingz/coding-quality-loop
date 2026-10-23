@@ -388,7 +388,7 @@ test("prepack rejects a missing imported Python helper inside scripts/", async (
   for (const rel of [
     "scripts", "hosts", "assets", "references", ".claude", ".claude-plugin",
     "skills/test-integrity-gate", "SKILL.md", "LICENSE",
-    "examples/claude-code", "examples/codex", "examples/cursor",
+    "examples/claude-code", "examples/codex", "examples/cursor", "examples/deepseek-harness",
     "examples/droid", "examples/pi", "examples/standalone", "examples/walkthrough",
   ]) {
     const dest = join(fixture, rel);
@@ -425,6 +425,9 @@ test("offline tarball install runs the installed Python CLI", { skip: !hasPython
   ], { env: npmEnv, encoding: "utf8" });
   assert.equal(installed.status, 0, installed.stderr);
   const cli = join(consumer, "node_modules", "coding-quality-loop", "bin", "cql.mjs");
+  const packagedSkill = join(consumer, "node_modules", "coding-quality-loop", "dist", "skill");
+  assert.match(await readFile(join(packagedSkill, "examples", "pi", "README.md"), "utf8"), /Coding Quality Loop \(Pi\)/);
+  assert.match(await readFile(join(packagedSkill, "examples", "deepseek-harness", "README.md"), "utf8"), /Coding Quality Loop with DeepSeek Harness/);
   const target = join(fixture, "target");
   await mkdir(target);
   const init = spawnSync(process.execPath, [cli, "init", "--yes", "--host", "claude-code", "--target", target], {
