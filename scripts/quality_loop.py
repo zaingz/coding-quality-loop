@@ -2605,6 +2605,14 @@ def verify(args: argparse.Namespace) -> int:
     else:
         base, base_hint = _resolve_default_base(require_terminal=require_terminal)
         requested_base = "auto"
+    try:
+        # Evidence commands can modify source or the allowlist while they run.
+        # Capture inputs before any gate section so a post-command marker cannot
+        # silently bless code that the earlier diff checks never inspected.
+        snapshot_before = qlreal.source_snapshot_sha256(base, Path.cwd())
+    except (OSError, SystemExit, ValueError, RuntimeError):
+        snapshot_before = None
+    record_hash_before = _file_sha256(record_path)
     all_findings: list[str] = []
     all_warnings: list[str] = []
     if base_hint:
@@ -2748,6 +2756,32 @@ def verify(args: argparse.Namespace) -> int:
                 f"status={rec_status!r}; diff_nonempty={diff_nonempty}",
             ))
 
+    # The saved canonical hash must be computed before the final raw snapshot:
+    # explicit Git diff can itself execute configured filters. Any local change
+    # made by checks or filters invalidates this verification run.
+    marker_diff: str | None = None
+    if snapshot_before is not None and not all_findings and not any(rc for _, rc, _ in sections):
+        try:
+            marker_diff = qlreal.canonical_diff_sha256(base, Path.cwd())
+        except (OSError, SystemExit, ValueError, RuntimeError):
+            pass
+    try:
+        snapshot_after = qlreal.source_snapshot_sha256(base, Path.cwd())
+    except (OSError, SystemExit, ValueError, RuntimeError):
+        snapshot_after = None
+    record_hash_after = _file_sha256(record_path)
+    input_findings: list[str] = []
+    if snapshot_before is not None and snapshot_after != snapshot_before:
+        input_findings.append("source or allowlist changed during verification; inspect the change and rerun verify")
+    if record_hash_before is not None and record_hash_after != record_hash_before:
+        input_findings.append("agent record changed during verification; inspect the change and rerun verify")
+    if input_findings:
+        all_findings.extend(input_findings)
+        sections.append(("verification input stability", 1, "\n".join(input_findings)))
+    elif (not all_findings and not any(rc for _, rc, _ in sections)
+          and (snapshot_before is None or record_hash_before is None or marker_diff is None)):
+        all_warnings.append("saved verification marker unavailable; Stop will rerun the full umbrella")
+
     # Unified report
     print("=" * 60)
     print("VERIFY — unified gate report")
@@ -2780,24 +2814,26 @@ def verify(args: argparse.Namespace) -> int:
     overall = 1 if (all_findings or section_fail) else 0
 
     # Last-verified marker for the stop-gate fast path: written ONLY on an
-    # overall PASS, under .quality-loop/ (hash-excluded, so writing it never
-    # stales a review). The hook skips re-running the umbrella only when the
-    # marker's raw source snapshot (including the allowlist), record path and
-    # content hash, AND status all still match; a FAIL removes any stale marker so absence
-    # always means "run the full umbrella". The record hash is load-bearing:
+    # overall PASS with stable inputs, under .quality-loop/ (hash-excluded, so
+    # writing it never stales a review). The hook skips re-running the umbrella
+    # only when the marker's raw source snapshot (including the allowlist),
+    # record path and content hash, AND status still match; a FAIL removes any
+    # stale marker so absence means "run the full umbrella". The record hash is load-bearing:
     # the umbrella verdict depends on the record (it re-executes commands_run
     # and checks AC coverage), and the record lives under .quality-loop/, which
     # the canonical DIFF hash excludes — so without binding the record content
     # a post-verify `record add-evidence` could flip the umbrella to FAIL while
-    # the marker still matched. Purely a latency optimization — best-effort,
-    # never exit-affecting.
+    # the marker still matched. The marker is a latency optimization; the
+    # separate input-stability check above is an exit-affecting gate.
     marker = Path.cwd() / ".quality-loop" / "last-verified.json"
     try:
-        if overall == 0:
+        if (overall == 0 and snapshot_before is not None
+                and snapshot_after == snapshot_before and marker_diff is not None
+                and record_hash_after == record_hash_before and record_hash_after is not None):
             write_json(marker, {
-                "diff_sha256": qlreal.canonical_diff_sha256(base, Path.cwd()),
-                "source_snapshot_sha256": qlreal.source_snapshot_sha256(base, Path.cwd()),
-                "record_sha256": _file_sha256(record_path),
+                "diff_sha256": marker_diff,
+                "source_snapshot_sha256": snapshot_after,
+                "record_sha256": record_hash_after,
                 "record_path": str(record_path.resolve()),
                 "base": base,
                 "status": record.get("status"),

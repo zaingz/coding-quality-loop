@@ -2018,10 +2018,29 @@ def case_verify_writes_last_verified_marker(tmp: Path) -> tuple[bool, str]:
     code_fail, out_fail, _ = run_cli("verify", "record.json", "--base", "HEAD", cwd=str(repo))
     removed_on_fail = code_fail != 0 and not marker_path.exists()
 
-    ok = wrote_on_pass and removed_on_fail
+    # Re-execution itself can return PASS while rewriting the source that the
+    # earlier diff checks inspected. Such a run must fail, not mint a marker
+    # for the post-command state.
+    mutate_command = "sh -c 'printf MUTATED > src/mod.py'"
+    mutating = _low_risk_done_record()
+    mutating["verification_plan"] = [mutate_command]
+    mutating["commands_run"] = [{
+        "cmd": mutate_command, "class": "unit", "result": "pass",
+        "evidence": "command exited zero",
+    }]
+    record_path.write_text(json.dumps(mutating))
+    (repo / ".quality-loop" / "allowed-commands").write_text(mutate_command + "\n")
+    code_mutate, out_mutate, _ = run_cli("verify", "record.json", "--base", "HEAD", cwd=str(repo))
+    mutation_blocked = (
+        code_mutate == 1 and "source or allowlist changed during verification" in out_mutate
+        and "Overall: FAIL" in out_mutate and not marker_path.exists()
+    )
+
+    ok = wrote_on_pass and removed_on_fail and mutation_blocked
     return ok, (
         f"pass(exit={code_pass},marker_ok={marker_ok}); "
         f"fail(exit={code_fail},removed={removed_on_fail}); "
+        f"mutating_pass_command_blocked={mutation_blocked}; "
         f"marker={marker!r}"[:300]
     )
 
@@ -2076,9 +2095,26 @@ def case_canonical_diff_sha256_single_source(tmp: Path) -> tuple[bool, str]:
                 special_closed = False
             except (OSError, ValueError, SystemExit):
                 pass
-    ok = same_impl and stales and exact_paths and special_closed
+    # Scaffold-like names can be legitimate TRACKED source. The passive
+    # snapshot must follow the tracked diff for these paths.
+    tracked_names = ("src/agent-record.json", "src/__pycache__/cache.pyc",
+                     "src/.quality-loop/config.json")
+    for name in tracked_names:
+        path = repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"before\n")
+        _git(repo, "add", "--", name)
+    _git(repo, "commit", "-m", "track named source")
+    tracked_names_pinned = True
+    for name in tracked_names:
+        path = repo / name
+        prior = qlreal.source_snapshot_sha256("HEAD", cwd=repo)
+        path.write_bytes(b"after\n")
+        tracked_names_pinned &= qlreal.source_snapshot_sha256("HEAD", cwd=repo) != prior
+    ok = same_impl and stales and exact_paths and special_closed and tracked_names_pinned
     return ok, (f"exit={code}; same_impl={same_impl}; stales_on_new_content={stales}; "
-                f"exact_paths={exact_paths}; special_closed={special_closed}")
+                f"exact_paths={exact_paths}; special_closed={special_closed}; "
+                f"tracked_names_pinned={tracked_names_pinned}")
 
 
 def _behavior_record(repo: Path, command: str, goal: str) -> dict:

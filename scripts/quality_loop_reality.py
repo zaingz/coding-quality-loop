@@ -135,8 +135,10 @@ def source_snapshot_sha256(base: str, cwd: Path) -> str:
     """Fingerprint raw source and verification inputs without executing Git filters.
 
     The digest covers the resolved base object, index stages, and exact tracked
-    and untracked worktree paths, modes and bytes. Loop scaffolding is excluded,
-    except the presence and contents of .quality-loop/allowed-commands. Missing
+    and untracked worktree paths, modes and bytes. Only root .quality-loop/
+    tracked artifacts and untracked loop scaffolding are excluded; tracked
+    source with a scaffold-like name remains covered. The presence and content
+    of .quality-loop/allowed-commands are always included. Missing
     or unreadable listed files fail closed. This is a passive recovery snapshot,
     not proof that recorded commands or an independent review still passed.
     """
@@ -158,14 +160,18 @@ def source_snapshot_sha256(base: str, cwd: Path) -> str:
             digest.update(len(part).to_bytes(8, "big"))
             digest.update(part)
 
-    add(b"CQL raw source snapshot v1", base_oid.lower())
+    add(b"CQL raw source snapshot v2", base_oid.lower())
     tracked_paths: set[bytes] = set()
     for entry in sorted(index):
         header, sep, raw_path = entry.partition(b"\t")
         match = re.fullmatch(rb"([0-7]{6}) ([0-9a-fA-F]{40,64}) ([0-3])", header)
         if not sep or not match or not raw_path:
             raise ValueError("malformed Git index entry")
-        if _is_scaffolding_raw_path(raw_path):
+        # The canonical tracked diff excludes only the root loop directory.
+        # A tracked src/agent-record.json, .pyc, or nested .quality-loop file
+        # remains source under review even if an untracked counterpart would
+        # be treated as generated scaffolding.
+        if raw_path.startswith(b".quality-loop/"):
             continue
         _source_path(cwd, raw_path)
         add(b"index", raw_path, match[1], match[2].lower(), match[3])
@@ -175,7 +181,7 @@ def source_snapshot_sha256(base: str, cwd: Path) -> str:
     if len(untracked_paths) != len(untracked):
         raise ValueError("duplicate untracked path in Git listing")
     for raw_path in sorted(tracked_paths | untracked_paths):
-        if _is_scaffolding_raw_path(raw_path):
+        if raw_path not in tracked_paths and _is_scaffolding_raw_path(raw_path):
             continue
         path = _source_path(cwd, raw_path)
         mode = os.lstat(path).st_mode
