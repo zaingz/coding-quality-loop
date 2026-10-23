@@ -845,6 +845,7 @@ def _write_marker(repo: Path, base: str, digest: str, status: str,
             (repo / ".quality-loop" / "agent-record.json").read_bytes()).hexdigest()
     (repo / ".quality-loop" / "last-verified.json").write_text(json.dumps({
         "diff_sha256": digest, "record_sha256": record_digest, "base": base,
+        "record_path": str((repo / ".quality-loop" / "agent-record.json").resolve()),
         "status": status, "verified_at": "2026-07-21T00:00:00Z",
     }), encoding="utf-8")
 
@@ -903,9 +904,25 @@ def case_stop_gate_reruns_umbrella_on_record_mutation(tmp: Path) -> tuple[bool, 
         {"cmd": "sh -c 'exit 7'", "result": "pass", "class": "unit", "evidence": "claims pass, actually fails"})
     rec_path.write_text(json.dumps(rec), encoding="utf-8")
     code, out, err = _stop(repo)
-    ok = (code == 0 and _decision(out) == "block" and "ARGS: verify " in out
-          and "verified clean" not in err)
-    return ok, f"exit={code}; decision={_decision(out)}; out={out.strip()[:120]!r}; err={err.strip()[:110]!r}"
+    mutation_blocks = (code == 0 and _decision(out) == "block" and "ARGS: verify " in out
+                       and "verified clean" not in err)
+    # A marker for another record path (or an older unbound marker) cannot
+    # certify this record even when its bytes, diff and status all match.
+    _write_marker(repo, "HEAD", digest, "done")
+    marker_path = repo / ".quality-loop" / "last-verified.json"
+    marker = json.loads(marker_path.read_text())
+    marker["record_path"] = str(repo / "other-record.json")
+    marker_path.write_text(json.dumps(marker))
+    path_code, path_out, _ = _stop(repo)
+    path_blocks = (path_code == 0 and _decision(path_out) == "block"
+                   and "ARGS: verify " in path_out)
+    marker.pop("record_path")
+    marker_path.write_text(json.dumps(marker))
+    old_code, old_out, _ = _stop(repo)
+    old_blocks = (old_code == 0 and _decision(old_out) == "block"
+                  and "ARGS: verify " in old_out)
+    ok = mutation_blocks and path_blocks and old_blocks
+    return ok, f"mutation={mutation_blocks}; other_path={path_blocks}; older_unbound={old_blocks}"
 
 
 def case_stop_gate_runs_umbrella_without_marker(tmp: Path) -> tuple[bool, str]:

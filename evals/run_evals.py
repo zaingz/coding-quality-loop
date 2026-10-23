@@ -34,6 +34,7 @@ Cases (safety-hardening behaviors enforced on actual records):
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -90,13 +91,14 @@ PASS = "PASS"
 FAIL = "FAIL"
 
 
-def run_cli(*args: str, cwd: str | None = None) -> tuple[int, str, str]:
+def run_cli(*args: str, cwd: str | None = None, env: dict[str, str] | None = None) -> tuple[int, str, str]:
     proc = subprocess.run(
         [sys.executable, str(SCRIPT), *args],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=cwd,
+        env=env,
         check=False,
     )
     return proc.returncode, proc.stdout, proc.stderr
@@ -757,9 +759,34 @@ def case_empty_repo_map_fails(tmp: Path) -> tuple[bool, str]:
 
 
 def case_brief_empty_repo(tmp: Path) -> tuple[bool, str]:
-    code, out, err = run_cli("brief", "--cwd", str(tmp))
-    ok = code == 0 and "none found" in out and "Suggested next step" in out
-    return ok, f"exit={code}; out={out.strip()!r}"
+    env = {**os.environ, "HOME": str(tmp)}
+    code, out, _ = run_cli("brief", "--cwd", str(tmp), env=env)
+    empty_ok = code == 0 and "none found" in out and "Suggested next step" in out
+    qdir = tmp / ".quality-loop"
+    qdir.mkdir()
+    (qdir / "progress.md").write_text("## Next step\nInspect before continuing\n")
+    missing_code, missing_out, missing_err = run_cli("brief", "--cwd", str(tmp), "--json", env=env)
+    missing = json.loads(missing_out) if missing_code == 0 else {}
+    missing_ok = (
+        missing_code == 0 and missing.get("recovery", {}).get("local_verification") == "unknown"
+        and "Inspect before continuing" in missing.get("progress", "")
+    )
+    malformed_ok = True
+    for body in (
+        "{broken", "[]", '{"risk_tier": []}',
+        '{"status": "done", "risk_tier": "low"}',
+        '{"task_id": "t", "goal": "g", "status": "done", "risk_tier": "low"}',
+    ):
+        (qdir / "agent-record.json").write_text(body)
+        bad_code, bad_out, bad_err = run_cli("brief", "--cwd", str(tmp), "--json", env=env)
+        parsed = json.loads(bad_out) if bad_code == 0 else {}
+        malformed_ok &= (
+            bad_code == 0 and bool(parsed.get("record", {}).get("error"))
+            and parsed.get("recovery", {}).get("local_verification") == "unknown"
+            and "Traceback" not in bad_err
+        )
+    ok = empty_ok and missing_ok and malformed_ok
+    return ok, f"empty={empty_ok}; missing={missing_ok}; malformed={malformed_ok}; last_error={bad_err.strip()!r}"
 
 
 def case_brief_with_record_and_progress(tmp: Path) -> tuple[bool, str]:
@@ -794,26 +821,169 @@ def case_brief_uses_record_next_action(tmp: Path) -> tuple[bool, str]:
         "task_id": "resume-1", "goal": "Update a widget", "status": "implement",
         "risk_tier": "low", "next_action": "Add the focused widget test",
     }))
-    text_code, text_out, _ = run_cli("brief", "--cwd", str(tmp))
-    json_code, json_out, _ = run_cli("brief", "--cwd", str(tmp), "--json")
+    env = {**os.environ, "HOME": str(tmp)}
+    text_code, text_out, _ = run_cli("brief", "--cwd", str(tmp), env=env)
+    json_code, json_out, _ = run_cli("brief", "--cwd", str(tmp), "--json", env=env)
     payload = json.loads(json_out) if json_code == 0 else {}
-    ok = (
+    action_ok = (
         text_code == 0 and json_code == 0
         and "## Suggested next step\nAdd the focused widget test" in text_out
         and payload.get("next_step") == "Add the focused widget test"
     )
-    return ok, f"text={text_code}; json={json_code}; recorded_action_shown={ok}"
+    escalated = {
+        "task_id": "resume-2", "goal": "Reconcile an external action", "status": "escalated",
+        "risk_tier": "high", "next_action": "Retry the action",
+        "escalation_reason": "External outcome unknown; owner must inspect the receipt",
+        "open_risks": ["External action may already have completed"],
+    }
+    (qdir / "agent-record.json").write_text(json.dumps(escalated))
+    esc_code, esc_out, _ = run_cli("brief", "--cwd", str(tmp), "--json", env=env)
+    esc = json.loads(esc_out) if esc_code == 0 else {}
+    escalation_ok = (
+        esc_code == 0 and esc.get("record", {}).get("status") == "escalated"
+        and esc.get("record", {}).get("escalation_reason") == escalated["escalation_reason"]
+        and esc.get("record", {}).get("open_risks") == escalated["open_risks"]
+        and esc.get("next_step", "").startswith("Resolve escalation:")
+        and esc.get("recovery", {}).get("external_effects") == "not_inspected"
+    )
+    ok = action_ok and escalation_ok
+    return ok, f"recorded_action={action_ok}; escalation_unresolved={escalation_ok}"
 
 
 def case_brief_json_valid(tmp: Path) -> tuple[bool, str]:
-    code, out, err = run_cli("brief", "--cwd", str(tmp), "--json")
-    ok = False
-    try:
-        data = json.loads(out)
-        ok = code == 0 and "next_step" in data and "lessons_recalled" in data
-    except json.JSONDecodeError:
-        ok = False
-    return ok, f"exit={code}; json_valid={ok}"
+    """A separate-process restart reports evidence freshness without replaying commands."""
+    repo = _git_repo_with_base(tmp)
+    (repo / "main.py").write_text("def value():\n    return 2\n")
+    qdir = repo / ".quality-loop"
+    qdir.mkdir()
+    command = (
+        "python3 -B -c 'import main; from pathlib import Path; "
+        "p=Path(\".quality-loop/command-count\"); "
+        "p.write_text(str(int(p.read_text())+1 if p.exists() else 1)); "
+        "assert main.value() == 2'"
+    )
+    env = {**os.environ, "HOME": str(tmp)}
+    record = {
+        "task_id": "resume-verified", "goal": "Change value", "status": "implement",
+        "risk_tier": "low", "task_class": "small", "next_action": "Inspect receipt before continuing",
+        "open_risks": ["External action outcome unknown"], "constraints": [],
+        "non_goals": [], "assumptions": [], "acceptance_criteria": [],
+        "verification_plan": [command],
+        "minimality_decision": {"rung": "one_liner", "reason": "small local change"},
+        "commands_run": [{"cmd": command, "class": "unit", "result": "pass", "evidence": "value is 2"}],
+        "independent_review": {
+            "reviewer": "fresh-reviewer", "verdict": "approve", "fresh_context": True,
+            "diff_sha256": quality_loop.qlreal.canonical_diff_sha256("HEAD", repo),
+        },
+    }
+    (qdir / "agent-record.json").write_text(json.dumps(record))
+    (qdir / "allowed-commands").write_text(command + "\n")
+    (qdir / "progress.md").write_text("## Next step\nInspect receipt before continuing\n")
+    verify_code, verify_out, _ = run_cli(
+        "verify", ".quality-loop/agent-record.json", "--base", "HEAD", cwd=str(repo), env=env,
+    )
+    marker = qdir / "last-verified.json"
+    if verify_code != 0 or not marker.is_file():
+        return False, f"setup verify={verify_code}; output={verify_out[-400:]!r}"
+
+    snapshot = {p.name: p.read_bytes() for p in qdir.iterdir() if p.is_file()}
+    code1, out1, err1 = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
+    code2, out2, err2 = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
+    payload = json.loads(out1) if code1 == 0 else {}
+    recovery = payload.get("recovery", {})
+    restart_ok = (
+        code1 == code2 == 0 and out1 == out2 and not err1 and not err2
+        and payload.get("record", {}).get("status") == "implement"
+        and payload.get("next_step") == record["next_action"]
+        and payload.get("record", {}).get("open_risks") == record["open_risks"]
+        and recovery.get("local_verification") == "unchanged_since_pass"
+        and recovery.get("review_diff") == "hash_match"
+        and recovery.get("external_effects") == "not_inspected"
+        and (qdir / "command-count").read_text() == "1"
+        and snapshot == {p.name: p.read_bytes() for p in qdir.iterdir() if p.is_file()}
+    )
+    (repo / "main.py").write_text("def value():\n    return 3\n")
+    changed_code, changed_out, _ = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
+    changed = json.loads(changed_out) if changed_code == 0 else {}
+    diff_stale = (
+        changed_code == 0 and changed.get("recovery", {}).get("local_verification") == "stale"
+        and changed.get("recovery", {}).get("review_diff") == "stale"
+    )
+    (repo / "main.py").write_text("def value():\n    return 2\n")
+    sentinel = repo / "SHOULD_NOT_EXIST"
+    safe_record = json.loads(json.dumps(record))
+    record["next_action"] = f"python3 -c \"from pathlib import Path; Path('{sentinel}').write_text('bad')\""
+    record["commands_run"].append({"cmd": record["next_action"], "result": "pass"})
+    (qdir / "agent-record.json").write_text(json.dumps(record))
+    changed_record, record_out, record_err = run_cli(
+        "brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env,
+    )
+    changed_payload = json.loads(record_out) if changed_record == 0 else {}
+    record_stale = (
+        changed_record == 0 and not record_err and not sentinel.exists()
+        and (qdir / "command-count").read_text() == "1"
+        and changed_payload.get("recovery", {}).get("local_verification") == "stale"
+        and changed_payload.get("recovery", {}).get("review_diff") == "hash_match"
+        and changed_payload.get("next_step") == record["next_action"]
+    )
+    # Even a read-only Git diff may execute repository-configured helpers.
+    # Both the tracked diff and untracked-file sweep must suppress them.
+    textconv_hit = tmp / "textconv-hit"
+    fsmonitor_hit = tmp / "fsmonitor-hit"
+    textconv = tmp / "textconv.py"
+    textconv.write_text(
+        "#!/usr/bin/env python3\nimport pathlib, sys\n"
+        f"pathlib.Path({str(textconv_hit)!r}).write_text('ran')\n"
+        "sys.stdout.write(pathlib.Path(sys.argv[1]).read_text())\n"
+    )
+    textconv.chmod(0o755)
+    fsmonitor = tmp / "fsmonitor.py"
+    fsmonitor.write_text(
+        "#!/usr/bin/env python3\nimport pathlib\n"
+        f"pathlib.Path({str(fsmonitor_hit)!r}).write_text('ran')\n"
+        "print()\n"
+    )
+    fsmonitor.chmod(0o755)
+    (repo / ".gitattributes").write_text("main.py diff=probe\n")
+    _git(repo, "config", "diff.probe.textconv", str(textconv))
+    _git(repo, "config", "core.fsmonitor", str(fsmonitor))
+    helper_code, _, _ = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
+    no_git_helpers = helper_code == 0 and not textconv_hit.exists() and not fsmonitor_hit.exists()
+
+    # A marker is local data; never let its base become a Git --output option.
+    marker_data = json.loads(marker.read_text())
+    option_output = tmp / "unexpected-git-output"
+    marker_data["base"] = f"--output={option_output}"
+    marker.write_text(json.dumps(marker_data))
+    option_code, option_out, _ = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
+    option_payload = json.loads(option_out) if option_code == 0 else {}
+    invalid_base_safe = (
+        option_code == 0 and not option_output.exists()
+        and option_payload.get("recovery", {}).get("local_verification") == "unknown"
+    )
+
+    # Equal bytes at a different record path can resolve relative evidence
+    # differently. A passing verify for that path cannot certify this one.
+    (repo / ".gitattributes").unlink()
+    _git(repo, "config", "--unset", "diff.probe.textconv")
+    _git(repo, "config", "--unset", "core.fsmonitor")
+    alternate = qdir / "sub" / "other-record.json"
+    alternate.parent.mkdir()
+    alternate.write_text(json.dumps(safe_record))
+    alt_code, _, _ = run_cli("verify", str(alternate), "--base", "HEAD", cwd=str(repo), env=env)
+    (qdir / "agent-record.json").write_text(alternate.read_text())
+    path_code, path_out, _ = run_cli("brief", "--cwd", str(repo), "--json", cwd=str(repo), env=env)
+    path_payload = json.loads(path_out) if path_code == 0 else {}
+    record_path_bound = (
+        alt_code == path_code == 0
+        and path_payload.get("recovery", {}).get("local_verification") == "unknown"
+    )
+    ok = all((restart_ok, diff_stale, record_stale, no_git_helpers, invalid_base_safe, record_path_bound))
+    return ok, (
+        f"restart={restart_ok}; changed_diff={diff_stale}; changed_record={record_stale}; "
+        f"no_git_helpers={no_git_helpers}; invalid_base_safe={invalid_base_safe}; "
+        f"record_path_bound={record_path_bound}"
+    )
 
 
 def case_schema_accepts_object_acceptance_criteria(tmp: Path) -> tuple[bool, str]:

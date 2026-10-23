@@ -2005,6 +2005,7 @@ def case_verify_writes_last_verified_marker(tmp: Path) -> tuple[bool, str]:
     expected_hash = qlreal.canonical_diff_sha256("HEAD", cwd=repo)
     marker_ok = bool(
         marker.get("diff_sha256") == expected_hash
+        and marker.get("record_path") == str(record_path.resolve())
         and marker.get("base") == "HEAD"
         and marker.get("status") == "done"
         and isinstance(marker.get("verified_at"), str) and marker["verified_at"]

@@ -125,7 +125,7 @@ def _untracked_pseudo_diff(cwd: Path) -> str:
     without staling the review. Appending the content in a stable pseudo-diff
     closes that hole for render and hash alike.
     """
-    code, out, _ = _git(["ls-files", "--others", "--exclude-standard"], cwd)
+    code, out, _ = _git(["-c", "core.fsmonitor=false", "ls-files", "--others", "--exclude-standard"], cwd)
     if code != 0:
         return ""
     chunks: list[str] = []
@@ -164,7 +164,9 @@ def _untracked_pseudo_diff(cwd: Path) -> str:
 
 def diff_patch(base: str = "HEAD", cwd: Path | None = None, exclude_record_dir: bool = False) -> str:
     cwd = cwd or Path.cwd()
-    args = ["diff", base]
+    # Git diff can run repository-configured textconv, external-diff, and
+    # fsmonitor programs. Evidence inspection must only read the repository.
+    args = ["-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv", base]
     if exclude_record_dir:
         # Record artifacts under .quality-loop/ (progress, rerun sidecars, the
         # record itself) legitimately change after a review is attested; they

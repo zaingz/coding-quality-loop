@@ -89,3 +89,7 @@ Codex-implementer topology, not for review legs.
 It does not make CQL a runtime — these commands are what *you* (or your
 supervisor harness) run; CQL supplies the routing data, prompt cards, and the
 gates that check what came back.
+
+For source-pinned session recovery guidance outside this routed recipe, see the
+[Pi 1.4.0 example](../examples/pi/README.md#resume-with-a-read-only-cql-brief) and
+[DeepSeek Harness 0.2.1-rc.3 example](../examples/deepseek-harness/README.md).

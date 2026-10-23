@@ -1976,9 +1976,29 @@ def _latest_record_summary(cwd: Path) -> dict[str, Any]:
     for path in (cwd / ".quality-loop" / "agent-record.json", cwd / "agent-record.json"):
         if path.is_file():
             try:
-                data = load_json(path)
-            except (json.JSONDecodeError, OSError):
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
                 return {"path": str(path), "error": "invalid JSON"}
+            if not isinstance(data, dict):
+                return {"path": str(path), "error": "record must be a JSON object"}
+            for field in ("task_id", "goal", "status", "risk_tier", "next_action", "escalation_reason"):
+                if field in data and data[field] is not None and not isinstance(data[field], str):
+                    return {"path": str(path), "error": f"invalid {field}: expected a string"}
+            for field in ("task_id", "goal"):
+                if not isinstance(data.get(field), str) or not data[field].strip():
+                    return {"path": str(path), "error": f"missing or empty {field}"}
+            if data.get("status") not in STATUSES:
+                return {"path": str(path), "error": "invalid or missing status"}
+            if data.get("risk_tier") not in RISK_TIERS:
+                return {"path": str(path), "error": "invalid or missing risk_tier"}
+            if data["status"] in TERMINAL_STATUSES:
+                for field in ("acceptance_criteria", "constraints", "non_goals", "assumptions", "verification_plan"):
+                    if not isinstance(data.get(field), list):
+                        return {"path": str(path), "error": f"missing or invalid {field} in terminal record"}
+            for field in ("open_risks", "review_findings"):
+                if field in data and (not isinstance(data[field], list)
+                                      or not all(isinstance(item, str) for item in data[field])):
+                    return {"path": str(path), "error": f"invalid {field}: expected a list of strings"}
             return {
                 "path": str(path),
                 "task_id": data.get("task_id", "?"),
@@ -1986,10 +2006,88 @@ def _latest_record_summary(cwd: Path) -> dict[str, Any]:
                 "status": data.get("status", "?"),
                 "risk_tier": data.get("risk_tier", "?"),
                 "next_action": data.get("next_action"),
+                "escalation_reason": data.get("escalation_reason"),
                 "open_risks": data.get("open_risks", []),
                 "review_findings": data.get("review_findings", []),
             }
     return {}
+
+
+def _brief_recovery(cwd: Path, record_summary: dict[str, Any]) -> dict[str, str]:
+    """Read-only local evidence freshness; never run recorded commands.
+
+    A matching marker means this diff and record are unchanged since one local
+    passing verify. It does not establish that an external effect completed or
+    that the local marker is an independent attestation.
+    """
+    result = {
+        "local_verification": "unknown",
+        "review_diff": "unknown",
+        "external_effects": "not_inspected",
+    }
+    if not record_summary or "error" in record_summary:
+        return result
+    marker_path = cwd / ".quality-loop" / "last-verified.json"
+    try:
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return result
+    if not isinstance(marker, dict):
+        return result
+    base = marker.get("base")
+    marker_diff = marker.get("diff_sha256")
+    marker_record = marker.get("record_sha256")
+    marker_path_record = marker.get("record_path")
+    if not all(isinstance(value, str) and value for value in (base, marker_diff, marker_record)):
+        return result
+    # The marker is local data, not a trusted CLI argument. A leading dash
+    # could turn its base into a git diff option such as --output=<path>.
+    if base.startswith("-"):
+        return result
+    record_path = Path(record_summary["path"])
+    # A passing verify for a different record can have identical bytes while
+    # resolving path-relative artifacts differently. Older unbound markers
+    # remain unknown until the user deliberately runs verify again.
+    if not isinstance(marker_path_record, str):
+        return result
+    try:
+        if Path(marker_path_record).resolve() != record_path.resolve():
+            return result
+    except (OSError, RuntimeError):
+        return result
+    record_hash = _file_sha256(record_path)
+    if record_hash is None:
+        return result
+    try:
+        import contextlib
+        import io
+
+        # The canonical hash helper exits on a missing git ref. A briefing
+        # should report uncertainty without turning a failed read into a stop.
+        with contextlib.redirect_stderr(io.StringIO()):
+            current_diff = qlreal.canonical_diff_sha256(base, cwd)
+    except (OSError, SystemExit, ValueError):
+        return result
+    result["local_verification"] = (
+        "unchanged_since_pass"
+        if marker.get("status") == record_summary.get("status")
+        and marker_record == record_hash and marker_diff == current_diff
+        else "stale"
+    )
+    try:
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return result
+    if not isinstance(record, dict):
+        return result
+    reviews = [record.get(name) for name in ("independent_review", "security_review")]
+    hashes = [review.get("diff_sha256") for review in reviews if isinstance(review, dict)]
+    if hashes:
+        result["review_diff"] = (
+            "hash_match" if all(isinstance(value, str) and value == current_diff for value in hashes)
+            else "stale"
+        )
+    return result
 
 
 def _outcomes_tally(cwd: Path) -> str | None:
@@ -2131,6 +2229,7 @@ def _heterogeneity_warning(cwd: Path, config_path: Path | None) -> str | None:
 def cmd_brief(args: argparse.Namespace) -> int:
     cwd = Path(getattr(args, "cwd", ".")).resolve()
     record_summary = _latest_record_summary(cwd)
+    recovery = _brief_recovery(cwd, record_summary)
     progress = _progress_tail(cwd)
 
     budget = max(100, getattr(args, "budget", 800))
@@ -2183,6 +2282,13 @@ def cmd_brief(args: argparse.Namespace) -> int:
         sections.append(f"## Progress (tail)\n{progress}")
     else:
         sections.append("## Progress\nno progress.md found")
+    if record_summary:
+        sections.append(
+            "## Recovery\n"
+            f"local verification: {recovery['local_verification']}; "
+            f"review diff: {recovery['review_diff']}; "
+            "external effects: not inspected"
+        )
 
     config_path = getattr(args, "config", None)
     routing_info = qlroute.brief_routing_info(cwd, Path(config_path) if config_path else None)
@@ -2201,8 +2307,15 @@ def cmd_brief(args: argparse.Namespace) -> int:
 
     next_hint = "Run the loop on the next task, or resume an incomplete one."
     if record_summary and "error" not in record_summary and record_summary.get("status") not in ("done", "?"):
+        escalation_reason = record_summary.get("escalation_reason")
         recorded_action = record_summary.get("next_action")
-        if isinstance(recorded_action, str) and recorded_action.strip():
+        if record_summary.get("status") == "escalated":
+            next_hint = (
+                f"Resolve escalation: {escalation_reason.strip()}"
+                if isinstance(escalation_reason, str) and escalation_reason.strip()
+                else "Resolve escalation before continuing."
+            )
+        elif isinstance(recorded_action, str) and recorded_action.strip():
             next_hint = recorded_action.strip()
         else:
             next_hint = f"Resume incomplete task: {record_summary.get('goal', '?')} (status: {record_summary.get('status', '?')})"
@@ -2211,6 +2324,7 @@ def cmd_brief(args: argparse.Namespace) -> int:
     if getattr(args, "json", False):
         payload = {
             "record": record_summary,
+            "recovery": recovery,
             "lessons_recalled": len(selected),
             "lessons_digest": lessons_text,
             "progress": progress,
@@ -2666,7 +2780,7 @@ def verify(args: argparse.Namespace) -> int:
     # Last-verified marker for the stop-gate fast path: written ONLY on an
     # overall PASS, under .quality-loop/ (hash-excluded, so writing it never
     # stales a review). The hook skips re-running the umbrella only when the
-    # marker's canonical diff hash, the record's own content hash, AND the
+    # marker's canonical diff hash, the record's path and content hash, AND the
     # record status all still match; a FAIL removes any stale marker so absence
     # always means "run the full umbrella". The record hash is load-bearing:
     # the umbrella verdict depends on the record (it re-executes commands_run
@@ -2681,6 +2795,7 @@ def verify(args: argparse.Namespace) -> int:
             write_json(marker, {
                 "diff_sha256": qlreal.canonical_diff_sha256(base, Path.cwd()),
                 "record_sha256": _file_sha256(record_path),
+                "record_path": str(record_path.resolve()),
                 "base": base,
                 "status": record.get("status"),
                 "verified_at": _utc_now_iso(),

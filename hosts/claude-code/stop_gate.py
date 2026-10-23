@@ -219,16 +219,18 @@ def _canonical_diff_sha256(base: str, root: Path) -> str | None:
 
 def _verified_clean(root: Path, status: str, record: Path) -> str | None:
     """When ``.quality-loop/last-verified.json`` proves this exact diff, record
-    content, and status already passed the full `verify` umbrella, return its
+    path, content, and status already passed the full `verify` umbrella, return its
     ``verified_at`` stamp so the terminal stop can skip re-execution. Returns
     None (run the umbrella) on any missing / unreadable / mismatched marker.
 
     This is purely a latency optimization: it must never allow a stop the full
     umbrella would have blocked, so every uncertain path falls through to the
-    umbrella. Three things must all match:
+    umbrella. Four things must all match:
 
     - the canonical DIFF hash, recomputed against the marker's own base (a moved
       base ref or any code change forces the umbrella); and
+    - the RECORD path — relative evidence can resolve differently for two
+      byte-identical records at different locations; and
     - the RECORD content hash — load-bearing, because the umbrella verdict
       depends on the record (it re-executes commands_run and checks AC
       coverage) and the record lives under .quality-loop/, which the canonical
@@ -251,11 +253,20 @@ def _verified_clean(root: Path, status: str, record: Path) -> str | None:
         return None
     recorded_hash = data.get("diff_sha256")
     recorded_record_hash = data.get("record_sha256")
+    recorded_record_path = data.get("record_path")
     base = data.get("base")
     if (data.get("status") != status
             or not isinstance(recorded_hash, str) or not recorded_hash
             or not isinstance(recorded_record_hash, str) or not recorded_record_hash
+            or not isinstance(recorded_record_path, str) or not recorded_record_path
             or not isinstance(base, str) or not base):
+        return None
+    if base.startswith("-"):
+        return None
+    try:
+        if Path(recorded_record_path).resolve() != record.resolve():
+            return None
+    except (OSError, RuntimeError):
         return None
     try:
         current_record_hash = hashlib.sha256(record.read_bytes()).hexdigest()
